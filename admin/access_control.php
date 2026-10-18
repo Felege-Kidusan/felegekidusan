@@ -224,13 +224,14 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // ---- Department-owned attendance takers ----
             // Each department manages ONLY its own taker type; the
             // service layer re-enforces the attribution server-side.
-            'api_dept_takers.php' => ['super_admin', 'school_admin', 'mezmur_dept', 'hr_dept'],
+            'api_dept_takers.php' => ['super_admin', 'school_admin', 'mezmur_dept'],
 
             // ---- HR attendance review console (HR data only) ----
             'api_hr_attendance.php' => ['super_admin', 'school_admin', 'hr_dept'],
             'api_hr_reports.php' => ['super_admin', 'school_admin', 'hr_dept'],
-            'api_info_analytics.php' => ['super_admin', 'school_admin', 'info_dept'],
-            'api_info_reports.php' => ['super_admin', 'school_admin', 'info_dept'],
+            // Shared attendance analytics (Education + Mezmur): Info + HR analyse, admins refresh.
+            'api_info_analytics.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+            'api_info_reports.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
 
             // ---- QR roster printing (Phase 8): each department prints
             // ONLY its own carrier; ownership re-checked in the endpoint.

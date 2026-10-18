@@ -743,13 +743,6 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 
 
 
-                        <button data-section="submissions"
-                    class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
-                <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
-                    <i class="fa-solid fa-inbox text-sm"></i>
-                </span>
-                <span class="font-semibold">Attendance History</span>
-            </button>
 
             <button type="button" onclick="return openDataSyncModal();"
                     class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
@@ -2418,78 +2411,6 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                  recorded before the retirement stays readable here;
                  nothing can be written or reviewed anymore.
             ═════════════════════════════════════════════════════════ -->
-            <section id="section-submissions" class="content-section">
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-                    <div class="p-5 sm:p-6 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                                <i class="fa-solid fa-inbox text-indigo-600"></i> Attendance History
-                            </h2>
-                            <p class="text-xs text-slate-500 mt-1">HR's old section attendance — recorded before the retirement, kept read-only for reference.</p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <button type="button" onclick="HrSub.exportSubmissions()" class="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition">
-                                <i class="fa-solid fa-download mr-1"></i> Excel
-                            </button>
-                            <button type="button" onclick="HrSub.loadSubmissions()" class="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition">
-                                <i class="fa-solid fa-sync mr-1"></i> Refresh
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="px-5 sm:px-6 py-4 bg-slate-50 border-b border-slate-100 text-xs text-slate-600 flex items-start gap-2">
-                        <i class="fa-solid fa-clock-rotate-left mt-0.5"></i>
-                        <span><b>HR attendance was retired.</b> HR no longer takes attendance — current attendance reports from the Education and Mezmur departments are in the <b>Reports</b> section. The packets below are historical records; they can be opened and exported, but not reviewed or changed.</span>
-                    </div>
-
-                    <!-- Filters -->
-                    <div class="px-5 sm:px-6 pt-4 flex flex-wrap items-center gap-2">
-                        <select id="hrSubSection" onchange="HrSub.loadSubmissions()" aria-label="Filter by section"
-                                class="px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                            <option value="">All sections</option>
-                        </select>
-                        <input id="hrSubFrom" type="date" onchange="HrSub.loadSubmissions()" aria-label="From date"
-                               class="px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                        <input id="hrSubTo" type="date" onchange="HrSub.loadSubmissions()" aria-label="To date"
-                               class="px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                    </div>
-
-                    <!-- Drafts | Submitted | Insights tabs -->
-                    <div class="px-5 sm:px-6 pt-4 flex items-center gap-2" role="tablist" aria-label="Submission tabs">
-                        <button class="hr-sub-tab px-4 py-2 rounded-xl text-sm font-semibold border transition" id="hrSubTabDraft" type="button" role="tab" aria-selected="true" onclick="HrSub.switchSubTab('draft')"><i class="fa-solid fa-pen-to-square mr-1"></i> Drafts</button>
-                        <button class="hr-sub-tab px-4 py-2 rounded-xl text-sm font-semibold border transition" id="hrSubTabSubmitted" type="button" role="tab" aria-selected="false" onclick="HrSub.switchSubTab('submitted')"><i class="fa-solid fa-paper-plane mr-1"></i> Submitted</button>
-                        <button class="hr-sub-tab px-4 py-2 rounded-xl text-sm font-semibold border transition" id="hrSubTabInsights" type="button" role="tab" aria-selected="false" onclick="HrSub.switchSubTab('insights')"><i class="fa-solid fa-chart-line mr-1"></i> Insights</button>
-                    </div>
-                    <input autocomplete="off" type="hidden" id="hrSubTabStatus" value="draft">
-
-                    <!-- Insight strip -->
-                    <div id="hrSubStatsRow" class="px-5 sm:px-6 pt-4 grid grid-cols-2 lg:grid-cols-4 gap-3" aria-live="polite"></div>
-
-                    <!-- Packet table -->
-                    <div id="hrSubmissionsList" class="px-5 sm:px-6 py-4 overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead>
-                                <tr class="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                                    <th class="py-2 pr-3">Date</th>
-                                    <th class="py-2 pr-3">Section</th>
-                                    <th class="py-2 pr-3">Taker</th>
-                                    <th class="py-2 pr-3">Members</th>
-                                    <th class="py-2 pr-3">Result</th>
-                                    <th class="py-2 pr-3">Status</th>
-                                    <th class="py-2 pr-3">Updated</th>
-                                    <th class="py-2">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="hrSubTbody">
-                                <tr><td colspan="8" class="py-6 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <!-- Insights pane -->
-                    <div id="hrSubInsights" class="px-5 sm:px-6 py-4 hidden" aria-live="polite"></div>
-                </div>
-            </section>
 
                         <!-- REPORTS -->
             <section id="section-reports" class="content-section">
@@ -2504,23 +2425,21 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
                                 <i class="fa-solid fa-calendar-check text-emerald-600"></i> Attendance Reports
                             </h2>
-                            <p class="text-xs text-slate-500 mt-1">Combined attendance from the Education and Mezmur departments — HR no longer takes its own attendance.</p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <input id="hrRepMonth" type="month" class="px-3 py-2 border border-slate-200 rounded-xl text-sm" aria-label="Report month"
-                                   onchange="HrReports.loadSummary()">
-                            <button type="button" onclick="HrReports.loadSummary()" class="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition">
-                                <i class="fa-solid fa-sync mr-1"></i> Refresh
-                            </button>
+                            <p class="text-xs text-slate-500 mt-1">HR analyses the attendance recorded by the Education and Mezmur departments — the same Analytics Hub the Information department uses. HR does not take attendance.</p>
                         </div>
                     </div>
 
-                    <!-- Source summary cards (Education + Mezmur) -->
-                    <div id="hrRepCards" class="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                    <!-- Shared Attendance Analytics Hub (Education + Mezmur) -->
+                    <div class="p-5 sm:p-6">
+                        <?php include __DIR__ . '/sections/attendance_analytics_hub.php'; ?>
+                    </div>
 
                     <!-- Per-member month view -->
                     <div class="px-5 sm:px-6 pb-5 sm:pb-6 border-t border-slate-100 pt-4">
-                        <h3 class="text-sm font-bold text-slate-700 mb-2"><i class="fa-solid fa-user-check mr-1 text-slate-400"></i> Member view</h3>
+                        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                            <h3 class="text-sm font-bold text-slate-700"><i class="fa-solid fa-user-check mr-1 text-slate-400"></i> Member view</h3>
+                            <input id="hrRepMonth" type="month" class="px-3 py-2 border border-slate-200 rounded-xl text-sm" aria-label="Report month" onchange="HrReports.loadSummary()">
+                        </div>
                         <div class="flex flex-col sm:flex-row gap-2 mb-3">
                             <input id="hrRepSearch" type="text" placeholder="Search a member by name or code…" autocomplete="off"
                                    class="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
@@ -2904,11 +2823,6 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     <i class="fa-solid fa-layer-group text-base mb-0.5"></i>
                     <span class="text-[10px] whitespace-nowrap">Groups</span>
                 </button>
-                                <button data-section="submissions"
-                        class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80">
-                    <i class="fa-solid fa-inbox text-base mb-0.5"></i>
-                    <span class="text-[10px] whitespace-nowrap">History</span>
-                </button>
                 <button data-section="reports"
                         class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80">
                     <i class="fa-solid fa-file-lines text-base mb-0.5"></i>
@@ -2926,24 +2840,6 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 </button>
             </div>
         </nav>
-    </div>
-</div>
-
-<!-- Attendance Taker Modal -->
-<!-- ═══ MODAL: HR SUBMISSION REVIEW ═══ -->
-<!-- ═══ MODAL: HR PACKET DETAIL (member rows) — read-only history ═══ -->
-<div id="hrPacketModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="hrPacketTitle">
-    <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div class="bg-gradient-to-r from-slate-700 to-slate-900 text-white p-4 rounded-t-2xl">
-            <div class="flex items-center justify-between">
-                <h3 class="font-bold text-lg" id="hrPacketTitle"><i class="fa-solid fa-list-check mr-2"></i> Attendance Packet</h3>
-                <button type="button" onclick="HrSub.closeModal('hrPacketModal')" class="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center hover:bg-white/30" aria-label="Close dialog">&times;</button>
-            </div>
-        </div>
-        <div class="p-5">
-            <div id="hrPacketMeta" class="flex flex-wrap items-center gap-2 text-xs text-slate-600 mb-4"></div>
-            <div id="hrPacketBody"></div>
-        </div>
     </div>
 </div>
 
@@ -3021,11 +2917,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         if (name === 'family' && window.FamilyLink) {
             FamilyLink.init();
         }
-        if (name === 'submissions') {
-            try { HrSub.init(); } catch (e) { console.error(e); }
-        }
         if (name === 'reports') {
             try { HrReports.init(); } catch (e) { console.error(e); }
+            try { if (window.AttendanceHub) AttendanceHub.init(); } catch (e) { console.error(e); }
         }
         if (name === 'profile' && typeof window.loadTabProfile === 'function') {
             window.loadTabProfile();
@@ -4671,302 +4565,6 @@ function clearCache() {
     sApiPost('clear_cache', {}).then(d => { settingsToast(d.message, d.status === 'success'); if (d.status === 'success') loadSystemInfo(); }).catch(() => settingsToast('Error', false));
 }
 
-/* ════════════════════════════════════════════════════════════════
-   HrSub — HR Attendance History (READ-ONLY, retired 2026-10-07)
-   HR no longer takes or reviews attendance; this surface lists the
-   packets recorded before the retirement over api_hr_attendance.php
-   (read actions only). Review writes are retired server-side (410).
-════════════════════════════════════════════════════════════════ */
-const HrSub = (function () {
-    'use strict';
-
-    const API = '<?= $ajaxPrefix ?>api_hr_attendance.php';
-    let allPackets = [];
-    let initialized = false;
-
-    const STATUS_META = {
-        draft:           { label: 'Draft',          cls: 'bg-slate-100 text-slate-600' },
-        submitted:       { label: 'Submitted',      cls: 'bg-blue-100 text-blue-700' },
-        approved:        { label: 'Approved',       cls: 'bg-emerald-100 text-emerald-700' },
-        rejected:        { label: 'Rejected',       cls: 'bg-rose-100 text-rose-700' },
-        revision_needed: { label: 'Needs revision', cls: 'bg-amber-100 text-amber-700' }
-    };
-
-    function $(id) { return document.getElementById(id); }
-    function esc(s) { return escapeHtml(s); }
-
-    function fmtDate(s, fmt) {
-        if (!s) return '—';
-        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
-            return WBWSCalendar.formatDate(s, fmt || 'long');
-        }
-        const d = new Date(String(s).replace(' ', 'T'));
-        if (isNaN(d.getTime())) return esc(s);
-        return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-    }
-
-    function statusChip(status) {
-        const m = STATUS_META[status] || { label: status || '—', cls: 'bg-slate-100 text-slate-600' };
-        return '<span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ' + m.cls + '">' + esc(m.label) + '</span>';
-    }
-
-    function apiGet(query) {
-        return fetch(API + '?' + query, { credentials: 'same-origin' })
-            .then(r => r.json());
-    }
-
-    function skeletonRow() {
-        return '<tr><td colspan="8"><div class="animate-pulse space-y-3 py-2">' +
-            '<div class="h-3 bg-slate-100 rounded w-3/4"></div><div class="h-3 bg-slate-100 rounded w-1/2"></div></div></td></tr>';
-    }
-
-    function emptyState(icon, title, sub) {
-        return '<div class="text-center py-8">' +
-            '<div class="w-12 h-12 mx-auto rounded-2xl bg-slate-50 flex items-center justify-center text-slate-300 text-xl mb-2"><i class="fa-solid ' + icon + '"></i></div>' +
-            '<div class="text-sm font-semibold text-slate-500">' + esc(title) + '</div>' +
-            '<div class="text-xs text-slate-400 mt-1">' + esc(sub) + '</div></div>';
-    }
-
-    function errorState(msg) {
-        return '<div class="text-center py-6">' +
-            '<div class="text-sm font-semibold text-red-600 mb-1">Could not load</div>' +
-            '<div class="text-xs text-slate-500 mb-2">' + esc(msg || 'Please try again.') + '</div>' +
-            '<button type="button" onclick="HrSub.loadSubmissions()" class="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 rounded-lg transition"><i class="fa-solid fa-rotate-right mr-1"></i> Retry</button></div>';
-    }
-
-    // ── tabs ────────────────────────────────────────────────────
-    function switchSubTab(tab) {
-        ['draft', 'submitted', 'insights'].forEach(t => {
-            const b = $('hrSubTab' + (t === 'insights' ? 'Insights' : t.charAt(0).toUpperCase() + t.slice(1)));
-            if (!b) return;
-            const active = t === tab;
-            b.setAttribute('aria-selected', active ? 'true' : 'false');
-            b.className = 'hr-sub-tab px-4 py-2 rounded-xl text-sm font-semibold border transition ' +
-                (active ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50');
-        });
-        if (tab === 'insights') {
-            $('hrSubmissionsList').classList.add('hidden');
-            $('hrSubInsights').classList.remove('hidden');
-            loadSubInsights();
-            return;
-        }
-        $('hrSubmissionsList').classList.remove('hidden');
-        $('hrSubInsights').classList.add('hidden');
-        $('hrSubTabStatus').value = tab;
-        loadSubmissions();
-    }
-
-    // ── insight strip ──────────────────────────────────────────
-    function renderSubStats(st) {
-        const row = $('hrSubStatsRow');
-        if (!row) return;
-        const today = st.today_packets
-            ? (st.today_present || 0) + ' P · ' + (st.today_absent || 0) + ' A · ' + (st.today_late || 0) + ' L'
-            : '—';
-        row.innerHTML =
-            '<div class="rounded-2xl p-3 text-white shadow-sm" style="background:linear-gradient(135deg,#2563eb,#3b82f6)"><div class="text-2xl font-bold">' + (st.drafts || 0) + '</div><div class="text-[10px] opacity-80 mt-0.5">Drafts (not finished)</div></div>' +
-            '<div class="rounded-2xl p-3 text-white shadow-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><div class="text-2xl font-bold">' + (st.submitted || 0) + '</div><div class="text-[10px] opacity-80 mt-0.5">Submitted (needs review)</div></div>' +
-            '<div class="rounded-2xl p-3 text-white shadow-sm" style="background:linear-gradient(135deg,#059669,#10b981)"><div class="text-2xl font-bold">' + (st.approved || 0) + '</div><div class="text-[10px] opacity-80 mt-0.5">Approved</div></div>' +
-            '<div class="rounded-2xl p-3 text-white shadow-sm" style="background:linear-gradient(135deg,#7c3aed,#6366f1)"><div class="text-sm font-bold mt-1">' + today + '</div><div class="text-[10px] opacity-80 mt-0.5">Today’s marks (' + (st.today_packets || 0) + ' sheets)</div></div>';
-    }
-
-    // ── inbox table ────────────────────────────────────────────
-    function loadSubmissions() {
-        const tb = $('hrSubTbody');
-        if (!tb) return;
-        tb.innerHTML = skeletonRow() + skeletonRow();
-        const status = $('hrSubTabStatus').value || 'draft';
-        let q = 'action=submissions_list&per_page=100&status=' + encodeURIComponent(status);
-        const sec = $('hrSubSection') ? $('hrSubSection').value : '';
-        const from = $('hrSubFrom') ? $('hrSubFrom').value : '';
-        const to = $('hrSubTo') ? $('hrSubTo').value : '';
-        if (sec) q += '&section=' + encodeURIComponent(sec);
-        if (from) q += '&from=' + encodeURIComponent(from);
-        if (to) q += '&to=' + encodeURIComponent(to);
-        apiGet(q).then(d => {
-            if (d.status !== 'success') {
-                tb.innerHTML = '<tr><td colspan="8">' + errorState(d.message) + '</td></tr>';
-                return;
-            }
-            allPackets = d.items || [];
-            renderSubStats(d.stats || {});
-            if (!allPackets.length) {
-                const empty = status === 'draft'
-                    ? 'No drafts yet. When a taker taps Save, the unfinished sheet appears here.'
-                    : 'No submitted sheets yet. Submit is used when the section sheet is complete.';
-                tb.innerHTML = '<tr><td colspan="8">' + emptyState('fa-inbox', status === 'draft' ? 'No drafts' : 'Nothing submitted', empty) + '</td></tr>';
-                return;
-            }
-            tb.innerHTML = allPackets.map(p => {
-                const result = p.present_count + 'P / ' + p.late_count + 'L / ' + p.absent_count + 'A' + (p.excused_count ? ' / ' + p.excused_count + 'E' : '');
-                const returned = p.status === 'revision_needed' && p.reviewer_name
-                    ? '<div class="text-[10px] text-slate-400 mt-1"><i class="fa-solid fa-arrow-rotate-left"></i> ' + esc(p.reviewer_name) +
-                      (p.review_notes ? ': ' + esc(String(p.review_notes).length > 60 ? String(p.review_notes).slice(0, 60) + '…' : p.review_notes) : '') + '</div>'
-                    : '';
-                // Read-only history: packets can be opened and exported,
-                // never reviewed or changed (writes retired 2026-10-07).
-                const actions = '<button type="button" class="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded-lg transition" title="Open packet" onclick="HrSub.viewPacket(' + p.id + ')"><i class="fa-solid fa-eye"></i></button>';
-                return '<tr class="border-b border-slate-50 hover:bg-slate-50/60">' +
-                    '<td class="py-2.5 pr-3 whitespace-nowrap">' + fmtDate(p.attendance_date) + '</td>' +
-                    '<td class="py-2.5 pr-3">' + esc(p.section) + '</td>' +
-                    '<td class="py-2.5 pr-3">' + esc(p.taker_name || '—') + '</td>' +
-                    '<td class="py-2.5 pr-3">' + p.member_count + '</td>' +
-                    '<td class="py-2.5 pr-3 font-semibold text-xs">' + result + '</td>' +
-                    '<td class="py-2.5 pr-3">' + statusChip(p.status) + returned + '</td>' +
-                    '<td class="py-2.5 pr-3 text-xs text-slate-400 whitespace-nowrap">' + fmtDate(p.updated_at) + '</td>' +
-                    '<td class="py-2.5 whitespace-nowrap">' + actions + '</td>' +
-                    '</tr>';
-            }).join('');
-        }).catch(err => {
-            tb.innerHTML = '<tr><td colspan="8">' + errorState((err && err.message) || 'Connection error.') + '</td></tr>';
-        });
-    }
-
-    // ── Excel / CSV export of the current tab ──────────────────
-    function exportSubmissions() {
-        if (!allPackets.length) { showToast('Nothing to export on this tab.', 'error'); return; }
-        const head = ['Date', 'Section', 'Taker', 'Members', 'Present', 'Late', 'Absent', 'Excused', 'Status', 'Updated'];
-        const rows = allPackets.map(p => [
-            p.attendance_date || '', p.section || '', p.taker_name || '', p.member_count || 0,
-            p.present_count || 0, p.late_count || 0, p.absent_count || 0, p.excused_count || 0,
-            p.status_label || p.status || '', p.updated_at || ''
-        ]);
-        if (window.XLSX) {
-            const ws = XLSX.utils.aoa_to_sheet([head].concat(rows));
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, 'Submissions');
-            XLSX.writeFile(wb, 'FKSS_HR_Submissions.xlsx');
-        } else {
-            const csv = '\ufeff' + head.join(',') + '\n' + rows.map(r =>
-                r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')
-            ).join('\n');
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-            const a = document.createElement('a');
-            const d = new Date();
-            a.href = URL.createObjectURL(blob);
-            a.download = 'hr-submissions-' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') + '.csv';
-            document.body.appendChild(a); a.click(); a.remove();
-        }
-        showToast('✓ Submissions exported.', 'success');
-    }
-
-    // ── insights tab: last 14 recorded days ────────────────────
-    function loadSubInsights() {
-        const box = $('hrSubInsights');
-        if (!box) return;
-        box.innerHTML = '<div class="animate-pulse space-y-3 py-2"><div class="h-3 bg-slate-100 rounded w-2/3"></div><div class="h-3 bg-slate-100 rounded w-1/2"></div></div>';
-        apiGet('action=days_list&per_page=14').then(d => {
-            const days = (d && d.items) || [];
-            let html = '<div class="flex items-center gap-2 mb-3"><i class="fa-solid fa-chart-line text-indigo-500"></i><h3 class="text-sm font-bold text-slate-700">Last 14 attendance days</h3></div>';
-            if (!days.length) {
-                html += emptyState('fa-calendar-check', 'No attendance days yet', 'Recorded days appear here once takers submit sheets.');
-            } else {
-                html += '<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100"><th class="py-2 pr-3">Date</th><th class="py-2 pr-3">Marked</th><th class="py-2 pr-3">Attended</th><th class="py-2">Rate</th></tr></thead><tbody>' +
-                    days.map(x => {
-                        const marked = Number(x.marked || 0), attended = Number(x.attended || 0);
-                        const rate = marked > 0 ? Math.round(attended * 1000 / marked) / 10 : null;
-                        const w = rate == null ? 0 : Math.max(0, Math.min(100, rate));
-                        const tone = rate == null ? 'bg-slate-300' : (rate >= 80 ? 'bg-emerald-500' : (rate >= 60 ? 'bg-amber-500' : 'bg-rose-500'));
-                        const bar = '<div class="flex items-center gap-2"><div class="w-24 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full ' + tone + '" style="width:' + w + '%"></div></div><span class="text-xs text-slate-500">' + (rate == null ? '—' : rate + '%') + '</span></div>';
-                        return '<tr class="border-b border-slate-50"><td class="py-2 pr-3 whitespace-nowrap">' + fmtDate(x.attendance_date) + '</td><td class="py-2 pr-3">' + marked + '</td><td class="py-2 pr-3">' + attended + '</td><td class="py-2">' + bar + '</td></tr>';
-                    }).join('') + '</tbody></table></div>';
-            }
-            html += '<p class="text-xs text-slate-400 mt-3">Full member / section / trend analytics live in the Reports section.</p>';
-            box.innerHTML = html;
-        }).catch(() => {
-            box.innerHTML = errorState('Connection error.');
-        });
-    }
-
-    // ── section filter options ─────────────────────────────────
-    function loadSectionOptions() {
-        const sel = $('hrSubSection');
-        if (!sel || sel.dataset.loaded) return;
-        apiGet('action=sections').then(d => {
-            const items = (d && d.items) || [];
-            items.forEach(x => {
-                const name = x.section || x.name;
-                if (!name) return;
-                const opt = document.createElement('option');
-                opt.value = name;
-                opt.textContent = name + (x.members != null ? ' (' + x.members + ')' : '');
-                sel.appendChild(opt);
-            });
-            sel.dataset.loaded = '1';
-        }).catch(() => { /* filter stays optional */ });
-    }
-
-    // ── review modal ───────────────────────────────────────────
-    function openModal(id) {
-        const m = $(id);
-        if (!m) return;
-        m.classList.remove('hidden');
-        m.classList.add('flex');
-    }
-    function closeModal(id) {
-        const m = $(id);
-        if (!m) return;
-        m.classList.add('hidden');
-        m.classList.remove('flex');
-    }
-
-    // ── packet detail modal (read-only) ────────────────────────
-    function viewPacket(id) {
-        apiGet('action=submission_detail&id=' + encodeURIComponent(id)).then(d => {
-            if (d.status !== 'success' || !d.item) { showToast(d.message || 'Unable to load the packet.', 'error'); return; }
-            const p = d.item;
-            $('hrPacketTitle').innerHTML = '<i class="fa-solid fa-list-check mr-2"></i>' + esc(p.section) + ' — ' + fmtDate(p.attendance_date);
-            $('hrPacketMeta').innerHTML =
-                statusChip(p.status) +
-                '<span class="text-slate-400">by ' + esc(p.taker_name || '—') + '</span>' +
-                '<span class="text-slate-500">' + p.member_count + ' members • ' +
-                p.present_count + ' present • ' + p.late_count + ' late • ' +
-                p.absent_count + ' absent • ' + p.excused_count + ' excused</span>';
-            const rows = p.rows || [];
-            let body = '<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100"><th class="py-2 pr-3">#</th><th class="py-2 pr-3">Member</th><th class="py-2 pr-3">Code</th><th class="py-2 pr-3">Status</th><th class="py-2">Note</th></tr></thead><tbody>';
-            if (!rows.length) {
-                body += '<tr><td colspan="5">' + emptyState('fa-users', 'No rows', 'No attendance rows are attached to this packet.') + '</td></tr>';
-            } else {
-                body += rows.map((r, i) =>
-                    '<tr class="border-b border-slate-50"><td class="py-2 pr-3 text-slate-400">' + (i + 1) + '</td>' +
-                    '<td class="py-2 pr-3"><b>' + esc(r.student_name || r.full_name || '—') + '</b> ' + esc(r.father_name || '') + '</td>' +
-                    '<td class="py-2 pr-3 text-slate-400">' + esc(r.member_code || '—') + '</td>' +
-                    '<td class="py-2 pr-3">' + esc(r.status) + '</td>' +
-                    '<td class="py-2 text-slate-400">' + esc(r.notes || '—') + '</td></tr>'
-                ).join('');
-            }
-            body += '</tbody></table></div>';
-            $('hrPacketBody').innerHTML = body;
-            openModal('hrPacketModal');
-        }).catch(() => showToast('Network error. Please try again.', 'error'));
-    }
-
-    // ── lazy init (first visit to the section) ─────────────────
-    function init() {
-        if (initialized) return;
-        initialized = true;
-        switchSubTab('draft');
-        loadSectionOptions();
-    }
-
-    return {
-        init: init,
-        switchSubTab: switchSubTab,
-        loadSubmissions: loadSubmissions,
-        exportSubmissions: exportSubmissions,
-        viewPacket: viewPacket,
-        closeModal: closeModal
-    };
-})();
-
-// Close HR modals when clicking the backdrop
-['hrPacketModal'].forEach(function (id) {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener('click', function (e) {
-        if (e.target === el) HrSub.closeModal(id);
-    });
-});
-
 /* ═══════════════════════════════════════════════════════════════
    HrReports — combined Attendance Reports (Education + Mezmur).
    HR's own attendance was retired (2026-10-07); the department
@@ -4994,39 +4592,13 @@ const HrReports = (function () {
         return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
     }
 
-    function sourceCard(title, icon, tone, s) {
-        const rate = s.marked > 0 ? Math.round((s.present + s.late) * 1000 / s.marked) / 10 : null;
-        return '<div class="border border-slate-200 rounded-2xl p-4">' +
-            '<div class="flex items-center gap-2 mb-3"><span class="w-8 h-8 rounded-xl bg-' + tone + '-100 flex items-center justify-center"><i class="fa-solid fa-' + icon + ' text-' + tone + '-600 text-sm"></i></span>' +
-            '<div><div class="text-sm font-bold text-slate-800">' + esc(title) + '</div>' +
-            '<div class="text-[10px] text-slate-400">' + s.days + ' attendance day' + (s.days === 1 ? '' : 's') + ' this month</div></div></div>' +
-            '<div class="grid grid-cols-4 gap-2 text-center">' +
-            '<div class="bg-emerald-50 rounded-xl p-2"><div class="text-sm font-bold text-emerald-700">' + s.present + '</div><div class="text-[10px] text-emerald-600">Present</div></div>' +
-            '<div class="bg-red-50 rounded-xl p-2"><div class="text-sm font-bold text-red-700">' + s.absent + '</div><div class="text-[10px] text-red-600">Absent</div></div>' +
-            '<div class="bg-amber-50 rounded-xl p-2"><div class="text-sm font-bold text-amber-700">' + s.late + '</div><div class="text-[10px] text-amber-600">Late</div></div>' +
-            '<div class="bg-blue-50 rounded-xl p-2"><div class="text-sm font-bold text-blue-700">' + s.excused + '</div><div class="text-[10px] text-blue-600">Excused</div></div>' +
-            '</div>' +
-            '<div class="mt-3 text-xs text-slate-500">Attendance rate: <b>' + (rate == null ? '—' : rate + '%') + '</b> <span class="text-slate-400">(present + late of marked)</span></div>' +
-            '</div>';
-    }
-
+    // The month selector drives the per-member view only; department-level
+    // analytics come from the shared Attendance Analytics Hub above.
+    let openMemberId = 0;
     function loadSummary() {
-        const box = $('hrRepCards');
-        if (!box) return;
         const month = currentMonth();
         if ($('hrRepMonth')) $('hrRepMonth').value = month;
-        box.innerHTML = '<div class="col-span-full py-6 text-center text-slate-400 text-sm"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading attendance…</div>';
-        apiGet('action=monthly_summary&month=' + encodeURIComponent(month)).then(d => {
-            if (d.status !== 'success') {
-                box.innerHTML = '<div class="col-span-full py-6 text-center text-slate-400 text-sm">' + esc(d.message || 'Could not load attendance reports.') + '</div>';
-                return;
-            }
-            box.innerHTML =
-                sourceCard('Education — Class Attendance', 'graduation-cap', 'indigo', d.education || {}) +
-                sourceCard('Mezmur — Section Attendance', 'music', 'violet', d.mezmur || {});
-        }).catch(() => {
-            box.innerHTML = '<div class="col-span-full py-6 text-center text-slate-400 text-sm">Connection error. Refresh to retry.</div>';
-        });
+        if (openMemberId > 0) openMember(openMemberId);
     }
 
     function searchMembers() {
@@ -5066,6 +4638,7 @@ const HrReports = (function () {
     }
 
     function openMember(memberId) {
+        openMemberId = Number(memberId) || 0;
         const month = currentMonth();
         const box = $('hrRepMemberDetail');
         if (!box) return;

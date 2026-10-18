@@ -52,7 +52,9 @@ class PdfReportServiceContracts(unittest.TestCase):
         # one table per source, each under its own heading
         self.assertIn("Education (class-based, recorded by teachers)", self.src)
         self.assertIn("Mezmur (section-based, recorded by mezmur takers)", self.src)
-        self.assertIn("HR (section-based, recorded by HR takers)", self.src)
+        # HR attendance retired 2026-10-07; dropped from reports 2026-10-18.
+        self.assertNotIn("HR (section-based, recorded by HR takers)", self.src)
+        self.assertNotIn("FROM hr_attendance", self.src)
 
     def test_read_budgets(self):
         self.assertIn("MAX_MEMBER_ROWS = 200", self.src)
@@ -91,7 +93,9 @@ class ReportsEndpointContracts(unittest.TestCase):
         cls.acl = (ROOT / "admin/access_control.php").read_text(encoding="utf-8")
 
     def test_role_gate_matches_hub(self):
-        self.assertIn("['super_admin', 'school_admin', 'info_dept']", self.ep)
+        # Shared with HR since 2026-10-18 (same gate as the analytics hub).
+        self.assertIn("['super_admin', 'school_admin', 'info_dept', 'hr_dept']", self.ep)
+        self.assertIn("if ($source === 'hr')", self.ep)  # retired source → 410
 
     def test_get_only_download(self):
         self.assertIn("REQUEST_METHOD", self.ep)
@@ -107,7 +111,7 @@ class ReportsEndpointContracts(unittest.TestCase):
 
     def test_version_marker_and_role_map(self):
         self.assertIn("phase7-pdf27", self.ep)
-        self.assertIn("'api_info_reports.php' => ['super_admin', 'school_admin', 'info_dept']", self.acl)
+        self.assertIn("'api_info_reports.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept']", self.acl)
 
     def test_endpoint_never_writes_source_tables(self):
         for table in SOURCE_TABLES:

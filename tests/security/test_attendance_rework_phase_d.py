@@ -124,14 +124,11 @@ class HrDashboardRetiredContracts(unittest.TestCase):
         cls.hr = (ROOT / "admin/dashboards/hr-dept.php").read_text(encoding="utf-8")
         cls.takers = (ROOT / "admin/backend/services/DeptTakerService.php").read_text(encoding="utf-8")
 
-    def test_review_console_is_read_only_history(self):
-        self.assertIn('id="section-submissions"', self.hr)
-        self.assertIn("Attendance History", self.hr)
-        self.assertIn("HR attendance was retired", self.hr)
-        # Reads stay (list/detail/export); every review write is gone.
-        self.assertIn("HrSub.viewPacket", self.hr)
-        self.assertIn("HrSub.exportSubmissions", self.hr)
-        for gone in ("HrSub.openReview", "HrSub.submitReview", "HrSub.quickDecision",
+    def test_review_console_removed_entirely(self):
+        # 2026-10-18: the read-only HR attendance history surface is gone too.
+        for gone in ('id="section-submissions"', 'data-section="submissions"',
+                     "HrSub", "hrPacketModal", "api_hr_attendance.php",
+                     "HrSub.openReview", "HrSub.submitReview", "HrSub.quickDecision",
                      "hrReviewModal", "Record Decision", "apiPost("):
             self.assertNotIn(gone, self.hr)
 
@@ -155,10 +152,15 @@ class HrDashboardRetiredContracts(unittest.TestCase):
         self.assertIn("Attendance Reports", self.hr)
         self.assertIn("HrReports", self.hr)
         self.assertIn("api_hr_reports.php", self.hr)
-        self.assertIn("Education — Class Attendance", self.hr)
-        self.assertIn("Mezmur — Section Attendance", self.hr)
+        # 2026-10-18: department-level analytics come from the shared hub
+        # (same partial the Information department renders); the per-member
+        # Education + Mezmur view stays HR's own.
+        self.assertIn("include __DIR__ . '/sections/attendance_analytics_hub.php'", self.hr)
+        self.assertIn("AttendanceHub.init()", self.hr)
+        self.assertNotIn("hrRepCards", self.hr)
         self.assertIn("HrReports.loadSummary", self.hr)
         self.assertIn("HrReports.searchMembers", self.hr)
+        self.assertIn("HrReports.openMember", self.hr)
 
     def test_education_surface_stays_off_the_hr_dashboard(self):
         # hr_dept may never get the Education class-attendance taker UI.

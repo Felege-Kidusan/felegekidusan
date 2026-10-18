@@ -5,7 +5,7 @@
  * ════════════════════════════════════════════════════════════
  * Each department creates and manages ONLY its own taker type:
  *   mezmur_dept → mezmur_attendance_taker
- *   hr_dept     → hr_attendance_taker
+ *   hr_dept     → (retired 2026-10-18; HR no longer has takers)
  * Admins manage both. Edu's existing attendance_taker setup is
  * untouched (managed by super admin via user-save.php).
  *
@@ -61,7 +61,8 @@ if (empty($_SESSION['admin_logged_in']) || empty($_SESSION['admin_id'])) {
 }
 $adminId = (int)$_SESSION['admin_id'];
 $role = (string)($_SESSION['admin_role'] ?? '');
-if (!in_array($role, ['super_admin', 'school_admin', 'mezmur_dept', 'hr_dept'], true)) {
+// hr_dept removed 2026-10-18: HR attendance (and its takers) is retired.
+if (!in_array($role, ['super_admin', 'school_admin', 'mezmur_dept'], true)) {
     http_response_code(403);
     dept_taker_respond(['status' => 'error', 'message' => 'You do not have permission to manage attendance takers.']);
 }

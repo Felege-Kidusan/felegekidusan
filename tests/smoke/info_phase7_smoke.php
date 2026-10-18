@@ -116,7 +116,7 @@ $conn->query("INSERT INTO hr_submissions
     (attendance_date, section, taker_id, status, member_count) VALUES
   ('$day', 'ህናት',   902, 'submitted', 2),
   ('$day', 'ማዕከዋይ', 902, 'approved',  1)") or $fail('hr_submissions fixture: ' . $conn->error);
-$pass('fixtures loaded (edu + mezmur + hr sources)');
+$pass('fixtures loaded (edu + mezmur sources; hr rows present only as an ignored archive)');
 
 // ── READ-ONLY ISOLATION: snapshot every source table ─────────
 $sourceTables = ['attendance', 'mezmur_attendance', 'hr_attendance',
@@ -157,8 +157,9 @@ $pass('READ-ONLY isolation: all source tables unchanged after refreshes');
 $kpi = InfoAnalyticsService::kpiBand($conn, $day, $day);
 $bySrc = [];
 foreach ($kpi['items'] as $row) $bySrc[$row['source']] = $row;
-count($kpi['items']) === 3 ? $pass('kpiBand returns one row per source (never merged)')
-                           : $fail('kpiBand must return exactly 3 source rows');
+count($kpi['items']) === 2 ? $pass('kpiBand returns one row per source (never merged; hr source removed 2026-10-18)')
+                           : $fail('kpiBand must return exactly 2 source rows');
+isset($bySrc['hr']) ? $fail('hr must no longer appear as an analytics source') : $pass('hr source absent from kpiBand');
 
 // edu: 3 non-holiday marks (present+late+absent), holiday excluded
 $bySrc['edu']['marked'] === 3 ? $pass('edu marked=3 (holiday row excluded)')
@@ -173,10 +174,9 @@ $bySrc['mezmur']['marked'] === 3 ? $pass('mezmur marked=3') : $fail('mezmur mark
 $bySrc['mezmur']['attended'] === 2 ? $pass('mezmur attended=2') : $fail('mezmur attended=' . $bySrc['mezmur']['attended']);
 $bySrc['mezmur']['packets'] === 1 ? $pass('mezmur packets=1') : $fail('mezmur packets=' . $bySrc['mezmur']['packets']);
 
-// hr: 2 marks → 1 attended, packet counters per section
-$bySrc['hr']['marked'] === 2 ? $pass('hr marked=2') : $fail('hr marked=' . $bySrc['hr']['marked']);
-$bySrc['hr']['packets'] === 2 ? $pass('hr packets=2') : $fail('hr packets=' . $bySrc['hr']['packets']);
-$bySrc['hr']['approved'] === 1 ? $pass('hr approved=1') : $fail('hr approved=' . $bySrc['hr']['approved']);
+// hr: rows exist in the archive tables but the rollup must not contain them
+$hrRoll = (int)($conn->query("SELECT COUNT(*) c FROM attendance_rollup WHERE source = 'hr'")->fetch_assoc()['c'] ?? -1);
+$hrRoll === 0 ? $pass('attendance_rollup has no hr rows after refresh') : $fail('attendance_rollup hr rows=' . $hrRoll);
 
 // ── mezmur section derivation (members.current_section) ──────
 $grp = InfoAnalyticsService::groupTable($conn, 'mezmur', $day, $day);
@@ -185,12 +185,10 @@ sort($keys);
 $keys === ['ህናት', '—'] ? $pass('mezmur groups derived from members (ህናት + empty→—)')
                        : $fail('mezmur groups: ' . implode(',', $keys));
 
-// ── hr groups come from the row snapshot ─────────────────────
+// ── hr is rejected as a source ───────────────────────────────
 $grpHr = InfoAnalyticsService::groupTable($conn, 'hr', $day, $day);
-$hrKeys = array_map(fn($g) => $g['group_key'], $grpHr['items']);
-sort($hrKeys);
-$hrKeys === ['ህናት', 'ማዕከዋይ'] ? $pass('hr groups use row section snapshot')
-                              : $fail('hr groups: ' . implode(',', $hrKeys));
+empty($grpHr['items']) ? $pass('groupTable returns nothing for the retired hr source')
+                       : $fail('groupTable still serves hr rows');
 
 // ── edu groups are class names ───────────────────────────────
 $grpEdu = InfoAnalyticsService::groupTable($conn, 'edu', $day, $day);

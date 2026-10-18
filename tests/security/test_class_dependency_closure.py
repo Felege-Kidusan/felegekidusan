@@ -208,11 +208,10 @@ class EntryPointsLoadWhatTheyCall(unittest.TestCase):
             "this require the mobile route approves the packet and then throws, "
             "losing the audit record permanently (finding Q).",
         )
-        self.assertIn(
-            "SecurityAuditService",
-            {p.stem for p in include_closure(ROOT / "api/v1/routes/hr.php")},
-            "POST /hr/submission-review no longer reaches SecurityAuditService",
-        )
+        # 2026-10-18: /hr/* is fully retired (410) and no longer loads the
+        # HR services at all, so the closure check applies to the service
+        # file only (kept as archived code).
+        self.assertNotIn("HrSubmissionService.php", (ROOT / "api/v1/routes/hr.php").read_text(encoding="utf-8"))
 
     def test_audit_writers_load_the_audit_service(self):
         """Generalises Q: a service that records an audit trail must be able

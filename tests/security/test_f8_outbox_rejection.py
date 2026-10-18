@@ -117,11 +117,13 @@ class F8ServerCodes(unittest.TestCase):
         # both POST handlers answer 410 HR_ATTENDANCE_RETIRED. The old
         # write-lock codes are gone with the write path itself; the global
         # DomainException catch (drain-reachable) remains for reads.
+        # 2026-10-18: the whole route is retired (reads too) — three 410
+        # exits, all carrying the same machine code the outbox classifier
+        # keys on; no DomainException path remains because nothing reads.
         self.assertEqual(
-            self.hr.count("['code' => 'HR_ATTENDANCE_RETIRED']"), 2)
-        self.assertEqual(
-            self.hr.count("['code' => 'WORKFLOW_REJECTED']"), 1,
-            'global catch stays drain-reachable for read errors')
+            self.hr.count("['code' => 'HR_ATTENDANCE_RETIRED'"), 3)
+        self.assertIn("$method === 'POST' && $action === 'sheet'", self.hr)
+        self.assertNotIn("WORKFLOW_REJECTED", self.hr)
 
 
 class F8ClientClassifier(unittest.TestCase):

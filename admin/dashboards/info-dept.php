@@ -1856,12 +1856,11 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                 </div>
             </section>
 
-            <!-- ATTENDANCE -->
             <!-- ════════════════════════════════════════════════════════
-                 ANALYTICS HUB (Phase C) — read-only analytics over the
-                 three independent attendance sources: Education (classes),
-                 Mezmur (sections), HR (sections). The sources are compared,
-                 never merged; the Information department never edits data.
+                 ANALYTICS HUB — shared read-only analytics over the two
+                 independent attendance sources: Education (classes) and
+                 Mezmur (sections). HR attendance retired 2026-10-07; the hub
+                 partial is shared with the HR dashboard. Never merges data.
             ═════════════════════════════════════════════════════════ -->
             <section id="section-analytics" class="content-section">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
@@ -1870,113 +1869,10 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                             <span class="w-9 h-9 rounded-2xl bg-cyan-100 flex items-center justify-center"><i class="fa-solid fa-chart-column text-cyan-600"></i></span>
                             Analytics Hub
                         </h2>
-                        <p class="text-xs text-slate-500 mt-1">Read-only analytics across Education, Mezmur &amp; HR attendance. Compare departments — their data is never combined.</p>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <input id="ihFrom" type="date" onchange="InfoHub.reload()" aria-label="From date"
-                               class="px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
-                        <input id="ihTo" type="date" onchange="InfoHub.reload()" aria-label="To date"
-                               class="px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
-                        <button type="button" onclick="InfoHub.exportAll()" class="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition">
-                            <i class="fa-solid fa-download mr-1"></i> Excel
-                        </button>
-                        <?php if (in_array($userRole, ['super_admin', 'school_admin'], true)): ?>
-                        <button type="button" onclick="InfoHub.refresh()" class="px-3 py-2 text-xs font-semibold bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl transition">
-                            <i class="fa-solid fa-rotate mr-1"></i> Refresh data
-                        </button>
-                        <?php endif; ?>
+                        <p class="text-xs text-slate-500 mt-1">Shared with the HR department — both analyse the Education and Mezmur attendance; neither records it.</p>
                     </div>
                 </div>
-
-                <!-- Read-only governance notice -->
-                <div class="mb-4 px-4 py-3 bg-cyan-50 border border-cyan-100 rounded-2xl text-xs text-cyan-900/80 flex items-start gap-2">
-                    <i class="fa-solid fa-eye mt-0.5"></i>
-                    <span>This hub is <b>view-only</b>: the Information department analyzes, compares and exports — it never records or edits attendance. Each department keeps its own takers and its own data. Last rollup refresh: <b id="ihGeneratedAt">—</b>.</span>
-                </div>
-
-                <!-- KPI band: one card per source (never merged) -->
-                <div id="ihKpiBand" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-                    <div class="animate-pulse h-36 bg-slate-100 rounded-2xl"></div>
-                    <div class="animate-pulse h-36 bg-slate-100 rounded-2xl"></div>
-                    <div class="animate-pulse h-36 bg-slate-100 rounded-2xl"></div>
-                </div>
-
-                <!-- Comparison table -->
-                <div class="panel p-5 mb-5">
-                    <h4 class="text-sm font-semibold text-slate-700 mb-3"><i class="fa-solid fa-scale-balanced mr-1 text-cyan-500"></i> Department Comparison</h4>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead>
-                                <tr class="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                                    <th class="py-2 pr-3">Department</th>
-                                    <th class="py-2 pr-3">Days</th>
-                                    <th class="py-2 pr-3">Groups</th>
-                                    <th class="py-2 pr-3">Marks</th>
-                                    <th class="py-2 pr-3">Rate</th>
-                                    <th class="py-2 pr-3">Absent</th>
-                                    <th class="py-2 pr-3">Late</th>
-                                    <th class="py-2 pr-3">Sheets</th>
-                                    <th class="py-2">Approved</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ihComparisonTbody">
-                                <tr><td colspan="9" class="py-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Drill-down: per-source trends + group table -->
-                <div class="panel p-5">
-                    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-                        <h4 class="text-sm font-semibold text-slate-700"><i class="fa-solid fa-magnifying-glass-chart mr-1 text-cyan-500"></i> Drill Down</h4>
-                        <div class="flex items-center gap-2">
-                            <button type="button" onclick="InfoHub.setSource('edu')" id="ihSrcEdu" class="ih-src px-3 py-1.5 text-xs font-semibold rounded-lg border transition">Education</button>
-                            <button type="button" onclick="InfoHub.setSource('mezmur')" id="ihSrcMezmur" class="ih-src px-3 py-1.5 text-xs font-semibold rounded-lg border transition">Mezmur</button>
-                            <button type="button" onclick="InfoHub.setSource('hr')" id="ihSrcHr" class="ih-src px-3 py-1.5 text-xs font-semibold rounded-lg border transition">HR</button>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                        <div>
-                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Daily trend (last days)</div>
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-sm">
-                                    <thead>
-                                        <tr class="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                                            <th class="py-2 pr-3">Date</th>
-                                            <th class="py-2 pr-3">Marked</th>
-                                            <th class="py-2 pr-3">Attended</th>
-                                            <th class="py-2 pr-3">Absent</th>
-                                            <th class="py-2">Rate</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="ihTrendTbody">
-                                        <tr><td colspan="5" class="py-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">By section / class</div>
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-sm">
-                                    <thead>
-                                        <tr class="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                                            <th class="py-2 pr-3">Group</th>
-                                            <th class="py-2 pr-3">Days</th>
-                                            <th class="py-2 pr-3">Marks</th>
-                                            <th class="py-2 pr-3">Rate</th>
-                                            <th class="py-2">Absent</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="ihGroupTbody">
-                                        <tr><td colspan="5" class="py-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <?php include __DIR__ . '/sections/attendance_analytics_hub.php'; ?>
             </section>
 
             <section id="section-attendance" class="content-section">
@@ -2142,7 +2038,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
                         <div>
                             <h4 class="text-sm font-semibold text-slate-700"><i class="fa-solid fa-file-pdf mr-1 text-red-500"></i> Attendance PDF Reports</h4>
-                            <p class="text-[11px] text-slate-500 mt-0.5">Read-only reports over Education, Mezmur &amp; HR attendance — rendered with Amharic-capable PDF fonts. Sources stay separate.</p>
+                            <p class="text-[11px] text-slate-500 mt-0.5">Read-only reports over Education &amp; Mezmur attendance — rendered with Amharic-capable PDF fonts. Sources stay separate.</p>
                         </div>
                     </div>
 
@@ -2152,7 +2048,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                             <select id="pdfReportType" onchange="InfoReports.toggleFields()"
                                     class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
                                 <option value="general">General (all departments)</option>
-                                <option value="sections">Section-based (Mezmur / HR)</option>
+                                <option value="sections">Section-based (Mezmur)</option>
                                 <option value="classes">Class-based (Education)</option>
                                 <option value="member">Member-based (one member)</option>
                                 <option value="full">Full analysis (combined)</option>
@@ -2163,7 +2059,6 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                             <select id="pdfReportSource"
                                     class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
                                 <option value="mezmur">Mezmur (sections)</option>
-                                <option value="hr">HR (sections)</option>
                             </select>
                         </div>
                         <div id="pdfMemberWrap" style="display:none">
@@ -2639,8 +2534,8 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
             if (typeof loadManageMembers === 'function') loadManageMembers();
         }
         if (name === 'analytics') {
-            if (window.InfoHub && typeof window.InfoHub.init === 'function') {
-                window.InfoHub.init();
+            if (window.AttendanceHub && typeof window.AttendanceHub.init === 'function') {
+                window.AttendanceHub.init();
             }
         }
         if (name === 'profile' && typeof window.loadTabProfile === 'function') {
@@ -4338,317 +4233,9 @@ function clearCache() {
     sApiPost('clear_cache', {}).then(d => { settingsToast(d.message, d.status === 'success'); if (d.status === 'success') loadSystemInfo(); }).catch(() => settingsToast('Error', false));
 }
 
-/* ════════════════════════════════════════════════════════════════
-   InfoHub — Analytics Hub (Phase C, read-only)
-   Reads the governed api_info_analytics.php surface over the three
-   independent attendance sources (Education / Mezmur / HR). The hub
-   compares departments side-by-side; it never merges their data and
-   the Information department never writes attendance.
-════════════════════════════════════════════════════════════════ */
-const InfoHub = (function () {
-    'use strict';
-
-    const API = '<?= $ajaxPrefix ?>api_info_analytics.php';
-    let initialized = false;
-    let source = 'edu';
-    let lastKpi = [];
-    let lastComparison = [];
-    let lastGroups = [];
-    let lastTrends = [];
-    let windowFrom = '';
-    let windowTo = '';
-
-    const SRC_COLORS = {
-        edu:    ['#2563eb', '#3b82f6'],
-        mezmur: ['#7c3aed', '#8b5cf6'],
-        hr:     ['#0d9488', '#14b8a6']
-    };
-
-    function $(id) { return document.getElementById(id); }
-    function esc(s) { return escapeHtml(s || ''); }
-
-    function fmtDate(s, fmt) {
-        if (!s) return '—';
-        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
-            return WBWSCalendar.formatDate(s, fmt || 'long');
-        }
-        const d = new Date(String(s).replace(' ', 'T'));
-        if (isNaN(d.getTime())) return esc(s);
-        return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-    }
-
-    function renderGroupBadge(groupKey, src) {
-        if (!groupKey || groupKey === '—') {
-            return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">—</span>';
-        }
-        if (src === 'edu') {
-            return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-xs"><i class="fa-solid fa-graduation-cap text-[10px] text-blue-500"></i>' + esc(groupKey) + '</span>';
-        }
-        const s = String(groupKey).trim();
-        if (s.indexOf('ህጻናት') !== -1 || s.indexOf('ህፃናት') !== -1 || s === 'A' || s.toLowerCase() === 'children') {
-            return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-xs"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>ህጻናት (A) <span class="text-emerald-600 font-normal text-[10px]">7–13</span></span>';
-        }
-        if (s.indexOf('ማዕከላዊ') !== -1 || s.indexOf('ማእከላዊ') !== -1 || s === 'B' || s.toLowerCase() === 'intermediate' || s.toLowerCase() === 'middle') {
-            return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 shadow-xs"><span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>ማዕከላዊያን (B) <span class="text-indigo-600 font-normal text-[10px]">14–17</span></span>';
-        }
-        if (s.indexOf('ወጣት') !== -1 || s === 'C' || s.toLowerCase() === 'youth' || s.toLowerCase() === 'parish') {
-            return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-xs"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>ወጣቶች (C) <span class="text-amber-600 font-normal text-[10px]">18+</span></span>';
-        }
-        return '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">' + esc(s) + '</span>';
-    }
-
-    function apiGet(query) {
-        return fetch(API + '?' + query, { credentials: 'same-origin' })
-            .then(r => {
-                if (!r.ok) {
-                    return r.json().catch(() => ({ status: 'error', message: 'HTTP ' + r.status + ': Server communication error' }));
-                }
-                return r.json();
-            });
-    }
-
-    function windowParams() {
-        let q = '';
-        windowFrom = $('ihFrom') ? $('ihFrom').value : '';
-        windowTo = $('ihTo') ? $('ihTo').value : '';
-        if (windowFrom) q += '&from=' + encodeURIComponent(windowFrom);
-        if (windowTo) q += '&to=' + encodeURIComponent(windowTo);
-        return q;
-    }
-
-    function rateBar(rate) {
-        if (rate == null) return '<span class="text-slate-400 font-mono">—</span>';
-        const num = typeof rate === 'number' ? rate : parseFloat(rate);
-        if (isNaN(num)) return '<span class="text-slate-400 font-mono">—</span>';
-        const w = Math.max(0, Math.min(100, num));
-        const tone = num >= 80 ? 'bg-emerald-500' : (num >= 60 ? 'bg-amber-500' : 'bg-rose-500');
-        return '<div class="flex items-center gap-2"><div class="w-20 h-2 bg-slate-100 rounded-full overflow-hidden flex-shrink-0"><div class="h-full ' + tone + '" style="width:' + w + '%"></div></div><span class="text-xs font-semibold text-slate-600">' + num + '%</span></div>';
-    }
-
-    // ── KPI band: one card per source ──────────────────────────
-    function loadKpi() {
-        const band = $('ihKpiBand');
-        if (!band) return;
-        band.innerHTML = '<div class="animate-pulse h-36 bg-slate-100 rounded-2xl"></div><div class="animate-pulse h-36 bg-slate-100 rounded-2xl"></div><div class="animate-pulse h-36 bg-slate-100 rounded-2xl"></div>';
-        apiGet('action=kpi' + windowParams()).then(d => {
-            if (d.status !== 'success') {
-                band.innerHTML = '<div class="col-span-full p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs"><i class="fa-solid fa-circle-exclamation mr-1.5"></i>' + esc(d.message || 'Could not load KPI overview.') + '</div>';
-                return;
-            }
-            lastKpi = d.items || [];
-            if (!lastKpi.length) {
-                band.innerHTML = '<div class="col-span-full p-6 text-center text-slate-400 text-xs bg-slate-50 rounded-2xl">No attendance data recorded yet.</div>';
-                return;
-            }
-            band.innerHTML = lastKpi.map(it => {
-                const c = SRC_COLORS[it.source] || ['#64748b', '#94a3b8'];
-                return '<div class="rounded-2xl p-4 text-white shadow-sm flex flex-col justify-between" style="background:linear-gradient(135deg,' + c[0] + ',' + c[1] + ')">' +
-                    '<div><div class="flex items-center justify-between"><div class="text-sm font-bold tracking-tight">' + esc(it.label) + '</div>' +
-                    '<div class="text-[10px] opacity-80">' + (it.days || 0) + ' days · ' + (it.groups_active || 0) + ' groups</div></div>' +
-                    '<div class="mt-3 flex items-end gap-4">' +
-                    '<div><div class="text-2xl font-black leading-tight">' + (it.rate == null ? '—' : it.rate + '%') + '</div><div class="text-[10px] opacity-80">attendance rate</div></div>' +
-                    '<div><div class="text-lg font-bold leading-tight">' + (it.marked || 0) + '</div><div class="text-[10px] opacity-80">marks</div></div>' +
-                    '<div><div class="text-lg font-bold leading-tight">' + (it.absent || 0) + '</div><div class="text-[10px] opacity-80">absent</div></div>' +
-                    '</div></div>' +
-                    '<div class="mt-3 pt-2 border-t border-white/20 text-[10px] opacity-80 flex items-center justify-between">' +
-                    '<span>' + (it.source === 'edu' ? 'Class-based · recorded by teachers' : 'Section-based · recorded by ' + esc(it.label) + ' takers') + '</span>' +
-                    '<span class="font-medium">' + (it.packets || 0) + ' packets (' + (it.approved || 0) + ' approved)</span>' +
-                    '</div></div>';
-            }).join('');
-        }).catch(err => {
-            console.error('InfoHub loadKpi error:', err);
-            band.innerHTML = '<div class="col-span-full p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs"><i class="fa-solid fa-triangle-exclamation mr-1.5"></i>Unable to load KPI summary. Please check connection.</div>';
-        });
-    }
-
-    // ── comparison table ───────────────────────────────────────
-    function loadComparison() {
-        const tb = $('ihComparisonTbody');
-        if (!tb) return;
-        tb.innerHTML = '<tr><td colspan="9" class="py-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</td></tr>';
-        apiGet('action=comparison' + windowParams()).then(d => {
-            if (d.status !== 'success') {
-                tb.innerHTML = '<tr><td colspan="9" class="py-4 text-center text-rose-500 text-xs"><i class="fa-solid fa-circle-exclamation mr-1"></i>' + esc(d.message || 'Could not load comparison.') + '</td></tr>';
-                return;
-            }
-            lastComparison = d.items || [];
-            if (!lastComparison.length) {
-                tb.innerHTML = '<tr><td colspan="9" class="py-6 text-center text-slate-400 text-xs">No attendance data in this window yet.</td></tr>';
-                return;
-            }
-            tb.innerHTML = lastComparison.map(it =>
-                '<tr class="border-b border-slate-50 hover:bg-slate-50/60 transition">' +
-                '<td class="py-2.5 pr-3 font-semibold text-slate-800">' + esc(it.label) + '</td>' +
-                '<td class="py-2.5 pr-3 font-medium">' + (it.days || 0) + '</td>' +
-                '<td class="py-2.5 pr-3">' + (it.groups_active || 0) + '</td>' +
-                '<td class="py-2.5 pr-3 font-medium">' + (it.marked || 0) + '</td>' +
-                '<td class="py-2.5 pr-3">' + rateBar(it.rate) + '</td>' +
-                '<td class="py-2.5 pr-3 text-rose-600 font-semibold">' + (it.absent || 0) + '</td>' +
-                '<td class="py-2.5 pr-3 text-amber-600 font-medium">' + (it.late || 0) + '</td>' +
-                '<td class="py-2.5 pr-3">' + (it.packets || 0) + '</td>' +
-                '<td class="py-2.5 text-emerald-600 font-medium">' + (it.approved || 0) + '</td>' +
-                '</tr>'
-            ).join('');
-        }).catch(err => {
-            console.error('InfoHub loadComparison error:', err);
-            tb.innerHTML = '<tr><td colspan="9" class="py-4 text-center text-rose-500 text-xs"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Connection error. Please try again.</td></tr>';
-        });
-    }
-
-    // ── drill-down ─────────────────────────────────────────────
-    function paintSourceTabs() {
-        ['edu', 'mezmur', 'hr'].forEach(s => {
-            const b = $('ihSrc' + (s === 'edu' ? 'Edu' : (s === 'mezmur' ? 'Mezmur' : 'Hr')));
-            if (!b) return;
-            const active = s === source;
-            const c = SRC_COLORS[s] || ['#2563eb', '#3b82f6'];
-            b.style.background = active ? c[0] : '#fff';
-            b.style.color = active ? '#fff' : '#475569';
-            b.style.borderColor = active ? c[0] : '#e2e8f0';
-        });
-    }
-
-    function loadDrill() {
-        paintSourceTabs();
-        const tt = $('ihTrendTbody');
-        const gt = $('ihGroupTbody');
-        if (tt) tt.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</td></tr>';
-        if (gt) gt.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</td></tr>';
-
-        apiGet('action=trends&source=' + source + windowParams()).then(d => {
-            if (!tt) return;
-            if (d && d.status === 'error') {
-                tt.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-rose-500 text-xs"><i class="fa-solid fa-circle-exclamation mr-1"></i>' + esc(d.message || 'Could not load trends.') + '</td></tr>';
-                return;
-            }
-            lastTrends = (d && d.items) || [];
-            if (!lastTrends.length) {
-                tt.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-slate-400 text-xs">No recorded days for this department in the window.</td></tr>';
-            } else {
-                tt.innerHTML = lastTrends.slice(0, 14).map(r =>
-                    '<tr class="border-b border-slate-50 hover:bg-slate-50/50">' +
-                    '<td class="py-2 pr-3 whitespace-nowrap font-medium text-slate-700">' + fmtDate(r.date) + '</td>' +
-                    '<td class="py-2 pr-3">' + (r.marked || 0) + '</td>' +
-                    '<td class="py-2 pr-3 text-emerald-600 font-medium">' + (r.attended || 0) + '</td>' +
-                    '<td class="py-2 pr-3 text-rose-600 font-medium">' + (r.absent || 0) + '</td>' +
-                    '<td class="py-2">' + rateBar(r.rate) + '</td></tr>'
-                ).join('');
-            }
-        }).catch(err => {
-            console.error('InfoHub trends error:', err);
-            if (tt) tt.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-rose-500 text-xs"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Connection error.</td></tr>';
-        });
-
-        apiGet('action=groups&source=' + source + '&per_page=100' + windowParams()).then(d => {
-            if (!gt) return;
-            if (d && d.status === 'error') {
-                gt.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-rose-500 text-xs"><i class="fa-solid fa-circle-exclamation mr-1"></i>' + esc(d.message || 'Could not load groups.') + '</td></tr>';
-                return;
-            }
-            lastGroups = (d && d.items) || [];
-            if (!lastGroups.length) {
-                gt.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-slate-400 text-xs">No ' + (source === 'edu' ? 'classes' : 'sections') + ' recorded in the window.</td></tr>';
-            } else {
-                gt.innerHTML = lastGroups.map(g =>
-                    '<tr class="border-b border-slate-50 hover:bg-slate-50/50">' +
-                    '<td class="py-2 pr-3 font-semibold text-slate-800">' + renderGroupBadge(g.group_key, source) + '</td>' +
-                    '<td class="py-2 pr-3">' + (g.days || 0) + '</td>' +
-                    '<td class="py-2 pr-3 font-medium">' + (g.marked || 0) + '</td>' +
-                    '<td class="py-2 pr-3">' + rateBar(g.rate) + '</td>' +
-                    '<td class="py-2 text-rose-600 font-semibold">' + (g.absent || 0) + '</td></tr>'
-                ).join('');
-            }
-        }).catch(err => {
-            console.error('InfoHub groups error:', err);
-            if (gt) gt.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-rose-500 text-xs"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Connection error.</td></tr>';
-        });
-    }
-
-    // ── meta (rollup freshness) ────────────────────────────────
-    function loadMeta() {
-        apiGet('action=meta').then(d => {
-            const el = $('ihGeneratedAt');
-            if (el && d.status === 'success') {
-                el.textContent = d.generated_at ? fmtDate(d.generated_at) : 'never (ask an admin to refresh)';
-            }
-        }).catch(() => { /* decorative */ });
-    }
-
-    // ── Excel export (comparison + current drill) ──────────────
-    function exportAll() {
-        if (!lastComparison.length) { showToast('Nothing to export yet.', 'error'); return; }
-        const cmpHead = ['Department', 'Days', 'Groups', 'Marks', 'Rate %', 'Absent', 'Late', 'Excused', 'Sheets', 'Approved'];
-        const cmpRows = lastComparison.map(it => [it.label, it.days, it.groups_active, it.marked, it.rate ?? '', it.absent, it.late, it.excused, it.packets, it.approved]);
-        const grpHead = ['Group (' + source + ')', 'Days', 'Marks', 'Rate %', 'Absent', 'Late', 'Excused', 'Sheets'];
-        const grpRows = lastGroups.map(g => [g.group_key, g.days, g.marked, g.rate ?? '', g.absent, g.late, g.excused, g.packets]);
-        if (window.XLSX) {
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cmpHead].concat(cmpRows)), 'Comparison');
-            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([grpHead].concat(grpRows)), 'Groups ' + source);
-            XLSX.writeFile(wb, 'FKSS_Analytics_' + (windowFrom || 'window') + '_' + (windowTo || 'now') + '.xlsx');
-        } else {
-            const csv = '\ufeff' + cmpHead.join(',') + '\n' + cmpRows.map(r =>
-                r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'analytics-comparison.csv';
-            document.body.appendChild(a); a.click(); a.remove();
-        }
-        showToast('✓ Analytics exported.', 'success');
-    }
-
-    // ── admin-only rollup refresh ──────────────────────────────
-    function refresh() {
-        if (!confirm('Rebuild the analytics rollup from the three attendance sources?')) return;
-        const fd = new FormData();
-        fd.append('action', 'refresh');
-        fd.append('csrf_token', CSRF_TOKEN);
-        fetch(API, { method: 'POST', body: fd, credentials: 'same-origin' })
-            .then(r => r.json())
-            .then(d => {
-                if (d.status !== 'success') { showToast(d.message || 'Refresh failed.', 'error'); return; }
-                showToast('✓ ' + (d.message || 'Analytics data refreshed.'), 'success');
-                reload();
-            })
-            .catch(() => showToast('Network error. Please try again.', 'error'));
-    }
-
-    function reload() {
-        loadKpi();
-        loadComparison();
-        loadDrill();
-        loadMeta();
-    }
-
-    function setSource(s) {
-        source = s;
-        loadDrill();
-    }
-
-    function init() {
-        if (initialized) return;
-        initialized = true;
-        const now = new Date();
-        const past = new Date();
-        past.setDate(now.getDate() - 29);
-        if ($('ihTo') && !$('ihTo').value) {
-            $('ihTo').value = now.toISOString().slice(0, 10);
-        }
-        if ($('ihFrom') && !$('ihFrom').value) {
-            $('ihFrom').value = past.toISOString().slice(0, 10);
-        }
-        reload();
-    }
-
-    return {
-        init: init,
-        reload: reload,
-        setSource: setSource,
-        exportAll: exportAll,
-        refresh: refresh
-    };
-})();
+/* InfoHub (Analytics Hub) moved to /admin/js/attendance_analytics_hub.js
+   (shared with the HR dashboard). window.InfoHub remains an alias of
+   window.AttendanceHub for existing handlers. */
 
 /* ════════════════════════════════════════════════════════════════
    InfoReports — read-only PDF report downloads (Phase D)
@@ -4686,7 +4273,6 @@ const InfoReports = (function () {
     return { toggleFields: toggleFields, download: download };
 })();
 
-window.InfoHub = InfoHub;
 window.InfoReports = InfoReports;
 
 // Initialize InfoHub if analytics section is requested or already active
@@ -4695,7 +4281,7 @@ window.InfoReports = InfoReports;
     const sec = urlParams.get('section');
     const anEl = document.getElementById('section-analytics');
     if (sec === 'analytics' || (anEl && anEl.classList.contains('active'))) {
-        InfoHub.init();
+        if (window.AttendanceHub) AttendanceHub.init();
     }
 })();
 
@@ -4704,7 +4290,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const sec = urlParams.get('section');
     const anEl = document.getElementById('section-analytics');
     if (sec === 'analytics' || (anEl && anEl.classList.contains('active'))) {
-        InfoHub.init();
+        if (window.AttendanceHub) AttendanceHub.init();
     }
 });
 

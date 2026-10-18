@@ -117,3 +117,52 @@ Consider deactivating `hr_attendance_taker` accounts at deploy time.
 HR report-only), `test_hr_attendance_domain.py` (retired contract),
 `test_attendance_integrity.py` (fail-closed backstop). Deploy
 verification steps: `docs/audits/DEPLOYMENT_RUNBOOK.md` STAGE 7B.
+
+## 6. Addendum 2026-10-18 — HR attendance removed completely; shared Analytics Hub
+
+Owner decision (2026-10-18): HR takes no attendance and **no longer keeps
+a viewer for its historical HR attendance**. HR works with the Education
+and Mezmur attendance only, through the **same Analytics Hub** the
+Information department uses.
+
+### What changed
+
+| Area | Before | After |
+|---|---|---|
+| HR dashboard "Attendance History" (`section-submissions`, `HrSub`, packet modal) | read-only history of `hr_attendance`/`hr_submissions` | **removed** (nav, section, modal, JS) |
+| HR dashboard "Attendance Reports" | two summary cards (`api_hr_reports.php monthly_summary`) + per-member view | **shared Attendance Analytics Hub** (Education + Mezmur) + the same per-member view |
+| Info dashboard "Analytics Hub" | inline `InfoHub` markup + JS, Education/Mezmur/HR | shared partial `admin/dashboards/sections/attendance_analytics_hub.php` + module `admin/js/attendance_analytics_hub.js` (`window.AttendanceHub`, alias `window.InfoHub`), **Education + Mezmur only** |
+| `InfoAnalyticsService` | `SOURCES = edu, mezmur, hr`; rollup rebuilt from 3 tables | `SOURCES = edu, mezmur`; rollup rebuilt from 2 tables (the full-rebuild `DELETE` purges old `hr` rollup rows on the next refresh) |
+| `api_info_analytics.php` / `api_info_reports.php` | `info_dept` + admins | `info_dept` + **`hr_dept`** + admins (read); refresh POST still admin-only + CSRF |
+| `PdfReportService` | HR section report, HR member history, HR in "full" | HR removed; `source=hr` → **410** at the endpoint |
+| `admin/api_hr_attendance.php` (web) | reads live, `submission_review` 410 | **every action 410 `HR_ATTENDANCE_RETIRED`** (auth/role/CSRF/rate-limit guards kept) |
+| `api/v1/routes/hr.php` (mobile) | reads live, writes 410 | **every call 410** behind `apiRequireAuth()`; `POST /hr/sheet` keeps the exact message/code the outbox classifier expects |
+| `api_dept_takers.php` / ROLE_MAP | `hr_dept` could list HR takers | `hr_dept` removed (HR has no takers) |
+| Info "Exports & Reports" | HR option in section report | removed |
+
+### What did NOT change (by decision)
+
+* **No DB change.** `hr_attendance`, `hr_submissions`, `hr_attendance_audit`
+  stay exactly as they are (archive). No migration to run.
+* `admin/api_hr_reports.php` (per-member Education + Mezmur view) stays.
+* `HrAttendanceService.php` / `HrSubmissionService.php` stay in the repo
+  (nothing routes to them any more; `tests/smoke/hr_phase6_smoke.php`
+  still exercises them in isolation).
+* Mobile app: no code change needed — it had no HR read clients left.
+
+### Contracts pinned
+
+`tests/security/test_hr_attendance_removed.py` (new),
+`test_hr_attendance_domain.py`, `test_info_analytics_hub.py`,
+`test_pdf_report_engine.py`, `test_attendance_rework_phase_d.py`,
+`test_dept_takers.py`, `test_console_parity_hardening.py`,
+`test_f8_outbox_rejection.py`, `test_phase9_mobile_reviews.py`,
+`test_p1d_review_inbox_local_first.py`, `test_class_dependency_closure.py`,
+`test_scale_hardening.py`; `tests/audit/http_regressions.py` matrix;
+smoke `info_phase7_smoke.php`, `pdf_phase7_smoke.php`.
+
+### Deploy
+
+`git pull` only, then hard-refresh the dashboards (new JS asset). An
+admin may press **Refresh data** in the hub once so the rollup drops the
+old `hr` rows immediately (otherwise the 180 s auto-refresh does it).

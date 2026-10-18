@@ -383,8 +383,7 @@ class P1DDoNotTouch(unittest.TestCase):
                 (GRADES_PHP, "action === 'submissions'"),
                 (MEZMUR_PHP, "($method === 'GET' && $action === "
                              "'submissions')"),
-                (HR_PHP, "($method === 'GET' && $action === "
-                         "'submissions')"),
+                # HR_PHP dropped 2026-10-18: HR attendance fully retired (410).
                 (GRADES_PHP, "action === 'submission-review'")):
             self.assertIn(needle, read(php))
         api = read(APISVC)

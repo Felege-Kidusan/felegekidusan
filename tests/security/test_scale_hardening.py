@@ -67,8 +67,8 @@ class ReadBudgetContracts(unittest.TestCase):
 
     def test_pdf_member_history_cap(self):
         self.assertIn("MAX_MEMBER_ROWS = 200", self.pdf)
-        # each member source history applies the cap
-        self.assertEqual(self.pdf.count("LIMIT \" . self::MAX_MEMBER_ROWS"), 3)
+        # each member source history applies the cap (edu + mezmur; HR removed 2026-10-18)
+        self.assertEqual(self.pdf.count("LIMIT \" . self::MAX_MEMBER_ROWS"), 2)
 
     def test_endpoint_rate_limits(self):
         ep = (ROOT / "admin/api_info_analytics.php").read_text(encoding="utf-8")

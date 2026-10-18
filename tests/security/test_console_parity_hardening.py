@@ -90,10 +90,13 @@ class HrConsoleSurfaceTests(unittest.TestCase):
         ):
             self.assertNotIn(marker, self.hr, marker)
 
-    def test_hr_keeps_its_own_submission_console(self):
-        self.assertIn('id="section-submissions"', self.hr)
-        self.assertIn("HrSub", self.hr)
-        self.assertIn("api_hr_attendance.php", self.hr)
+    def test_hr_submission_console_removed(self):
+        # HR attendance retired (2026-10-07) and its history console removed
+        # (2026-10-18). HR analyses Education + Mezmur via the shared hub.
+        self.assertNotIn('id="section-submissions"', self.hr)
+        self.assertNotIn("HrSub", self.hr)
+        self.assertNotIn("api_hr_attendance.php", self.hr)
+        self.assertIn("include __DIR__ . '/sections/attendance_analytics_hub.php'", self.hr)
 
 
 class MezmurSubmissionsParityTests(unittest.TestCase):

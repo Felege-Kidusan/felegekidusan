@@ -1,14 +1,17 @@
 <?php
 /**
  * ════════════════════════════════════════════════════════════
- * Information Department — Attendance Analytics Service (Phase C)
+ * Attendance Analytics Service (Information + HR departments)
  * ════════════════════════════════════════════════════════════
- * The Information department is the school's analytics hub. It
- * READS all three independent attendance sources:
+ * The shared analytics hub. It READS the two independent attendance
+ * sources:
  *
  *   edu     class-based attendance recorded by teachers
  *   mezmur  section-based attendance recorded by mezmur takers
- *   hr      section-based attendance recorded by HR takers
+ *
+ * HR attendance was retired on 2026-10-07 (writes 410) and removed as
+ * a source on 2026-10-18: HR now analyses Education + Mezmur here.
+ * The hr_* tables stay in the database as a silent archive only.
  *
  * Product rules enforced here (2026-08-28):
  *   • READ-ONLY: this service exposes no member writes, no packet
@@ -26,12 +29,11 @@ require_once __DIR__ . '/MemberCategory.php';
 
 class InfoAnalyticsService
 {
-    public const SOURCES = ['edu', 'mezmur', 'hr'];
+    public const SOURCES = ['edu', 'mezmur'];
 
     public const SOURCE_LABELS = [
         'edu' => 'Education',
         'mezmur' => 'Mezmur',
-        'hr' => 'HR',
     ];
 
     /** Read budget: analytics queries never page past this. */
@@ -68,7 +70,7 @@ class InfoAnalyticsService
     }
 
     /**
-     * Rebuild attendance_rollup from the three source tables.
+     * Rebuild attendance_rollup from the two source tables (Education, Mezmur).
      * Transactional: the hub either sees the old model or the new
      * one, never a half-built state. Returns summary counts.
      */
@@ -77,6 +79,7 @@ class InfoAnalyticsService
         $inserted = 0;
         $conn->begin_transaction();
         try {
+            // Full rebuild: this also purges any rows of the retired 'hr' source.
             $conn->query('DELETE FROM attendance_rollup');
 
             // ── Education: class-based rows from `attendance` ──
@@ -104,12 +107,11 @@ class InfoAnalyticsService
                 $stmt->close();
             }
 
-            // ── Mezmur + HR: section sheets from their own tables ──
+            // ── Mezmur: section sheets from its own tables (HR source removed 2026-10-18) ──
             // Mezmur rows carry no section snapshot — the department
             // derives it from COALESCE(NULLIF(TRIM(mb.current_section), ''), '—') / mb.age_group
             // (its canonical expression via MemberCategory::sqlSectionExpr).
             $mezmurSecExpr = MemberCategory::sqlSectionExpr('mb', 'current_section', 'age_group');
-            $hrSecExpr = MemberCategory::sqlSectionExpr('m', 'section', 'section');
             $subSecExpr = MemberCategory::sqlSectionExpr('s', 'section', 'section');
 
             foreach ([['mezmur', 'mezmur_attendance', 'mezmur_submissions',
@@ -124,20 +126,7 @@ class InfoAnalyticsService
                                0
                         FROM `mezmur_attendance` m
                         LEFT JOIN members mb ON mb.id = m.member_id
-                        GROUP BY m.attendance_date, $mezmurSecExpr"],
-                      ['hr', 'hr_attendance', 'hr_submissions',
-                       "SELECT ?, m.attendance_date,
-                               $hrSecExpr,
-                               0,
-                               COUNT(*),
-                               COALESCE(SUM(m.status = 'present'), 0),
-                               COALESCE(SUM(m.status = 'late'), 0),
-                               COALESCE(SUM(m.status = 'absent'), 0),
-                               COALESCE(SUM(m.status = 'excused'), 0),
-                               0
-                        FROM `hr_attendance` m
-                        LEFT JOIN members mb ON mb.id = m.member_id
-                        GROUP BY m.attendance_date, $hrSecExpr"]] as [$source, $attTable, $subTable, $selectSql]) {
+                        GROUP BY m.attendance_date, $mezmurSecExpr"]] as [$source, $attTable, $subTable, $selectSql]) {
                 $stmt = $conn->prepare(
                     "INSERT INTO attendance_rollup
                         (source, rollup_date, group_key, packets, members_marked,

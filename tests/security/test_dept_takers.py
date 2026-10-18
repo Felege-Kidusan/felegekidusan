@@ -70,8 +70,10 @@ class DeptTakerContracts(unittest.TestCase):
     def test_endpoint_guard_layers(self):
         self.assertIn("validateCsrf", self.api)
         self.assertIn("SecurityRateLimiter", self.api)
-        self.assertIn("['super_admin', 'school_admin', 'mezmur_dept', 'hr_dept']", self.api)
-        self.assertIn("'api_dept_takers.php' => ['super_admin', 'school_admin', 'mezmur_dept', 'hr_dept']", self.acl)
+        # hr_dept lost taker management on 2026-10-18 (HR attendance retired).
+        self.assertIn("['super_admin', 'school_admin', 'mezmur_dept']", self.api)
+        self.assertNotIn("'mezmur_dept', 'hr_dept']", self.api)
+        self.assertIn("'api_dept_takers.php' => ['super_admin', 'school_admin', 'mezmur_dept']", self.acl)
         for action in ("'list'", "'create'", "'toggle'"):
             self.assertIn(action, self.api)
 

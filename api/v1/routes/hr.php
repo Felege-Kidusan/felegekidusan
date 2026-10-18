@@ -1,145 +1,46 @@
 <?php
 /**
- * School API v1 — HR department attendance (section-based). RETIRED.
+ * School API v1 — HR department attendance. FULLY RETIRED.
  *
- *   GET  /hr/sections            — sections with member counts
- *   GET  /hr/sheet?date=…&section=… — roster + marks + packet state
- *   GET  /hr/days                — recorded-day history
- *   GET  /hr/submissions[/id]    — historical packet queue (read-only)
- *   POST /hr/sheet               — RETIRED (410 HR_ATTENDANCE_RETIRED)
- *   POST /hr/submission-review   — RETIRED (410 HR_ATTENDANCE_RETIRED)
+ *   ANY  /hr/*   → 410 HR_ATTENDANCE_RETIRED
  *
- * Product decision (2026-10-07): HR no longer takes attendance. The
- * department reads combined Education + Mezmur attendance reports
- * instead. Everything already recorded stays readable (no data is
- * destroyed); every write path — recording and review — is retired
- * with an honest 410 for every role, so old app versions surface a
- * clear message through the outbox attention banner instead of
- * silently losing sheets.
+ * Product decisions:
+ *   2026-10-07  HR no longer takes attendance (writes → 410).
+ *   2026-10-18  HR attendance history removed everywhere: the read
+ *               endpoints (sections / days / sheet / submissions /
+ *               submission) are retired too. HR now analyses the
+ *               Education + Mezmur attendance through the shared
+ *               Attendance Analytics Hub on the web dashboard.
  *
- * Isolation rule (2026-08-28): this is HR's OWN attendance domain —
- * its own takers (hr_attendance_taker), its own tables. Data is never
- * combined with Education or Mezmur. All domain logic lives in
- * HrAttendanceService / HrSubmissionService (the same services the
- * web review console uses).
+ * The hr_* tables stay in the database untouched (silent archive —
+ * no migration, no data destroyed); nothing reads them any more.
+ *
+ * Old app versions that still drain an outbox packet via POST /hr/sheet
+ * keep receiving the exact same 410 + machine code the outbox classifier
+ * expects ("needs attention", never silent loss). Auth is still required
+ * so the retired surface leaks nothing to anonymous callers.
  */
 
 $auth = apiRequireAuth();
 
-if (!defined('HR_API_VERSION')) define('HR_API_VERSION', 'hr-retired-1');
+if (!defined('HR_API_VERSION')) define('HR_API_VERSION', 'hr-retired-2');
 
-// Taking & viewing: HR's own takers + HR staff + admins.
-// Nobody else — not edu, not mezmur, not info. The Information
-// department reads through the governed web analytics path only.
+// Historical role set kept for the handshake only — every role gets 410.
 $HR_ROLES = ['hr_attendance_taker', 'hr_dept', 'school_admin', 'super_admin'];
-
-if (!apiRoleIs($auth, $HR_ROLES)) {
-    err('You cannot access HR attendance.', 403);
-}
-
-require_once __DIR__ . '/../../../admin/backend/services/HrAttendanceService.php';
-require_once __DIR__ . '/../../../admin/backend/services/HrSubmissionService.php';
-
-use App\Services\HrAttendanceService;
-use App\Services\HrSubmissionService;
 
 $action = $ROUTE['id'] ?? '';
 $method = $ROUTE['method'] ?? 'GET';
 
-try {
-
-    // ── GET /hr/sections ────────────────────────────────────────
-    if ($method === 'GET' && $action === 'sections') {
-        ok(['sections' => HrAttendanceService::sectionListWithCounts($conn)]);
-    }
-
-    // ── GET /hr/days ────────────────────────────────────────────
-    if ($method === 'GET' && $action === 'days') {
-        ok(HrAttendanceService::listDays(
-            $conn,
-            (string)($_GET['from'] ?? ''),
-            (string)($_GET['to'] ?? ''),
-            (int)($_GET['page'] ?? 1),
-            (int)($_GET['per_page'] ?? 25)
-        ));
-    }
-
-    // ── GET /hr/sheet?date=…&section=… ──────────────────────────
-    if ($method === 'GET' && $action === 'sheet') {
-        $date = (string)($_GET['date'] ?? '');
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) err('A valid date is required.');
-        $section = trim((string)($_GET['section'] ?? ''));
-        if ($section === '') err('A section is required.');
-
-        $out = HrAttendanceService::fetchSectionSheet($conn, $date, $section, $auth);
-        // PII discipline: roster rows carry name/code only.
-        foreach ($out['members'] as &$m) {
-            unset($m['full_name_am']);
-        }
-        unset($m);
-        $out['v'] = HR_API_VERSION;
-        ok($out);
-    }
-
-    // ── POST /hr/sheet — RETIRED ────────────────────────────────
-    // Product decision (2026-10-07): HR no longer takes attendance.
-    // Old apps receive an honest 410 (classified needs-attention with
-    // this exact message) instead of silent data loss. Applies to every
-    // role — retirement is not overridable.
-    if ($method === 'POST' && $action === 'sheet') {
-        err('HR attendance was retired. HR no longer takes attendance — update the app to see the new attendance reports.', 410,
-            ['code' => 'HR_ATTENDANCE_RETIRED']);
-    }
-
-    // ════════════════════════════════════════════════════════════
-    // DEPARTMENT REVIEW INBOX (Phase 9) — HR's own packets.
-    // Same services the web console uses; HR staff + admins only.
-    // ════════════════════════════════════════════════════════════
-
-    // ── GET /hr/submissions — paginated review queue ─────────────
-    if ($method === 'GET' && $action === 'submissions') {
-        if (!HrSubmissionService::canReview($auth)) {
-            err('Only the HR department can review packets.', 403);
-        }
-        if (isApiRateLimited('hr_submissions_list', 60)) {
-            err('Too many requests. Please wait a moment.', 429);
-        }
-        $out = HrSubmissionService::listPackets($conn, [
-            'status'   => (string)($_GET['status'] ?? 'attention'),
-            'from'     => (string)($_GET['from'] ?? ''),
-            'to'       => (string)($_GET['to'] ?? ''),
-            'section'  => (string)($_GET['section'] ?? ''),
-            'page'     => $_GET['page'] ?? 1,
-            'per_page' => $_GET['per_page'] ?? 50,
-        ]);
-        $out['stats'] = HrSubmissionService::packetStats($conn);
-        ok($out);
-    }
-
-    // ── GET /hr/submission?id=N — full packet for review ─────────
-    if ($method === 'GET' && $action === 'submission') {
-        if (!HrSubmissionService::canReview($auth)) {
-            err('Only the HR department can review packets.', 403);
-        }
-        $item = HrSubmissionService::detail($conn, (int)($_GET['id'] ?? 0));
-        if ($item === null) err('Submission not found.', 404);
-        ok(['submission' => $item]);
-    }
-
-    // ── POST /hr/submission-review — RETIRED ─────────────────────
-    // Reviewing retired with the domain itself: historical packets are
-    // frozen as read-only records. Reads above stay available.
-    if ($method === 'POST' && $action === 'submission-review') {
-        err('Reviewing HR attendance was retired with HR attendance itself. History stays readable.', 410,
-            ['code' => 'HR_ATTENDANCE_RETIRED']);
-    }
-
-    err('Unknown HR attendance endpoint.', 404);
-} catch (\DomainException $e) {
-    // Controlled service wording only (never stack/diagnostic text).
-    $safeMessage = $e->getMessage();
-    err($safeMessage, 409, ['code' => 'WORKFLOW_REJECTED']);
-} catch (\Throwable $e) {
-    error_log('API hr route failed: ' . $e->getMessage());
-    err('Unable to complete the request. Please try again.', 500);
+if ($method === 'POST' && $action === 'sheet') {
+    err('HR attendance was retired. HR no longer takes attendance — update the app to see the new attendance reports.', 410,
+        ['code' => 'HR_ATTENDANCE_RETIRED', 'v' => HR_API_VERSION]);
 }
+
+if ($method === 'POST' && $action === 'submission-review') {
+    err('Reviewing HR attendance was retired with HR attendance itself.', 410,
+        ['code' => 'HR_ATTENDANCE_RETIRED', 'v' => HR_API_VERSION]);
+}
+
+// Reads (sections, days, sheet, submissions, submission) and anything else.
+err('HR attendance was retired. HR analyses the Education and Mezmur attendance in the web Analytics Hub instead.', 410,
+    ['code' => 'HR_ATTENDANCE_RETIRED', 'v' => HR_API_VERSION]);

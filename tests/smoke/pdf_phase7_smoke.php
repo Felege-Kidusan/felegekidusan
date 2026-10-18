@@ -58,7 +58,7 @@ $memberId = (int)($conn->query("SELECT MIN(id) m FROM members")->fetch_assoc()['
 $cases = [
     ['general', []],
     ['sections', ['source' => 'mezmur']],
-    ['sections', ['source' => 'hr']],
+    // ['sections', ['source' => 'hr']] — HR source removed 2026-10-18 (endpoint answers 410).
     ['classes', []],
     ['member', ['member_id' => $memberId]],
     ['full', []],

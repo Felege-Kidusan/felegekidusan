@@ -61,7 +61,10 @@ class InfoAnalyticsServiceContracts(unittest.TestCase):
         cls.src = (ROOT / "admin/backend/services/InfoAnalyticsService.php").read_text(encoding="utf-8")
 
     def test_source_whitelist(self):
-        self.assertIn("public const SOURCES = ['edu', 'mezmur', 'hr'];", self.src)
+        # HR attendance retired 2026-10-07; dropped as a source 2026-10-18.
+        self.assertIn("public const SOURCES = ['edu', 'mezmur'];", self.src)
+        self.assertNotIn("'hr' => 'HR'", self.src)
+        self.assertNotIn("FROM `hr_attendance`", self.src)
 
     def test_only_writer_is_transactional_rebuild_of_rollup(self):
         idx = self.src.index("function refreshRollup")
@@ -103,12 +106,13 @@ class InfoAnalyticsEndpointContracts(unittest.TestCase):
         cls.acl = (ROOT / "admin/access_control.php").read_text(encoding="utf-8")
 
     def test_read_roles(self):
-        self.assertIn("['super_admin', 'school_admin', 'info_dept']", self.ep)
+        # Shared hub: Info + HR analyse (2026-10-18); admins too; nobody else.
+        self.assertIn("['super_admin', 'school_admin', 'info_dept', 'hr_dept']", self.ep)
 
     def test_refresh_is_admin_only(self):
         self.assertIn("['super_admin', 'school_admin']", self.ep)
         self.assertIn(
-            "The Information department is read-only. Only administrators can refresh the analytics data.",
+            "The analytics hub is read-only for departments. Only administrators can refresh the analytics data.",
             self.ep,
         )
 
@@ -138,7 +142,7 @@ class InfoAnalyticsEndpointContracts(unittest.TestCase):
 
     def test_role_map_registration(self):
         self.assertIn(
-            "'api_info_analytics.php' => ['super_admin', 'school_admin', 'info_dept']",
+            "'api_info_analytics.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept']",
             self.acl,
         )
 
@@ -147,19 +151,31 @@ class InfoHubWebContracts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.page = (ROOT / "admin/dashboards/info-dept.php").read_text(encoding="utf-8")
+        # 2026-10-18: hub markup + logic extracted to a shared partial/module
+        # so the HR dashboard renders the identical hub.
+        cls.partial = (ROOT / "admin/dashboards/sections/attendance_analytics_hub.php").read_text(encoding="utf-8")
+        cls.hubjs = (ROOT / "admin/js/attendance_analytics_hub.js").read_text(encoding="utf-8")
 
     def test_analytics_surface_wired(self):
         self.assertIn('id="section-analytics"', self.page)
-        self.assertIn("InfoHub", self.page)
-        self.assertIn("api_info_analytics.php", self.page)
+        self.assertIn("include __DIR__ . '/sections/attendance_analytics_hub.php'", self.page)
+        self.assertIn("api_info_analytics.php", self.partial)
+        self.assertIn("/admin/js/attendance_analytics_hub.js", self.partial)
+        self.assertIn("window.AttendanceHub = AttendanceHub", self.hubjs)
+        self.assertIn("window.InfoHub = AttendanceHub", self.hubjs)  # legacy alias
         # Excel export path
         self.assertIn("xlsx/0.18.5/xlsx.full.min.js", self.page)
-        self.assertIn("InfoHub.exportAll", self.page)
+        self.assertIn("AttendanceHub.exportAll", self.partial)
+        # No HR tab / source in the shared hub
+        self.assertNotIn("ihSrcHr", self.partial)
+        self.assertNotIn("ihSrcHr", self.hubjs)
 
     def test_read_only_posture_in_ui(self):
-        self.assertIn("view-only", self.page)
+        self.assertIn("view-only", self.partial)
         # refresh button is admin-gated server-side
-        self.assertIn("in_array($userRole, ['super_admin', 'school_admin'], true)", self.page)
+        self.assertIn("in_array($hubRole, ['super_admin', 'school_admin'], true)", self.partial)
+        # the module only ever POSTs the admin refresh action
+        self.assertEqual(self.hubjs.count("method: 'POST'"), 1)
 
     def test_member_category_require_path_fixed(self):
         # regression: a dashboards-relative path used to break the whole page

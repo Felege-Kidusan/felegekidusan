@@ -1,47 +1,32 @@
 <?php
 /**
  * ════════════════════════════════════════════════════════════
- * HR Department Attendance API (web console) — RETIRED WRITES
+ * HR Attendance — web console endpoint. FULLY RETIRED (410).
  * ════════════════════════════════════════════════════════════
- * Read-only history surface for HR's OWN section-based attendance
- * domain. Product decision (2026-10-07): HR no longer takes
- * attendance — the department reads combined Education + Mezmur
- * reports instead. Recording was mobile-only and is retired at
- * api/v1/routes/hr.php (410); the review write is retired here.
- * Nothing is deleted: recorded history stays readable.
  *
- * Isolation rule (2026-08-28): HR data is never combined with
- * Education or Mezmur. This file only touches hr_* tables via
- * HrAttendanceService / HrSubmissionService.
+ *   2026-10-07  HR stopped taking attendance (submission_review → 410,
+ *               history stayed readable here).
+ *   2026-10-18  The read-only history surface was removed as well:
+ *               every action (sections, submissions_list,
+ *               submission_detail, days_list, takers_list,
+ *               submission_review, …) now answers 410
+ *               HR_ATTENDANCE_RETIRED. HR analyses the Education +
+ *               Mezmur attendance through the shared Attendance
+ *               Analytics Hub (api_info_analytics.php) and the
+ *               per-member view (api_hr_reports.php) instead.
  *
- * Defense in depth:
- *   1. access_control.php ROLE_MAP limits this file to
- *      super_admin / school_admin / hr_dept.
- *   2. This file re-checks login + role itself.
- *   3. CSRF token required on every POST.
- *   4. Per-user rate limiting.
- *   5. Exceptions never leak internals.
+ * The hr_* tables remain in the database as an untouched archive;
+ * nothing reads them. No migration is required.
  *
- * Actions:
- *   GET  sections          → sections with member counts
- *   GET  submissions_list  → historical packets (+stats strip)
- *   GET  submission_detail → packet + member rows
- *   GET  days_list         → recorded-day history
- *   GET  takers_list       → HR's own taker accounts
- *   POST submission_review → RETIRED (410 HR_ATTENDANCE_RETIRED)
+ * Guard layers kept on purpose: session + role re-check (an anonymous
+ * caller gets 401/403, never a hint about the retired domain), CSRF on
+ * POST, per-user rate limiting and a safe exception handler.
  */
-
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
-require_once __DIR__ . '/backend/services/SecurityAuditService.php';
-require_once __DIR__ . '/backend/services/HrAttendanceService.php';
-require_once __DIR__ . '/backend/services/HrSubmissionService.php';
 
-use App\Services\HrAttendanceService;
-use App\Services\HrSubmissionService;
-
-if (!defined('HR_ATTENDANCE_API_VERSION')) define('HR_ATTENDANCE_API_VERSION', 'hr-retired-1');
+if (!defined('HR_ATTENDANCE_API_VERSION')) define('HR_ATTENDANCE_API_VERSION', 'hr-retired-2');
 
 function hr_att_respond(array $payload): void
 {
@@ -60,7 +45,6 @@ set_exception_handler(static function (\Throwable $e): void {
     ]);
 });
 
-// ── 1. Auth ───────────────────────────────────────────────────
 if (empty($_SESSION['admin_logged_in']) || empty($_SESSION['admin_id'])) {
     http_response_code(401);
     hr_att_respond(['status' => 'error', 'message' => 'Please sign in again.']);
@@ -72,98 +56,24 @@ if (!in_array($role, ['super_admin', 'school_admin', 'hr_dept'], true)) {
     hr_att_respond(['status' => 'error', 'message' => 'You do not have permission to view HR attendance.']);
 }
 
-$action = (string)($_REQUEST['action'] ?? '');
-
-// ── 2. Schema probe (clear message instead of a raw 1054) ────
-try {
-    $probe = $conn->query("SELECT 1 FROM hr_submissions LIMIT 0");
-    if ($probe === false) {
-        throw new \RuntimeException('hr_submissions missing');
-    }
-    $probe->close();
-} catch (\Throwable $e) {
-    hr_att_respond(['status' => 'error', 'message' => 'HR attendance tables not found. Ask the administrator to run sql/026_hr_attendance.sql.']);
-}
-
-// ── 3. CSRF on POST ───────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!validateCsrf($csrfToken)) {
         hr_att_respond(['status' => 'error', 'message' => 'Security token expired. Please refresh the page and try again.']);
     }
-} elseif ($action === 'submission_review') {
-    hr_att_respond(['status' => 'error', 'message' => 'Use POST for this action.']);
 }
 
-// ── 4. Rate limiting (per user) ──────────────────────────────
 $rl = new \App\Services\SecurityRateLimiter($pdo ?? null, sys_get_temp_dir() . '/ssms_ratelimit');
-$rlKey = $action === 'submission_review' ? 'hr_attendance_write' : 'hr_attendance_read';
-$rlLimit = $action === 'submission_review' ? 30 : 240; // per minute
-$rlCheck = $rl->consume($rlKey, 'user:' . $adminId, $rlLimit, 60);
+$rlCheck = $rl->consume('hr_attendance_retired', 'user:' . $adminId, 120, 60);
 if (!$rlCheck['allowed']) {
+    http_response_code(429);
     hr_att_respond(['status' => 'error', 'message' => 'Too many requests. Please wait a moment and try again.']);
 }
 
-try {
-    switch ($action) {
-        case 'sections': {
-            hr_att_respond(['status' => 'success', 'items' => HrAttendanceService::sectionListWithCounts($conn)]);
-        }
-
-        case 'submissions_list': {
-            $out = HrSubmissionService::listPackets($conn, [
-                'status' => (string)($_GET['status'] ?? ''),
-                'from' => (string)($_GET['from'] ?? ''),
-                'to' => (string)($_GET['to'] ?? ''),
-                'section' => (string)($_GET['section'] ?? ''),
-                'page' => $_GET['page'] ?? 1,
-                'per_page' => $_GET['per_page'] ?? 50,
-            ]);
-            $out['stats'] = HrSubmissionService::packetStats($conn);
-            hr_att_respond(['status' => 'success'] + $out);
-        }
-
-        case 'submission_detail': {
-            $item = HrSubmissionService::detail($conn, (int)($_GET['id'] ?? 0));
-            if ($item === null) {
-                hr_att_respond(['status' => 'error', 'message' => 'Submission not found.']);
-            }
-            hr_att_respond(['status' => 'success', 'item' => $item]);
-        }
-
-        case 'days_list': {
-            $out = HrAttendanceService::listDays(
-                $conn,
-                (string)($_GET['from'] ?? ''),
-                (string)($_GET['to'] ?? ''),
-                (int)($_GET['page'] ?? 1),
-                (int)($_GET['per_page'] ?? 25)
-            );
-            hr_att_respond(['status' => 'success'] + $out);
-        }
-
-        case 'takers_list': {
-            hr_att_respond(['status' => 'success', 'items' => HrAttendanceService::takersList($conn)]);
-        }
-
-        case 'submission_review': {
-            // Retired with HR attendance itself (2026-10-07): packets are
-            // read-only history now. The console's review buttons surface
-            // this message until the Phase D console rework removes them.
-            http_response_code(410);
-            hr_att_respond([
-                'status' => 'error',
-                'message' => 'HR attendance was retired — packets are read-only history now.',
-                'code' => 'HR_ATTENDANCE_RETIRED',
-            ]);
-        }
-
-        default:
-            hr_att_respond(['status' => 'error', 'message' => 'Unknown action.']);
-    }
-} catch (\DomainException $e) {
-    hr_att_respond(['status' => 'error', 'message' => $e->getMessage()]);
-} catch (\Throwable $e) {
-    error_log('[hr-attendance] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
-    hr_att_respond(['status' => 'error', 'message' => 'Unable to complete the request. Please try again.']);
-}
+// Every action — reads included — is retired.
+http_response_code(410);
+hr_att_respond([
+    'status' => 'error',
+    'code' => 'HR_ATTENDANCE_RETIRED',
+    'message' => 'HR attendance was retired. HR analyses the Education and Mezmur attendance in the Attendance Analytics Hub instead.',
+]);

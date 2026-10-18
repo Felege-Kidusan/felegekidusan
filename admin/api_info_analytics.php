@@ -3,9 +3,10 @@
  * ════════════════════════════════════════════════════════════
  * Information Department — Analytics Hub API (web console)
  * ════════════════════════════════════════════════════════════
- * The Information department is the school's READ-ONLY analytics
- * hub over three independent attendance sources (Education classes,
- * Mezmur sections, HR sections). This endpoint is the single
+ * The shared READ-ONLY attendance analytics hub (Information + HR
+ * departments) over two independent attendance sources (Education
+ * classes, Mezmur sections; HR attendance retired 2026-10-07 and
+ * removed as a source 2026-10-18). This endpoint is the single
  * governed surface for that hub:
  *
  *   GET  kpi        — KPI band, one row per source (never merged)
@@ -60,8 +61,9 @@ if (empty($_SESSION['admin_logged_in']) || empty($_SESSION['admin_id'])) {
 }
 $adminId = (int)$_SESSION['admin_id'];
 $role = (string)($_SESSION['admin_role'] ?? '');
-// Read-only analytics: Information department + admins. No other role.
-if (!in_array($role, ['super_admin', 'school_admin', 'info_dept'], true)) {
+// Read-only analytics: Information + HR departments + admins. No other role.
+// (HR analyses Education + Mezmur attendance since 2026-10-18; it never writes.)
+if (!in_array($role, ['super_admin', 'school_admin', 'info_dept', 'hr_dept'], true)) {
     http_response_code(403);
     info_an_respond(['status' => 'error', 'message' => 'You do not have permission to view analytics.']);
 }
@@ -83,7 +85,7 @@ try {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!in_array($role, ['super_admin', 'school_admin'], true)) {
         http_response_code(403);
-        info_an_respond(['status' => 'error', 'message' => 'The Information department is read-only. Only administrators can refresh the analytics data.']);
+        info_an_respond(['status' => 'error', 'message' => 'The analytics hub is read-only for departments. Only administrators can refresh the analytics data.']);
     }
     $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!validateCsrf($csrfToken)) {

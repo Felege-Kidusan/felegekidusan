@@ -52,7 +52,7 @@ if (empty($_SESSION['admin_logged_in']) || empty($_SESSION['admin_id'])) {
 }
 $adminId = (int)$_SESSION['admin_id'];
 $role = (string)($_SESSION['admin_role'] ?? '');
-if (!in_array($role, ['super_admin', 'school_admin', 'info_dept'], true)) {
+if (!in_array($role, ['super_admin', 'school_admin', 'info_dept', 'hr_dept'], true)) {
     info_rp_fail('You do not have permission to generate reports.', 403);
 }
 
@@ -69,6 +69,10 @@ if (!$rlCheck['allowed']) {
 
 $type = (string)($_GET['type'] ?? 'general');
 $source = (string)($_GET['source'] ?? 'mezmur');
+// HR attendance retired (2026-10-07) and removed as a report source (2026-10-18).
+if ($source === 'hr') {
+    info_rp_fail('HR attendance was retired; reports cover Education and Mezmur only.', 410);
+}
 $memberId = (int)($_GET['member_id'] ?? 0);
 $from = (string)($_GET['from'] ?? '');
 $to = (string)($_GET['to'] ?? '');

@@ -125,39 +125,23 @@ class HrEndpointContracts(unittest.TestCase):
         cls.router = (ROOT / "api/v1/index.php").read_text(encoding="utf-8")
         cls.acl = (ROOT / "admin/access_control.php").read_text(encoding="utf-8")
 
-    # ── mobile v1 route: reads stay, writes are retired ─────────
-    def test_mobile_route_write_paths_are_retired(self):
-        # Both POST handlers return an honest 410 with the machine code.
-        self.assertEqual(self.v1.count("['code' => 'HR_ATTENDANCE_RETIRED']"), 2)
+    # ── mobile v1 route: FULLY retired (2026-10-18) ─────────────
+    def test_mobile_route_everything_is_410(self):
+        self.assertIn("apiRequireAuth()", self.v1)
+        self.assertEqual(self.v1.count("['code' => 'HR_ATTENDANCE_RETIRED'"), 3)
+        self.assertEqual(self.v1.count(", 410,"), 3)
         self.assertIn("err('HR attendance was retired. HR no longer takes attendance", self.v1)
-        self.assertIn("err('Reviewing HR attendance was retired", self.v1)
-        self.assertEqual(self.v1.count(", 410,"), 2)
-        # No write entry points remain in the route at all.
-        self.assertNotIn("HrAttendanceService::saveSectionSheet", self.v1)
-        self.assertNotIn("HrSubmissionService::upsert", self.v1)
-        self.assertNotIn("HrSubmissionService::reviewPacket", self.v1)
-        self.assertNotIn("begin_transaction", self.v1)
-        self.assertNotIn("apiIdempotencyBegin", self.v1)
-
-    def test_mobile_route_reads_stay_available(self):
-        # History is preserved and readable for old apps + the archive.
-        for action in ("sections", "days", "sheet", "submissions", "submission"):
-            self.assertIn("'%s'" % action, self.v1)
-        self.assertIn("HrAttendanceService::fetchSectionSheet", self.v1)
-        self.assertIn("HrSubmissionService::listPackets", self.v1)
-        self.assertIn("HrSubmissionService::detail", self.v1)
-
-    def test_mobile_route_roles_and_isolation(self):
-        self.assertIn("hr_attendance_taker", self.v1)
-        self.assertIn("['hr_attendance_taker', 'hr_dept', 'school_admin', 'super_admin']", self.v1)
-        # Retirement version handshake (was phase6-hr26).
-        self.assertIn("'hr-retired-1'", self.v1)
+        self.assertIn("'hr-retired-2'", self.v1)
         self.assertNotIn("phase6-hr26", self.v1)
-        # never touches other departments' tables or routes
-        self.assertNotIn("mezmur_", self.v1)
-        self.assertNotIn("attendance_days", self.v1)
+        # No service entry points remain — neither writes nor reads.
+        for gone in ("HrAttendanceService::", "HrSubmissionService::",
+                     "begin_transaction", "apiIdempotencyBegin",
+                     "mezmur_", "attendance_days"):
+            self.assertNotIn(gone, self.v1)
+        # Old outbox packets still hit the exact POST /hr/sheet 410 contract.
+        self.assertIn("$method === 'POST' && $action === 'sheet'", self.v1)
 
-    # ── web console: read-only history surface ──────────────────
+    # ── web console: FULLY retired (2026-10-18) ─────────────────
     def test_console_endpoint_guards(self):
         # auth: session re-check + role re-check (defense in depth)
         self.assertIn("admin_logged_in", self.console)
@@ -166,22 +150,17 @@ class HrEndpointContracts(unittest.TestCase):
         self.assertIn("validateCsrf", self.console)
         self.assertIn("SecurityRateLimiter", self.console)
         self.assertIn("set_exception_handler", self.console)
-        # schema probe points operators at the right migration
-        self.assertIn("sql/026_hr_attendance.sql", self.console)
-        # version handshake (was phase6-hr26)
-        self.assertIn("'hr-retired-1'", self.console)
+        self.assertIn("'hr-retired-2'", self.console)
         self.assertNotIn("phase6-hr26", self.console)
-        # read actions stay
-        for action in ("sections", "submissions_list", "submission_detail",
-                       "days_list", "takers_list"):
-            self.assertIn("'%s'" % action, self.console)
 
-    def test_console_review_action_is_retired(self):
+    def test_console_every_action_is_retired(self):
         self.assertIn("http_response_code(410)", self.console)
         self.assertIn("'HR_ATTENDANCE_RETIRED'", self.console)
-        self.assertIn("read-only history now", self.console)
-        # The review write no longer reaches the service.
-        self.assertNotIn("HrSubmissionService::reviewPacket", self.console)
+        # No read or write reaches the archived services any more.
+        for gone in ("HrAttendanceService::", "HrSubmissionService::",
+                     "case 'submissions_list'", "case 'submission_detail'",
+                     "case 'takers_list'", "case 'sections'", "switch ($action)"):
+            self.assertNotIn(gone, self.console)
 
     def test_router_and_acl_registration(self):
         self.assertIn("'hr'            => 'hr.php'", self.router)

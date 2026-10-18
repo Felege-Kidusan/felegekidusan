@@ -156,7 +156,8 @@ class AuditHttpTests(unittest.TestCase):
             '/admin/api_material.php?action=items': {'material_dept','super_admin','school_admin'},
             '/backend/api/mezmur.php?action=stats': {'mezmur_dept','super_admin','school_admin'},
             '/admin/api_identity.php?action=list_positions': {'super_admin'},
-            '/admin/api_info_analytics.php?action=kpi': {'info_dept','super_admin','school_admin'},
+            # Shared Attendance Analytics Hub: Info + HR analyse Education + Mezmur (2026-10-18).
+            '/admin/api_info_analytics.php?action=kpi': {'info_dept','hr_dept','super_admin','school_admin'},
         }
         for path, allowed in endpoints.items():
             for role, client in self.clients.items():
