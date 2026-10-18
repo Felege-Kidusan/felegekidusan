@@ -1,6 +1,12 @@
 {
     "require": {
         "phpoffice/phpspreadsheet": "^5.9",
-        "edgaras/strsim": "^1.2"
+        "edgaras/strsim": "^1.2",
+        "openspout/openspout": "^4"
+    },
+    "config": {
+        "platform": {
+            "php": "8.2.0"
+        }
     }
 }

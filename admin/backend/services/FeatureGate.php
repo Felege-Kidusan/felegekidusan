@@ -93,6 +93,7 @@ final class FeatureGate
             'attendance_info.php' => 'attendance',
             'attendance_taker.php' => 'attendance',
             'api_reports.php' => 'reports',
+            'api_reports_v2.php' => 'reports',
             'reports.php' => 'reports',
             'api_export_members.php' => 'reports',
             'export_class_report.php' => 'reports',

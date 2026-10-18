@@ -9,6 +9,7 @@ return array(
     'ZipStream\\' => array($vendorDir . '/maennchen/zipstream-php/src'),
     'Psr\\SimpleCache\\' => array($vendorDir . '/psr/simple-cache/src'),
     'PhpOffice\\PhpSpreadsheet\\' => array($vendorDir . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet'),
+    'OpenSpout\\' => array($vendorDir . '/openspout/openspout/src'),
     'Matrix\\' => array($vendorDir . '/markbaker/matrix/classes/src'),
     'Edgaras\\StrSim\\' => array($vendorDir . '/edgaras/strsim/src'),
     'Composer\\Pcre\\' => array($vendorDir . '/composer/pcre/src'),

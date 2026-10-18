@@ -1,0 +1,3 @@
+tabulator-tables 6.6.1 (MIT) https://github.com/olifolkerd/tabulator
+apache echarts 6.1.0 (Apache-2.0) https://echarts.apache.org
+Source: npm pack, files copied from dist/ unmodified.
