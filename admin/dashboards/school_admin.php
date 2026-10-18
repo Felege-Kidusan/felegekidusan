@@ -16,7 +16,7 @@ $today = new DateTime('now', new DateTimeZone('Africa/Addis_Ababa'));
 $todayFormatted = ethio_date_format($today, 'F j, Y');
 $greeting = ((int)$today->format('H') < 12) ? 'Good Morning' : (((int)$today->format('H') < 17) ? 'Good Afternoon' : 'Good Evening');
 $initials = strtoupper(substr($fullName, 0, 1));
-$csrfToken = $_SESSION['csrf_token'] ?? '';
+$csrfToken = generateCsrfToken(); // always issue a token: login.php resets the session and this dashboard renders before any other generator runs
 $isImpersonating = !empty($_SESSION['original_admin_role']);
 
 // ── Stats ──
@@ -644,8 +644,8 @@ document.addEventListener('click',e=>{if(!e.target.closest('.search-box'))docume
 /* P72: old inline notification bell removed — shared Notification Center in the topbar */
 
 // IMPERSONATE
-async function switchRole(role){if(!confirm('Switch to '+role.replace(/_/g,' ')+' dashboard?'))return;try{const fd=new FormData();fd.append('action','switch');fd.append('role',role);const r=await fetch('/admin/api_impersonate.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success'){toast('Switching...','s');setTimeout(()=>window.location.href='/admin/dashboard.php',400);}else toast(d.message||'Failed','e');}catch(e){toast('Network error','e');}}
-async function restoreRole(){try{const fd=new FormData();fd.append('action','restore');const r=await fetch('/admin/api_impersonate.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success')window.location.href='/admin/dashboard.php';else toast(d.message||'Failed','e');}catch(e){toast('Failed','e');}}
+async function switchRole(role){if(!confirm('Switch to '+role.replace(/_/g,' ')+' dashboard?'))return;try{const fd=new FormData();fd.append('action','switch');fd.append('role',role);fd.append('csrf_token',CSRF);const r=await fetch('/admin/api_impersonate.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success'){toast('Switching...','s');setTimeout(()=>window.location.href='/admin/dashboard.php',400);}else toast(d.message||'Failed','e');}catch(e){toast('Network error','e');}}
+async function restoreRole(){try{const fd=new FormData();fd.append('action','restore');fd.append('csrf_token',CSRF);const r=await fetch('/admin/api_impersonate.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success')window.location.href='/admin/dashboard.php';else toast(d.message||'Failed','e');}catch(e){toast('Failed','e');}}
 
 // SECTION BARS
 (function(){const el=document.getElementById('secBars');if(!el||!secDist.length){if(el)el.innerHTML='<p style="font-size:.72rem;color:var(--dim)">No data</p>';return;}const mx=Math.max(...secDist.map(s=>parseInt(s.c)));const clrs=['var(--ac)','var(--ok)','var(--purple)','var(--warn)','var(--pink)','#f97316','#06b6d4','#84cc16'];el.innerHTML=secDist.slice(0,8).map((s,i)=>{const p=mx>0?Math.round(parseInt(s.c)/mx*100):0;return`<div style="margin-bottom:.5rem"><div style="display:flex;justify-content:space-between;font-size:.65rem;margin-bottom:.15rem"><span style="color:var(--text);font-weight:500">${s.s}</span><span style="font-weight:700;color:${clrs[i%8]}">${s.c}</span></div><div class="progress"><div class="progress-bar" style="width:${p}%;background:${clrs[i%8]}"></div></div></div>`;}).join('');})();
