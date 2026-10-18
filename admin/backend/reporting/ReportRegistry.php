@@ -100,6 +100,11 @@ final class ReportRegistry
 
         $f = [
             // ───────────── Identity ─────────────
+            'id' => [
+                'label_en' => 'Internal id', 'label_am' => 'የውስጥ መለያ', 'type' => 'int',
+                'sql' => 'm.id', 'view' => self::R_ALL, 'export' => [],
+                'filter' => false, 'group' => false, 'sort' => false, 'hidden' => true,
+            ],
             'member_code' => [
                 'label_en' => 'Member ID', 'label_am' => 'የአባል መለያ', 'type' => 'string',
                 'sql' => 'm.member_code', 'view' => self::R_ALL, 'export' => self::R_ALL,
@@ -364,6 +369,7 @@ final class ReportRegistry
             $def['search']  = (bool)($def['search'] ?? false);
             $def['requires'] = $def['requires'] ?? [];
             $def['options'] = $def['options'] ?? null;
+            $def['hidden']  = (bool)($def['hidden'] ?? false);
             // export must never be wider than view
             $def['export']  = array_values(array_intersect($def['export'], $def['view']));
         }
@@ -588,6 +594,7 @@ final class ReportRegistry
                 'sort'       => $f['sort'],
                 'list'       => $f['list'],
                 'export'     => in_array($role, $f['export'], true),
+                'hidden'     => $f['hidden'],
                 'definition' => $f['definition_en'] ?? null,
             ];
         }

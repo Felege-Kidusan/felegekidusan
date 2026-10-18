@@ -66,7 +66,7 @@ if (!in_array($action, ['schema', 'list', 'aggregate', 'kpis', 'options', 'expor
 
 // Per‑user rate limits: reads share one bucket, exports a stricter one.
 $rl = new \App\Services\SecurityRateLimiter($pdo, sys_get_temp_dir() . '/ssms_ratelimit');
-$bucket = $isExport ? ['member_report_export', 20, 60] : ['member_analytics_read', 120, 60];
+$bucket = $isExport ? ['member_report_export', 20, 60] : ['member_reports_v2_read', 240, 60];
 $check = $rl->consume($bucket[0], 'user:' . $adminId, $bucket[1], $bucket[2]);
 if (!$check['allowed']) {
     $fail(429, 'Too many requests. Please wait a moment and try again.');

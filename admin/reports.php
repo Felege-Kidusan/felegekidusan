@@ -108,6 +108,21 @@ $todayFormatted = ethio_date_format($today, 'F j, Y');
 
     <main class="max-w-[1400px] mx-auto px-4 md:px-8 py-6">
 
+        <!-- Reporting Centre v2 (beta) notice — classic page stays until parity is approved -->
+        <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3">
+            <div class="flex items-center gap-3 text-sm text-teal-900">
+                <i class="fa-solid fa-wand-magic-sparkles text-teal-600"></i>
+                <div>
+                    <span class="font-semibold">Try the new Reporting Centre (beta)</span>
+                    <span class="text-teal-800/80"> — one filter panel, starter questions, Amharic labels, click-to-filter charts, CSV/Excel exports.</span>
+                    <span class="amh block text-xs text-teal-800/70">አዲሱ የሪፖርት ማዕከል (ሙከራ) — ይህ ገጽ እስከ ማጽደቅ ድረስ ይቀጥላል።</span>
+                </div>
+            </div>
+            <a href="/admin/reports_v2.php" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-600 text-white text-xs font-semibold shadow hover:bg-teal-700 transition">
+                <i class="fa-solid fa-table-list"></i> Open Reporting Centre <span class="px-1.5 py-0.5 rounded-full bg-white/25 text-[9px] font-bold">BETA</span>
+            </a>
+        </div>
+
         <!-- ============ TAB 1: ANALYTICS ============ -->
         <div id="tab-analytics" class="tc fi">
             <div id="aLoad" class="text-center py-16"><div class="ld"></div><p class="text-sm text-slate-400 mt-3">Loading analytics...</p></div>

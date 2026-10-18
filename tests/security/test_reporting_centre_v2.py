@@ -19,6 +19,9 @@ ACL = ROOT / "admin" / "access_control.php"
 GATE = ROOT / "admin" / "backend" / "services" / "FeatureGate.php"
 HARNESS = ROOT / "tests" / "e2e" / "report_query_service_unit.php"
 VENDOR_JS = ROOT / "admin" / "js" / "vendor"
+PAGE = ROOT / "admin" / "reports_v2.php"
+PAGE_JS = ROOT / "admin" / "js" / "reports" / "reports_v2.js"
+PAGE_CSS = ROOT / "admin" / "css" / "reports_v2.css"
 
 
 def _read(p: Path) -> str:
@@ -38,13 +41,38 @@ class ReportingCentreV2Static(unittest.TestCase):
         self.assertEqual(roles, {"super_admin", "school_admin", "info_dept", "hr_dept"})
         self.assertIn("'api_reports_v2.php' => 'reports'", _read(GATE))
 
+    def test_page_shell_is_gated_and_self_hosted(self):
+        """V2-1: the page is in ROLE_MAP + FeatureGate, re-checks the role in-file,
+        serves only local assets and never embeds data or SQL."""
+        for p in (PAGE, PAGE_JS, PAGE_CSS):
+            self.assertTrue(p.is_file(), p)
+        acl = _read(ACL)
+        m = re.search(r"'reports_v2\.php'\s*=>\s*\[([^\]]+)\]", acl)
+        self.assertIsNotNone(m, "reports_v2.php missing from ROLE_MAP")
+        self.assertEqual(set(re.findall(r"'([a-z_]+)'", m.group(1))),
+                         {"super_admin", "school_admin", "info_dept", "hr_dept"})
+        self.assertIn("'reports_v2.php' => 'reports'", _read(GATE))
+        page = _read(PAGE)
+        self.assertIn("$_SESSION['admin_logged_in']", page)
+        self.assertIn("['super_admin', 'school_admin', 'info_dept', 'hr_dept']", page)
+        self.assertNotRegex(page, r"https?://(cdn|unpkg|cdnjs|fonts\.googleapis)", "no CDN assets")
+        self.assertNotRegex(page, r"\$(conn|pdo)\b|mysqli|->query\(", "page must not touch the DB")
+        self.assertIn("ENT_QUOTES", page)
+        js = _read(PAGE_JS)
+        # Exports and all data go through the governed API, never a client-side writer.
+        self.assertNotRegex(js, r"XLSX\.|jsPDF|downloadToTab|table\.download\(")
+        self.assertIn("credentials: 'same-origin'", js)
+        self.assertIn("error=session_expired", js)
+        # Rows are rendered as text (Tabulator plaintext formatters) — no innerHTML of API data.
+        self.assertNotRegex(js, r"formatter:\s*['\"]html['\"]")
+
     def test_api_defense_in_depth(self):
         src = _read(API)
         self.assertIn("ReportRegistry::READER_ROLES", src)
         self.assertIn("!== 'GET'", src)
         self.assertIn("SecurityRateLimiter", src)
         self.assertIn("'member_report_export'", src)
-        self.assertIn("'member_analytics_read'", src)
+        self.assertIn("'member_reports_v2_read'", src)
         self.assertIn("'Member Report Exported'", src)
         self.assertIn("'Member Analytics Explorer Queried'", src)
         self.assertIn("strlen($q) > 8192", src)

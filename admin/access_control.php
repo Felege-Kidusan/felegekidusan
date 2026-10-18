@@ -179,6 +179,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // export below; the page itself is read-only.
             'api_reports.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
     'api_reports_v2.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+    'reports_v2.php'     => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'reports.php'     => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'export_pdf.php'  => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'api_export_members.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],

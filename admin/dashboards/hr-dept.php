@@ -2461,10 +2461,16 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                         </h3>
                         <p class="text-xs text-slate-500 amharic-text">ሪፖርቶችና ወጪዎች</p>
                     </div>
-                    <a href="/admin/reports.php" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-semibold shadow hover:from-blue-700 hover:to-indigo-700 transition">
-                        <i class="fa-solid fa-chart-line"></i> Open Advanced Analytics Center
-                        <i class="fa-solid fa-arrow-up-right-from-square text-[10px] opacity-70"></i>
-                    </a>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <a href="/admin/reports_v2.php" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white text-xs font-semibold shadow hover:from-teal-700 hover:to-emerald-700 transition">
+                            <i class="fa-solid fa-table-list"></i> New Reporting Centre
+                            <span class="px-1.5 py-0.5 rounded-full bg-white/25 text-[9px] font-bold tracking-wide">BETA</span>
+                        </a>
+                        <a href="/admin/reports.php" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-semibold shadow hover:from-blue-700 hover:to-indigo-700 transition">
+                            <i class="fa-solid fa-chart-line"></i> Open Advanced Analytics Center
+                            <i class="fa-solid fa-arrow-up-right-from-square text-[10px] opacity-70"></i>
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Quick notice -->
