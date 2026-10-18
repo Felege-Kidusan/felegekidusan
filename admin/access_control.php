@@ -174,8 +174,11 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'groups_api.php' => ['super_admin', 'school_admin', 'hr_dept'],
 
             // ---- Reports & exports (contain all-member data) ----
-            'api_reports.php' => ['super_admin', 'school_admin'],
-            'reports.php'     => ['super_admin', 'school_admin'],
+            // Member analytics & export centre: Info + HR analyse and export
+            // member demographics (2026-10-18). Both roles already had every
+            // export below; the page itself is read-only.
+            'api_reports.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+            'reports.php'     => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'export_pdf.php'  => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'api_export_members.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'api_import_members.php' => ['super_admin', 'school_admin', 'hr_dept'],

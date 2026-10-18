@@ -4,7 +4,10 @@ require_once __DIR__ . '/config.php';
 
 // If already logged in, send to dashboard
 if (isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true) {
-    header('Location: dashboard.php');
+    // Keep the access-denied marker so the dashboard can explain the bounce
+    // instead of silently reloading (access_control.php redirects here).
+    $bounce = (($_GET['error'] ?? '') === 'access_denied') ? '?error=access_denied' : '';
+    header('Location: dashboard.php' . $bounce);
     exit;
 }
 

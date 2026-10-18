@@ -6,15 +6,58 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
+require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+
+use App\Services\SecurityAuditService;
 
 // CRITICAL FIX: correct session variable
-if (empty($_SESSION['admin_logged_in'])) {
+if (empty($_SESSION['admin_logged_in']) || empty($_SESSION['admin_id'])) {
     http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
     exit;
 }
+// Defense in depth (access_control.php is the primary gate): admins + the
+// two analysing departments. Read-only — this endpoint never writes members.
+$adminId = (int)$_SESSION['admin_id'];
+$role = (string)($_SESSION['admin_role'] ?? '');
+if (!in_array($role, ['super_admin', 'school_admin', 'info_dept', 'hr_dept'], true)) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'You do not have permission to view member analytics.']);
+    exit;
+}
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+    http_response_code(405);
+    echo json_encode(['status' => 'error', 'message' => 'Use GET for analytics reads.']);
+    exit;
+}
 
-$action = $_REQUEST['action'] ?? '';
+$action = (string)($_REQUEST['action'] ?? '');
+if (!in_array($action, ['get_analytics', 'get_filtered_members', 'get_filter_options'], true)) {
+    http_response_code(400);
+    echo json_encode(['status' => 'error', 'message' => 'Unknown action']);
+    exit;
+}
+
+// Per-user rate limit: the explorer returns bulk member rows (PII).
+$rl = new \App\Services\SecurityRateLimiter($pdo ?? null, sys_get_temp_dir() . '/ssms_ratelimit');
+$rlCheck = $rl->consume('member_analytics_read', 'user:' . $adminId, 120, 60);
+if (!$rlCheck['allowed']) {
+    http_response_code(429);
+    echo json_encode(['status' => 'error', 'message' => 'Too many requests. Please wait a moment and try again.']);
+    exit;
+}
+
+// Every bulk member read is audited, like export_pdf.php / api_export_members.php.
+if ($action === 'get_filtered_members') {
+    $auditFilters = [];
+    foreach (['gender', 'age_group', 'status', 'member_type', 'registration_type', 'city', 'sub_city',
+              'education_level', 'has_id_card', 'has_phone', 'date_from', 'date_to'] as $k) {
+        if (isset($_GET[$k]) && $_GET[$k] !== '') $auditFilters[$k] = mb_substr((string)$_GET[$k], 0, 60);
+    }
+    $auditFilters['search_len'] = isset($_GET['search']) ? mb_strlen((string)$_GET['search']) : 0;
+    SecurityAuditService::record($conn, 'Member Analytics Explorer Queried', $auditFilters, 'member_analytics');
+}
 
 try {
     switch ($action) {
@@ -42,7 +85,10 @@ try {
                 COALESCE(SUM((id_card_status IS NULL OR id_card_status!='generated') AND status!='archived'),0) as no_id,
                 COALESCE(SUM(is_teacher=1 AND status!='archived'),0) as is_teacher
             FROM members");
-            $analytics['totals'] = $r ? $r->fetch_assoc() : [];
+            if (!$r) {
+                throw new RuntimeException('analytics totals query failed');
+            }
+            $analytics['totals'] = $r->fetch_assoc();
 
             $r = $conn->query("SELECT DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count,
                 SUM(gender='male') as male_count, SUM(gender='female') as female_count
@@ -119,7 +165,7 @@ try {
                 else $where[] = "(phone_number IS NULL OR phone_number = '')";
             }
             if (!empty($_GET['search'])) {
-                $s = '%' . $_GET['search'] . '%';
+                $s = '%' . addcslashes(mb_substr((string)$_GET['search'], 0, 100), '%_\\') . '%';
                 $where[] = "(student_name LIKE ? OR father_name LIKE ? OR grandfather_name LIKE ? OR member_code LIKE ? OR phone_number LIKE ? OR guardian_name LIKE ?)";
                 $params = array_merge($params, [$s,$s,$s,$s,$s,$s]); $types .= 'ssssss';
             }
@@ -168,9 +214,11 @@ try {
             break;
 
         default:
+            http_response_code(400);
             echo json_encode(['status'=>'error','message'=>'Unknown action']);
     }
-} catch (Exception $e) {
+} catch (Throwable $e) {
+    error_log('[api_reports] ' . get_class($e) . ': ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['status'=>'error','message'=>'Server error']);
 }

@@ -4336,5 +4336,18 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 <script src="/admin/js/member_nav.js?v=<?= SSMS_ASSET_VER ?>"></script>
+<script>
+// Explain a permission bounce (access_control.php → index.php → dashboard.php?error=access_denied).
+(function () {
+    try {
+        const u = new URL(window.location.href);
+        if (u.searchParams.get('error') === 'access_denied') {
+            if (typeof showToast === 'function') showToast('You do not have permission to open that page.', 'error');
+            u.searchParams.delete('error');
+            history.replaceState(null, '', u.toString());
+        }
+    } catch (e) { /* decorative */ }
+})();
+</script>
 </body>
 </html>

@@ -1437,4 +1437,17 @@ document.querySelectorAll('.mo').forEach(mo=>{mo.addEventListener('click',functi
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));});
 </script>
 <?php include __DIR__ . '/../components/account_link.php'; ?>
+<script>
+// Explain a permission bounce (access_control.php → index.php → dashboard.php?error=access_denied).
+(function () {
+    try {
+        const u = new URL(window.location.href);
+        if (u.searchParams.get('error') === 'access_denied') {
+            if (typeof toast === 'function') toast('You do not have permission to open that page.', 'e'); else alert('You do not have permission to open that page.');
+            u.searchParams.delete('error');
+            history.replaceState(null, '', u.toString());
+        }
+    } catch (e) { /* decorative */ }
+})();
+</script>
 </body></html>

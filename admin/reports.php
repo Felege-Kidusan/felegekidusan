@@ -16,6 +16,12 @@ if (empty($_SESSION['admin_logged_in'])) {
     header('Location: index.php');
     exit;
 }
+// Defense in depth (access_control.php is the primary gate). Read-only page:
+// admins + the Information and HR departments (2026-10-18).
+if (!in_array((string)($_SESSION['admin_role'] ?? ''), ['super_admin', 'school_admin', 'info_dept', 'hr_dept'], true)) {
+    header('Location: dashboard.php?error=access_denied');
+    exit;
+}
 
 $userName = $_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'User';
 $userRole = $_SESSION['admin_role'] ?? '';
@@ -343,7 +349,7 @@ function showExpCharts(){
     let m=0,f=0,a13=0,a17=0,a18=0;
     FM.forEach(x=>{if(x.gender==='male')m++;else f++;if(x.age_group==='7_13')a13++;else if(x.age_group==='14_17')a17++;else if(x.age_group==='18_plus')a18++;});
     mc('ecGender',{type:'doughnut',data:{labels:['Male','Female'],datasets:[{data:[m,f],backgroundColor:['#3b82f6','#ec4899'],borderWidth:0}]},options:dO()});
-    mc('ecAge',{type:'doughnut',data:{labels:['Under 6','7-13','14-17','18+'],datasets:[{data:[u6,a13,a17,a18],backgroundColor:['#10b981','#3b82f6','#f59e0b','#ef4444'],borderWidth:0}]},options:dO()});
+    mc('ecAge',{type:'doughnut',data:{labels:Object.values(RP_SECTIONS),datasets:[{data:[a13,a17,a18],backgroundColor:['#3b82f6','#f59e0b','#ef4444'],borderWidth:0}]},options:dO()});
 }
 
 // ============ SERVER-SIDE EXPORTS ============

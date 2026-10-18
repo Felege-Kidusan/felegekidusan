@@ -4830,5 +4830,18 @@ const HrReports = (function () {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <script src="/admin/js/hr_data_sync.js"></script>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
+<script>
+// Explain a permission bounce (access_control.php → index.php → dashboard.php?error=access_denied).
+(function () {
+    try {
+        const u = new URL(window.location.href);
+        if (u.searchParams.get('error') === 'access_denied') {
+            if (typeof showToast === 'function') showToast('You do not have permission to open that page.', 'error');
+            u.searchParams.delete('error');
+            history.replaceState(null, '', u.toString());
+        }
+    } catch (e) { /* decorative */ }
+})();
+</script>
 </body>
 </html>
