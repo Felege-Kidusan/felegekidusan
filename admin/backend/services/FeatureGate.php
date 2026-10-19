@@ -102,6 +102,8 @@ final class FeatureGate
             'attendance_monthly.php' => 'attendance',
             'api_assessment_followups.php' => 'attendance',
             'assessment_followups.php' => 'attendance',
+            'api_lesson_attendance.php' => 'attendance',
+            'lesson_attendance.php' => 'attendance',
             'api_reports.php' => 'reports',
             'api_reports_v2.php' => 'reports',
             'reports_v2.php' => 'reports',

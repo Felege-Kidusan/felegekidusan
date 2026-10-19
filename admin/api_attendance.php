@@ -11,6 +11,7 @@ require_once __DIR__ . '/backend/services/AttendanceRecordService.php';
 require_once __DIR__ . '/backend/services/AttendanceSummaryService.php';
 require_once __DIR__ . '/backend/services/SubmissionService.php';
 require_once __DIR__ . '/backend/services/AttendanceWarningService.php';
+require_once __DIR__ . '/backend/services/LessonAttendanceService.php';
 
 use App\Services\AttendanceRecordService;
 use App\Services\EnrollmentService;
@@ -119,6 +120,10 @@ switch ($action) {
             'roster_year_id' => $scope['year_id'] ?? null,
             'roster_year_name' => $scope['year_name'] ?? null,
             'roster_fallback' => !empty($scope['fallback']),
+            // Phase 6 (additive): lessons already saved for this class/day → the
+            // class/day sheet is derived and read-only in the UI.
+            'lessons' => \App\Services\LessonAttendanceService::sessionsForDay($conn, $classId, $date),
+            'lesson_attendance_available' => \App\Services\LessonAttendanceService::available($conn),
         ], JSON_UNESCAPED_UNICODE);
         break;
     
@@ -137,6 +142,12 @@ switch ($action) {
         }
         
         $academicYearId = $currentYear ? (int)$currentYear['id'] : null;
+        // Phase 6: a day with lesson sheets is derived → class/day sheet read-only.
+        if (\App\Services\LessonAttendanceService::dayHasLessons($conn, $classId, $date)) {
+            http_response_code(409);
+            echo json_encode(['status' => 'error', 'code' => 'LESSON_DAY', 'message' => \App\Services\LessonAttendanceService::DAY_LOCKED_MESSAGE]);
+            exit;
+        }
 
         // Resolve the roster again at save time. A stale or partial browser
         // sheet must never erase students or silently mark them present.
@@ -255,6 +266,11 @@ switch ($action) {
         $memberId = $memberResult['id'];
         $memberName = $memberResult['student_name'] . ' ' . $memberResult['father_name'];
         $academicYearId = $currentYear ? $currentYear['id'] : null;
+        if (\App\Services\LessonAttendanceService::dayHasLessons($conn, $classId, $date)) {
+            http_response_code(409);
+            echo json_encode(['status' => 'error', 'code' => 'LESSON_DAY', 'message' => \App\Services\LessonAttendanceService::DAY_LOCKED_MESSAGE]);
+            exit;
+        }
         $checkInTime = date('H:i:s');
         
         // Insert or update attendance using ON DUPLICATE KEY UPDATE

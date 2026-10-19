@@ -423,10 +423,10 @@ $csrfToken = generateCsrfToken();
                     
                     <?php if (!empty($myClasses)): ?>
                     <div class="card p-4 mb-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <label class="form-label">Select Class</label>
-                                <select id="attClassSelect" class="form-input" onchange="loadStudentsForAttendance()">
+                                <select id="attClassSelect" class="form-input" onchange="onAttClassChange()">
                                     <option value="">-- Select Class --</option>
                                     <?php foreach ($myClasses as $c): ?>
                                     <option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option>
@@ -437,7 +437,22 @@ $csrfToken = generateCsrfToken();
                                 <label class="form-label">Date</label>
                                 <input type="date" id="attDateInput" class="form-input" value="<?= $todayDate ?>" onchange="loadStudentsForAttendance()">
                             </div>
+                            <!-- Phase 6: lesson sheets. Hidden until lesson attendance is available
+                                 (FEATURE_ATTENDANCE_V2 + sql/076) and the class has subjects for this teacher. -->
+                            <div id="attLessonWrap" style="display:none;">
+                                <label class="form-label">Sheet</label>
+                                <div class="flex gap-2">
+                                    <select id="attLessonSelect" class="form-input" onchange="loadStudentsForAttendance()" title="Whole-day class sheet or one lesson (subject)">
+                                        <option value="">Whole day (class)</option>
+                                    </select>
+                                    <select id="attLessonNo" class="form-input" style="width:90px;display:none;" onchange="loadStudentsForAttendance()" title="Lesson number of this subject on that day">
+                                        <option value="1">L1</option><option value="2">L2</option><option value="3">L3</option>
+                                        <option value="4">L4</option><option value="5">L5</option><option value="6">L6</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
+                        <div id="attLessonInfo" class="text-sm text-slate-600 mt-3" style="display:none;"></div>
                     </div>
                     
                     <!-- Quick Actions -->
@@ -452,7 +467,7 @@ $csrfToken = generateCsrfToken();
                                 <h3 class="font-semibold" id="attTitle">Attendance</h3>
                                 <p class="text-sm text-slate-500" id="attSubtitle"></p>
                             </div>
-                            <button onclick="saveAttendance()" class="btn btn-success">
+                            <button onclick="saveAttendance()" class="btn btn-success" id="attSaveBtn">
                                 <i class="fa-solid fa-save"></i> Save Attendance
                             </button>
                         </div>
@@ -913,6 +928,48 @@ $csrfToken = generateCsrfToken();
         // ============================================================
         let attendanceData = [];
         
+        // ── Phase 6: lesson sheets (subject + lesson number) ───────────
+        // "Whole day (class)" = the existing class/day sheet. Choosing a
+        // subject opens a LESSON sheet; the day result is then calculated by
+        // the server from all lessons and the day sheet becomes read-only.
+        const attSubjectsCache = {};
+        function attSelectedLesson() {
+            const sel = document.getElementById('attLessonSelect');
+            const subjectId = sel ? sel.value : '';
+            const no = document.getElementById('attLessonNo');
+            return subjectId ? { subjectId, lessonNo: no && no.value ? no.value : '1' } : null;
+        }
+        function attSetLocked(locked, text) {
+            const btn = document.getElementById('attSaveBtn');
+            if (btn) { btn.disabled = !!locked; btn.style.opacity = locked ? '0.5' : ''; }
+            document.getElementById('attQuickActions').style.display = locked ? 'none' : 'flex';
+            document.querySelectorAll('#attendanceBody .att-btn, #attendanceBody .att-note').forEach(el => { el.disabled = !!locked; });
+            const info = document.getElementById('attLessonInfo');
+            if (info) { info.innerHTML = text || ''; info.style.display = text ? 'block' : 'none'; }
+        }
+        function attLessonSummary(lessons, prefix) {
+            if (!lessons || !lessons.length) return '';
+            return (prefix || '') + lessons.map(l => `<span class="inline-block px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700 mr-1" title="${escapeHtml(l.teacher_name || '')}">${escapeHtml((l.subject_name || ('Subject #' + l.subject_id)) + ' L' + l.lesson_no)}: P ${l.present} · A ${l.absent} · L ${l.late} · E ${l.excused}</span>`).join(' ');
+        }
+        function onAttClassChange() {
+            const classId = document.getElementById('attClassSelect').value;
+            const wrap = document.getElementById('attLessonWrap');
+            const sel = document.getElementById('attLessonSelect');
+            sel.value = '';
+            document.getElementById('attLessonNo').style.display = 'none';
+            if (!classId) { wrap.style.display = 'none'; loadStudentsForAttendance(); return; }
+            const fill = (subjects) => {
+                sel.innerHTML = '<option value="">Whole day (class)</option>' + subjects.map(su => `<option value="${su.id}">${escapeHtml(su.name)}</option>`).join('');
+                wrap.style.display = subjects.length ? 'block' : 'none';
+                loadStudentsForAttendance();
+            };
+            if (attSubjectsCache[classId]) { fill(attSubjectsCache[classId]); return; }
+            fetch(`/admin/api_lesson_attendance.php?action=subjects&class_id=${classId}`, {credentials:'same-origin'})
+                .then(r => r.json())
+                .then(d => { attSubjectsCache[classId] = (d && d.status === 'success' && d.available) ? (d.subjects || []) : []; fill(attSubjectsCache[classId]); })
+                .catch(() => fill([]));
+        }
+
         function loadStudentsForAttendance() {
             const classId = document.getElementById('attClassSelect').value;
             const date = document.getElementById('attDateInput').value;
@@ -921,21 +978,47 @@ $csrfToken = generateCsrfToken();
                 document.getElementById('attendanceCard').style.display = 'none';
                 document.getElementById('attQuickActions').style.display = 'none';
                 document.getElementById('selectAttMsg').style.display = 'block';
+                attSetLocked(false, '');
                 return;
             }
             
             document.getElementById('selectAttMsg').style.display = 'none';
             document.getElementById('attendanceCard').style.display = 'block';
             document.getElementById('attQuickActions').style.display = 'flex';
-            
+            const lesson = attSelectedLesson();
+            document.getElementById('attLessonNo').style.display = lesson ? 'block' : 'none';
+            const dateLabel = (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(date,'long'):date;
+
+            if (lesson) {
+                fetch(`/admin/api_lesson_attendance.php?action=sheet&class_id=${classId}&subject_id=${lesson.subjectId}&date=${date}&lesson_no=${lesson.lessonNo}`, {credentials:'same-origin'})
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status !== 'success') { showToast(data.message || 'Could not load the lesson sheet.', 'error'); return; }
+                        const subjName = document.getElementById('attLessonSelect').selectedOptions[0].textContent;
+                        document.getElementById('attTitle').textContent = `${subjName} — Lesson ${lesson.lessonNo}`;
+                        document.getElementById('attSubtitle').textContent = `Date: ${dateLabel} | ${data.students.length} students` + (data.session ? ` | saved by ${data.session.teacher_name || 'teacher'} (${data.session.updated_at_ec})` : ' | not saved yet');
+                        attendanceData = data.students;
+                        renderAttendanceTable(data.students);
+                        attSetLocked(data.session && data.session.status === 'cancelled',
+                            (data.session && data.session.status === 'cancelled' ? '<span class="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">Cancelled by Education</span> ' + escapeHtml(data.session.cancel_reason || '') + ' — saving again re-opens this lesson. ' : '')
+                            + attLessonSummary(data.other_lessons, 'Other lessons this day: '));
+                    })
+                    .catch(() => showToast('Could not load the lesson sheet.', 'error'));
+                return;
+            }
+
             fetch(`/admin/api_attendance.php?action=get_class_attendance&class_id=${classId}&date=${date}`)
                 .then(r => r.json())
                 .then(data => {
                     if (data.status === 'success') {
                         document.getElementById('attTitle').textContent = data.class_name || 'Attendance';
-                        document.getElementById('attSubtitle').textContent = `Date: ${(typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(date,'long'):date} | ${data.students.length} students`;
+                        document.getElementById('attSubtitle').textContent = `Date: ${dateLabel} | ${data.students.length} students`;
                         attendanceData = data.students;
                         renderAttendanceTable(data.students);
+                        const lessons = data.lessons || [];
+                        attSetLocked(lessons.length > 0, lessons.length
+                            ? '<b>Day result is calculated from ' + lessons.length + ' lesson sheet(s)</b> — read-only here; pick the lesson above to change it. ' + attLessonSummary(lessons, '')
+                            : '');
                     }
                 });
         }
@@ -996,17 +1079,20 @@ $csrfToken = generateCsrfToken();
                 return;
             }
             
+            const lesson = attSelectedLesson();
             const formData = new FormData();
-            formData.append('action', 'save_attendance');
+            formData.append('action', lesson ? 'save' : 'save_attendance');
             formData.append('class_id', classId);
             formData.append('date', date);
+            if (lesson) { formData.append('subject_id', lesson.subjectId); formData.append('lesson_no', lesson.lessonNo); }
             formData.append('records', JSON.stringify(sheet.records));
             formData.append('csrf_token', CSRF_TOKEN);
             
-            fetch('/admin/api_attendance.php', { method: 'POST', body: formData })
+            fetch(lesson ? '/admin/api_lesson_attendance.php' : '/admin/api_attendance.php', { method: 'POST', body: formData, credentials: 'same-origin' })
                 .then(r => r.json())
                 .then(data => {
                     showToast(data.message, data.status === 'success' ? 'success' : 'error');
+                    if (data.status === 'success' && lesson) loadStudentsForAttendance();
                 })
                 .catch(() => showToast('Attendance could not be saved. Check your connection and retry.', 'error'));
         }

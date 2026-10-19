@@ -12,6 +12,7 @@ require_once __DIR__ . '/backend/services/EnrollmentService.php';
 require_once __DIR__ . '/backend/services/AssignmentService.php';
 require_once __DIR__ . '/backend/services/AttendanceRecordService.php';
 require_once __DIR__ . '/backend/services/AttendanceWarningService.php';
+require_once __DIR__ . '/backend/services/LessonAttendanceService.php';
 
 use App\Services\AssignmentService;
 use App\Services\AttendanceRecordService;
@@ -453,6 +454,12 @@ switch ($action) {
         
         $yearId = $currentYear ? (int)$currentYear['id'] : null;
         $recordedBy = (int)$_SESSION['admin_id'];
+        // Phase 6: a day with lesson sheets is derived → class/day sheet read-only.
+        if (\App\Services\LessonAttendanceService::dayHasLessons($conn, $classId, $attendanceDate)) {
+            http_response_code(409);
+            echo json_encode(['status' => 'error', 'code' => 'LESSON_DAY', 'message' => \App\Services\LessonAttendanceService::DAY_LOCKED_MESSAGE]);
+            exit;
+        }
         $scope = EnrollmentService::resolveRosterYear($conn, $classId, $yearId);
         $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null, ['on_date' => $attendanceDate]);
         try {

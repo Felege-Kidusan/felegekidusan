@@ -147,6 +147,8 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // their class + subject assignments and HR / Info / admins are read-only INSIDE the API.
             'api_assessment_followups.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'hr_dept', 'info_dept'],
             'assessment_followups.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'hr_dept', 'info_dept'],
+            'api_lesson_attendance.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'hr_dept', 'info_dept'],
+            'lesson_attendance.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'hr_dept', 'info_dept'],
 
             // ---- Marklists / report cards ----
             'api_communication.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],

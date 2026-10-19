@@ -149,6 +149,8 @@
                     '<div class="ds-since">' + esc(m.label || 'This month') + ': <b>' + (m.rate == null ? 'No data' : esc(m.rate) + '%') + '</b> · ' + esc(m.sessions || 0) + ' sessions</div>' +
                     '<div class="ds-since">Year ' + esc(y.ec_year || '') + ': <b>' + (y.rate == null ? 'No data' : esc(y.rate) + '%') + '</b> · ' + esc(y.sessions || 0) + ' sessions</div>' +
                     '<div class="ds-since">Open warnings: <b>' + open.length + '</b>' + (open.length ? ' · <a href="/admin/attendance_warnings.php?member_id=' + encodeURIComponent(memberId) + '&department=' + encodeURIComponent(k) + '">open list</a>' : '') + '</div>' +
+                    // Phase 6: lesson-level history (Education only has lessons)
+                    (k === 'edu' ? '<div class="ds-since"><a href="/admin/lesson_attendance.php?member_id=' + encodeURIComponent(memberId) + '">Lesson attendance history</a></div>' : '') +
                     '</div></div>';
             });
             html += '</div>';

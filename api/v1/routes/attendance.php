@@ -37,6 +37,13 @@ $yearId = $year ? (int)$year['id'] : 0;
  * @param array<int,mixed> $records
  * @return array<int,array{member_id:int,status:string,note:string}>
  */
+if (!class_exists('\\App\\Services\\LessonAttendanceService')) {
+    $lessonServicePath = dirname(__DIR__, 3) . '/admin/backend/services/LessonAttendanceService.php';
+    if (is_file($lessonServicePath)) {
+        require_once $lessonServicePath;
+    }
+}
+
 function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, array $records, bool $requireComplete, ?string $sheetDate = null): array {
     if (!class_exists('\\App\\Services\\AttendanceRecordService')
         || !class_exists('\\App\\Services\\EnrollmentService')) {
@@ -85,6 +92,11 @@ function apiReplaceAttendanceRows(
     array $records,
     bool $merge = false
 ): int {
+    // Phase 6: a day with submitted lesson sheets is derived → class/day
+    // writes are refused (409 WORKFLOW_REJECTED via the caller's catch).
+    if (class_exists('\\App\\Services\\LessonAttendanceService')) {
+        \App\Services\LessonAttendanceService::assertClassDayWritable($conn, $classId, $date);
+    }
     return $merge
         ? \App\Services\AttendanceRecordService::mergeSheet(
             $conn,
