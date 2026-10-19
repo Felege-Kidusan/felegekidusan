@@ -77,7 +77,19 @@ asserts no `YYYY-MM-DD` string in the list payload.
    endpoint answers `available:false` and the hook is a no‑op.
 3. Nothing else: the flag `FEATURE_ATTENDANCE_V2` already gates it.
 
-## 4. Decisions needed / flagged (not decided by me)
+## 4. Owner decisions (confirmed 2026‑10‑19)
+
+| # | Decision | Effect on code |
+|---|---|---|
+| **G‑1** | **Keep "make‑up supersedes" on report cards**: latest valid make‑up shown as the current score, original retained as `original_score`, `is_makeup` marker shown. Marklists and grade‑entry screens unchanged. Make‑up results never overwrite originals. | None — matches the implementation. |
+| **G‑2** | **Skip undated assessments** (no `due_date` and no term dates) by default — avoids false follow‑ups. | None. |
+| **G‑3** | **Any assigned teacher or Education may decide**; last decision wins; every decision audited; previous decisions preserved in the audit history, never deleted. | None (decisions are UPDATEs on the follow‑up row; history lives in `activity_logs` via SecurityAuditService). |
+| **G‑4** | **Web‑only for now.** No Flutter screen in the next APK until a mobile implementation is separately planned and approved. The `/api/v1/grades/followups` endpoints stay available. | None. |
+| **G‑5** | **No bell to HR / Information** for the assessment follow‑up queue (teachers + Education only). This does **not** change the separately approved attendance‑warning bells, where HR and Information are still notified. | None. |
+
+The original questions are kept below for traceability.
+
+### 4a. Questions as originally raised
 
 | # | Item | What was implemented (reversible) | Question |
 |---|---|---|---|
