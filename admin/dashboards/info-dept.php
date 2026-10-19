@@ -77,6 +77,7 @@ $statusCounts = [
 
 $totalMembers = 0;
 $memberTypeRegular = 0;
+$memberTypeSpecial = 0; // member_type = special_regular (student + role)
 $memberTypeWaiting = 0; // registration waiting (no ID yet)
 $memberTypeHonor   = 0;
 
@@ -109,6 +110,7 @@ if (isset($conn)) {
         "SELECT 
             SUM(status != 'archived')           AS total_members,
             SUM(member_type='regular' AND status != 'archived')      AS regular_cnt,
+            SUM(member_type='special_regular' AND status != 'archived') AS special_cnt,
             SUM(member_type='honorary' AND status != 'archived')     AS honor_cnt,
             SUM(registration_type='waiting' AND status != 'archived') AS waiting_cnt,
             SUM(gender='male' AND status != 'archived')              AS male_cnt,
@@ -128,6 +130,7 @@ if (isset($conn)) {
         $totalMembers      = (int) ($row['total_members'] ?? 0);
         $memberTypeRegular = (int) ($row['regular_cnt'] ?? 0);
         $memberTypeHonor   = (int) ($row['honor_cnt'] ?? 0);
+        $memberTypeSpecial = (int) ($row['special_cnt'] ?? 0);
         $memberTypeWaiting = (int) ($row['waiting_cnt'] ?? 0);
 
         $genderCounts['male']   = (int) ($row['male_cnt'] ?? 0);
@@ -682,8 +685,8 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                 <span class="font-semibold"><?= $memberTypeRegular ?></span>
                             </div>
                             <div class="flex justify-between">
-                                <span>የመጠባበቂያ</span>
-                                <span class="font-semibold"><?= $memberTypeWaiting ?></span>
+                                <span>ልዩ መደበኛ</span>
+                                <span class="font-semibold"><?= $memberTypeSpecial ?></span>
                             </div>
                             <div class="flex justify-between">
                                 <span>የክብር አባላት</span>
