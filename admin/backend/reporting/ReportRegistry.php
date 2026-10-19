@@ -40,6 +40,13 @@ final class ReportRegistry
     private const R_ALL   = ['super_admin', 'school_admin', 'info_dept', 'hr_dept'];
     private const R_ADMIN = ['super_admin', 'school_admin'];
     private const R_HR    = ['super_admin', 'school_admin', 'hr_dept'];
+    /**
+     * Owner decision 2026‑10‑19 (docs/planning/REPORTING_CENTRE_SCOPE_AND_ROLE_BOUNDARY_2026-10-19.md):
+     * future cross‑department / sensitive datasets (Finance, Material, Mezmur records,
+     * Education detail, telemetry) are Information‑Department‑only — use R_INFO for them.
+     * HR's scope is frozen at V2‑3 until user feedback is reviewed.
+     */
+    private const R_INFO  = ['super_admin', 'school_admin', 'info_dept'];
 
     /** Hard budgets (the query service enforces them; tests pin them). */
     public const MAX_PAGE_SIZE   = 200;

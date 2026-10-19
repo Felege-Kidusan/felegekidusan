@@ -30,3 +30,5 @@ Registration/HR promotion analyses (`ANALYSIS_01…06`, `REGISTRATION_SYSTEM_ANA
 
 ## system/
 `SSMS_SYSTEM_KNOWLEDGE_REPORT.md`, `PRODUCTION_READINESS_AUDIT.md`, `PROJECT_RULES.md` (Universal AI Software Change, Patch & Update Protocol — governs all work).
+
+- `REPORTING_CENTRE_SCOPE_AND_ROLE_BOUNDARY_2026-10-19.md` — owner decision: future cross‑department / sensitive datasets are Info‑only; HR scope frozen at V2‑3; V2‑4 paused pending user feedback.
