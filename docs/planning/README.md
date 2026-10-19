@@ -32,3 +32,7 @@ Registration/HR promotion analyses (`ANALYSIS_01…06`, `REGISTRATION_SYSTEM_ANA
 `SSMS_SYSTEM_KNOWLEDGE_REPORT.md`, `PRODUCTION_READINESS_AUDIT.md`, `PROJECT_RULES.md` (Universal AI Software Change, Patch & Update Protocol — governs all work).
 
 - `REPORTING_CENTRE_SCOPE_AND_ROLE_BOUNDARY_2026-10-19.md` — owner decision: future cross‑department / sensitive datasets are Info‑only; HR scope frozen at V2‑3; V2‑4 paused pending user feedback.
+- `ATTENDANCE_ALERTING_DEEP_RESEARCH_2026-10-19.md` — how attendance alerting/`warning` status works today (verified by reproduction).
+- `ATTENDANCE_ALERTING_REQUIREMENTS_GAP_AND_OSS_RESEARCH_2026-10-19.md` — owner decisions vs. current system, Q1–Q12, open-source/industry research.
+- `ATTENDANCE_DEPT_STATUS_ALERTS_REQUIREMENTS_2026-10-19.md` — **locked** consolidated owner-approved requirements (verbatim, §1–§14).
+- `ATTENDANCE_ALERTING_IMPLEMENTATION_PLAN_2026-10-19.md` — phase-based implementation plan (Phases 0–6), awaiting approval.
