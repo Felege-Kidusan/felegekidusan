@@ -1,6 +1,6 @@
 # Attendance, Department Status & Alerts — Phase‑Based Implementation Plan
 
-**Date:** 2026‑10‑19 · **Status:** PROPOSED — awaiting owner approval (no code, schema, or production change has been made)
+**Date:** 2026‑10‑19 · **Status:** PROPOSED — T‑1…T‑10 answered by owner 2026‑10‑19 (see §3a); phase split and Phase 0 start still awaiting explicit approval (no code, schema, or production change has been made)
 **Governs:** `ATTENDANCE_DEPT_STATUS_ALERTS_REQUIREMENTS_2026-10-19.md` (R‑1…R‑14, locked baseline)
 **Evidence base:** `ATTENDANCE_ALERTING_DEEP_RESEARCH_2026-10-19.md`, `ATTENDANCE_ALERTING_REQUIREMENTS_GAP_AND_OSS_RESEARCH_2026-10-19.md`
 **Protocol:** PROJECT_RULES.md (plan → approve → implement per phase → test → push → owner pulls + runs SQL in phpMyAdmin).
@@ -58,7 +58,7 @@ Phase 6 is the only one that changes the shape of the `attendance` table and is 
 | **C‑3** | §2 HR/Info only may change status, but `api_attendance_info.php update_status/bulk_status` is reachable by teacher/attendance_taker/edu_dept; `info_manage_member.php` edit form passes `status`; mobile `PUT /members/{id}` whitelists `status`. | Phase 0 closes all three server‑side. |
 | **C‑4** | §1.4 automation must never change `members.status`, but `api_attendance.php` sets `warning` after 3 absences. | Phase 0 removes that UPDATE (legacy notification kept until Phase 2 replaces it). |
 | **C‑5** | §5 "submitted is approved by default" vs. the web sheet creating **no packet at all** and the mobile draft path writing rows into the same table. | Phase 2: web save creates/updates a `submitted` packet (T‑2); evaluator counts only rows whose packet is `submitted`/`approved`; draft/incomplete/revision/rejected rows are ignored for streaks and rates. |
-| **C‑6** | §9 monthly reports for Education, Mezmur, HR, Info via the reporting interface vs. owner decision of 2026‑10‑19 that future Reporting‑Centre datasets are **Info‑only** (V2‑4 paused). | Phase 4 needs an explicit owner decision (T‑5): either open a department‑scoped attendance dataset to edu_dept/mezmur_dept/hr_dept in the Reporting Centre, or deliver the monthly report inside each department dashboard and keep the Reporting Centre Info‑only. |
+| **C‑6** | §9 monthly reports for Education, Mezmur, HR, Info via the reporting interface vs. owner decision of 2026‑10‑19 that future Reporting‑Centre datasets are **Info‑only** (V2‑4 paused). | **Resolved (T‑5, 2026‑10‑19):** monthly reports are delivered inside the Education, Mezmur, HR and Information dashboards; the Reporting Centre stays Info‑only. |
 | **C‑7** | §6 bands retained (90/75/50) but Reporting Centre counts late as attended (1.0) and the Info tab counts late as absent (0). | Phase 4 recomputes both from the shared service (0.5/0.5). Saved views keep working; numbers may shift slightly — release note. |
 | **C‑8** | Existing `attendance_summary` is keyed by **Gregorian** month and only written by the web path. | Not extended. Phase 4 adds `attendance_month_rollup` keyed by Ethiopian year/month for both departments. `attendance_summary` left in place (read only by `api_ai.php`) — retire later. |
 | **C‑9** | Existing production members already carry `members.status = 'warning'` from the legacy rule. | Not touched by automation (R‑1.4). Phase 2 release note asks HR/Info to review them manually. |
@@ -79,6 +79,21 @@ Phase 6 is the only one that changes the shape of the `attendance` table and is 
 | **T‑8** | Make‑up attempt storage: new `assessment_makeup_attempts` table linked to the original `academic_records` row (recommended) vs. new columns on `academic_records`. | Phase 5 | Separate table; original row never modified. |
 | **T‑9** | Flutter release: Phases 1–2 change what the app shows (department status, warnings read‑only, rosters shrink). Ship as one APK release after Phase 2, or after each phase? | Phase 1 | One APK after Phase 2; server stays backward compatible (new fields additive). |
 | **T‑10** | Deployment flags: gate new behaviour behind `FEATURE_ATTENDANCE_V2` (FeatureGate) so the owner can enable per phase after running SQL? | Phase 0 | Yes — same pattern as Reporting Centre (`available:false` until migration applied). |
+
+### 3a. Owner answers (2026‑10‑19) — these are now decisions, not open questions
+
+| ID | Owner answer | Effect on the plan |
+|---|---|---|
+| T‑1 | Accept recommendation | Phases 0–5 use **class/day** as the Education session unit; lesson‑level model deferred to Phase 6. |
+| T‑2 | Accept recommendation | Every web `save_attendance` and Education edit creates/updates a `grade_submissions` attendance packet with status `submitted`. |
+| T‑3 | Accept, after checking existing behaviour; **submitted attendance is approved by default** | Phase 2 step 1 verifies current Mezmur packet/draft behaviour (`mezmur_submissions`, mobile drafts) and documents it; official rows = packet `submitted` or `approved`; **no approval step is introduced** for Mezmur or Education. |
+| T‑4 | Accept recommendation | New typed `attendance_policies` table (Phase 1), changes audited. |
+| T‑5 | **Monthly reports appear in the Education, Mezmur, HR and Information dashboards; HR must have monthly reports** | Phase 4 delivers one shared "Monthly attendance" page/partial mounted in all four dashboards (department scoping: Education → edu, Mezmur → mezmur, HR + Info → both). The Reporting Centre is **not required** for §9; the Info‑only Reporting Centre decision (`REPORTING_CENTRE_SCOPE_AND_ROLE_BOUNDARY_2026-10-19.md`) stays untouched. **C‑6 resolved.** |
+| T‑6 | Approve 75 % and 3 sessions | Defaults in `attendance_policies` (School Admin can change per department). |
+| T‑7 | Accept recommendation | Same streak escalates the same warning in place (5 → 8 → 10); a closed warning is re‑opened on the next stage; warnings that no longer meet the threshold are flagged `invalidated`, never deleted. |
+| T‑8 | Accept recommendation | `assessment_makeup_attempts` separate table; original `academic_records` row never modified. |
+| T‑9 | One APK after Phase 2 | Server changes in Phases 1–2 stay backward compatible; one Flutter release after Phase 2. |
+| T‑10 | Accept recommendation | `FEATURE_ATTENDANCE_V2` flag + `available:false` UX until each SQL script is applied. |
 
 ---
 
@@ -262,8 +277,8 @@ CREATE TABLE attendance_warning_events (
 
 **Schema (`sql/074_attendance_month_rollup.sql`):** `attendance_month_rollup (department, member_id, ec_year, ec_month, sessions, present_eq, absent_eq, rate, band, below_threshold TINYINT, computed_at, PRIMARY KEY(department, member_id, ec_year, ec_month))` — derived cache written by `AttendanceRiskService::monthRollup` (idempotent), refreshed on every official write and by a lazy "refresh if older than N minutes" on report open (same pattern as `InfoAnalyticsService::ensureRollupFresh`; no cron).
 **Reports:**
-- Department dashboards (Edu, Mezmur) and HR/Info: "Monthly attendance" page — EC year/month filter (EC picker), table (member, section/class, sessions, present_eq, absent_eq, rate, band, below‑threshold flag, open warnings), "below threshold only" toggle, export via openspout with EC dates. Historical months preserved (rollup rows are never deleted; recomputed only when source rows change).
-- Reporting Centre: new fields on the members grain — `edu_status`, `mezmur_status`, `edu_month_rate`, `mezmur_month_rate`, `edu_open_warning`, `mezmur_open_warning` with an **EC month parameter**; bands switched to the shared formula (C‑7). Visibility per T‑5 decision; defaults to Info + admins (current rule).
+- **Per T‑5:** one shared "Monthly attendance" partial (`admin/dashboards/sections/attendance_monthly_report.php` + JS module, same pattern as the Analytics Hub partial) mounted in the **Education, Mezmur, HR and Information** dashboards. Scoping is server‑side: edu_dept sees Education only, mezmur_dept sees Mezmur only, hr_dept and info_dept see both (tabbed). School Admin/Super Admin: read via the same partial. EC year/month filter (EC picker), table (member, section/class, sessions, present_eq, absent_eq, rate, band, below‑threshold flag, open warnings), "below threshold only" toggle, export via openspout with EC dates only. Historical months preserved (rollup rows are never deleted; recomputed only when source rows change).
+- Reporting Centre: **not part of §9.** Optional later addition of `edu_status` / `mezmur_status` / month‑rate fields for Info + admins stays under the Info‑only rule and needs its own go‑ahead; the existing bands are switched to the shared 0.5/0.5 formula (C‑7) so numbers agree everywhere.
 - **Unification:** Info "At‑Risk" tab, Education triage (`AT_RISK_ATT`), Analytics Hub member drill‑downs, dashboard cards, Reporting Centre bands and mobile `/members/{id}/attendance-risk` all call `AttendanceRiskService` — no local thresholds remain (grep‑pinned by a security test: forbidden literals `< 50`, `< 60`, `70.0` in attendance code).
 **Tests:** rollup math vs. harness, EC month boundaries (Pagume), export EC‑only, pins for unification, Reporting Centre harness update, saved‑views compatibility.
 **Gate 4.**
@@ -328,8 +343,8 @@ CREATE TABLE attendance_warning_events (
 ## 9. Approval checklist for the owner
 
 - [ ] Approve the phase split (0–5 now, 6 later) or request a different order.
-- [ ] Answer T‑1 … T‑10 (or "use recommendation").
-- [ ] Decide C‑6 / T‑5 (reporting surface for §9).
+- [x] Answer T‑1 … T‑10 — answered 2026‑10‑19 (§3a).
+- [x] Decide C‑6 / T‑5 — monthly reports in Education, Mezmur, HR, Information dashboards.
 - [ ] Approve **Phase 0** to start (no SQL).
 - [ ] Confirm the test‑server rebuild may proceed (sandbox PHP/MariaDB were reset; rebuild needed before Phase 0 tests).
 
