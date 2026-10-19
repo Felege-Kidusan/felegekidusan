@@ -919,13 +919,18 @@ class SubmissionService
     }
 
     /**
-     * Roles that may REOPEN or REJECT an attendance packet that is already
-     * approved (attendance alerting Phase 3). Deciding a packet that is
-     * merely awaiting review keeps the historical reviewer roles (see the
-     * callers); re-opening official data is a department action only —
-     * admins are read-only on attendance alerting (Phase 2 rule).
+     * Roles that may RETURN, REOPEN or REJECT an attendance packet
+     * (attendance alerting Phase 3; owner decision Q-1 2026-10-19):
+     * every non-approve decision on an attendance sheet — whether it is
+     * awaiting review or already approved — is a department action only.
+     * School / Super Admin may still approve a submitted sheet; they are
+     * otherwise read-only on attendance alerting (Phase 2 rule). Mark
+     * lists keep the historical reviewer roles (see the callers).
      */
     public const ATTENDANCE_REOPEN_ROLES = ['edu_dept'];
+
+    /** Bell type for the teacher / taker when a sheet is returned, reopened or rejected (Q-2). */
+    public const REVIEW_NOTIFICATION_TYPE = 'attendance_submission_review';
 
     /**
      * Phase 3: ONE implementation of the Education review decision, shared
@@ -989,10 +994,15 @@ class SubmissionService
             && self::normalizeStatus($previousStatus) === self::STATUS_APPROVED
             && $newStatus !== 'approved';
 
+        // Q-1: returning / rejecting an attendance sheet (submitted OR
+        // approved) is the department's call — admins may only approve.
+        if ($isAttendance && $newStatus !== 'approved' && !in_array($actorRole, self::ATTENDANCE_REOPEN_ROLES, true)) {
+            return ['ok' => false, 'http' => 403, 'code' => 'forbidden',
+                    'message' => $reopen
+                        ? 'Only the Education department can reopen an approved attendance sheet.'
+                        : 'Only the Education department can return or reject an attendance sheet.'];
+        }
         if ($reopen) {
-            if (!in_array($actorRole, self::ATTENDANCE_REOPEN_ROLES, true)) {
-                return ['ok' => false, 'http' => 403, 'code' => 'forbidden', 'message' => 'Only the Education department can reopen an approved attendance sheet.'];
-            }
             $transitionError = ReviewTransitionPolicy::reopenError($previousStatus, $newStatus, 'list', 'teacher');
         } else {
             // H9: only packets AWAITING review may be decided — no approving
@@ -1061,6 +1071,11 @@ class SubmissionService
             $recalc = self::recalculateAttendanceWarnings(
                 $conn, (int)$packet['class_id'], (string)($packet['attendance_date'] ?? ''), $actorId
             );
+            // Q-2: tell the teacher (bell, in-app only) when the sheet is
+            // returned, reopened or rejected — with the reason.
+            if ($newStatus !== 'approved') {
+                self::notifyTeacherOfReview($conn, $packet, $submissionId, $previousStatus, $newStatus, $notes, $actorId, $reopen);
+            }
         }
 
         $friendly = [
@@ -1076,6 +1091,68 @@ class SubmissionService
             'reopened' => $reopen,
             'recalc' => $recalc,
         ];
+    }
+
+    /**
+     * Q-2 (2026-10-19): in-app bell to the teacher who owns the sheet when
+     * Education returns, reopens or rejects it. Targets ONE user
+     * (target_user_id); never fails the review. Dates in the text are
+     * Ethiopian calendar; the data block keeps the machine date for the
+     * mobile deep-link (class_id + attendance_date → attendance sheet).
+     *
+     * @param array<string,mixed> $packet
+     */
+    public static function notifyTeacherOfReview(\mysqli $conn, array $packet, int $submissionId, string $previousStatus, string $newStatus, string $reason, ?int $actorId, bool $reopen): void
+    {
+        try {
+            $teacherId = (int)($packet['teacher_id'] ?? 0);
+            $classId = (int)($packet['class_id'] ?? 0);
+            $date = (string)($packet['attendance_date'] ?? '');
+            if ($teacherId <= 0 || $classId <= 0 || $date === '') {
+                return;
+            }
+            $className = '';
+            $cs = $conn->prepare('SELECT class_name FROM classes WHERE id = ? LIMIT 1');
+            if ($cs) {
+                $cs->bind_param('i', $classId);
+                $cs->execute();
+                $className = (string)($cs->get_result()->fetch_assoc()['class_name'] ?? '');
+                $cs->close();
+            }
+            if (!function_exists('ethio_date_format')) {
+                require_once dirname(__DIR__) . '/ethiopian_date.php';
+            }
+            $dateEc = ethio_date_format(new \DateTime($date), 'F j, Y');
+            $what = $newStatus === 'rejected'
+                ? ($reopen ? 'rejected (it was approved)' : 'rejected')
+                : ($reopen ? 'reopened for correction (it was approved)' : 'returned for correction');
+            $whatAm = $newStatus === 'rejected' ? 'ውድቅ ተደርጓል' : 'ለማስተካከያ ተመልሷል';
+            $title = ($newStatus === 'rejected' ? 'Attendance sheet rejected' : 'Attendance sheet returned')
+                . ' · ' . $whatAm;
+            $message = "Your attendance sheet for {$className} on {$dateEc} was {$what}.\nReason: {$reason}\n"
+                . "የ{$className} የ{$dateEc} የተገኝነት ሉህ {$whatAm}። ምክንያት፡ {$reason}";
+            $data = json_encode([
+                'submission_id' => $submissionId, 'department' => 'edu', 'class_id' => $classId,
+                'attendance_date' => $date, 'attendance_date_ec' => $dateEc,
+                'previous_status' => $previousStatus, 'new_status' => $newStatus, 'reopened' => $reopen ? 1 : 0,
+                'reason' => $reason,
+            ], JSON_UNESCAPED_UNICODE);
+            $stmt = $conn->prepare(
+                'INSERT INTO notifications (type, title, message, data, priority, source_dept, source_user_id, target_roles, target_user_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)'
+            );
+            if (!$stmt) {
+                return;
+            }
+            $type = self::REVIEW_NOTIFICATION_TYPE;
+            $priority = $newStatus === 'rejected' ? 'high' : 'normal';
+            $sourceDept = 'edu_dept';
+            $stmt->bind_param('ssssssii', $type, $title, $message, $data, $priority, $sourceDept, $actorId, $teacherId);
+            $stmt->execute();
+            $stmt->close();
+        } catch (\Throwable $e) {
+            error_log('Attendance review notification failed: ' . $e->getMessage());
+        }
     }
 
     /**

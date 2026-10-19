@@ -248,6 +248,20 @@ final class NotificationCenterService
         if ($relatedId > 0) {
             return ['kind' => 'member', 'id' => $relatedId];
         }
+        // Attendance alerting Phase 3 (Q-2): a returned / reopened / rejected
+        // sheet routes the teacher or taker back to that sheet. Older apps
+        // see an unknown kind and simply mark the row read.
+        $submissionId = isset($data['submission_id']) ? (int)$data['submission_id'] : 0;
+        if ($submissionId > 0 && (string)($row['type'] ?? '') === 'attendance_submission_review') {
+            return [
+                'kind' => 'attendance_sheet',
+                'id' => $submissionId,
+                'department' => (string)($data['department'] ?? ''),
+                'class_id' => (int)($data['class_id'] ?? 0),
+                'section' => (string)($data['section'] ?? ''),
+                'attendance_date' => (string)($data['attendance_date'] ?? ''),
+            ];
+        }
         return null;
     }
 

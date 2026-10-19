@@ -14,6 +14,8 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../members/member_detail_screen.dart';
 import '../attendance_warnings/attendance_warning_detail_screen.dart';
+import '../attendance/attendance_screen.dart';
+import '../mezmur/mezmur_attendance.dart';
 import 'messages_screen.dart';
 
 /// P72 — the mobile Notification Center: Alerts + Announcements in
@@ -396,6 +398,25 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     if (warningId != null) {
       Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => AttendanceWarningDetailScreen(warningId: warningId)));
+      return;
+    }
+    // Phase 3 (Q-2): a returned / reopened / rejected sheet opens that
+    // sheet for the teacher (class + date) or taker (section + date).
+    final sheet = sheetTarget(n);
+    if (sheet != null) {
+      final date = sheet['date'] as String;
+      if (sheet['department'] == 'mezmur') {
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => MezmurAttendanceScreen(
+                initialDate: date.isEmpty ? null : date,
+                initialSection: (sheet['section'] as String).isEmpty ? null : sheet['section'] as String)));
+      } else {
+        final classId = sheet['classId'] as int;
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => AttendanceScreen(
+                initialClassId: classId > 0 ? classId : null,
+                initialDate: date.isEmpty ? null : date)));
+      }
       return;
     }
     final memberId = memberTargetId(n);

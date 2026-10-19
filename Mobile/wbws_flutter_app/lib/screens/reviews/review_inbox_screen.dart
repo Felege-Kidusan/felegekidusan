@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
+import '../../utils/config.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/theme.dart';
 
@@ -692,29 +693,61 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
         false;
   }
 
-  Future<void> _askReasonAndDecide(String status) async {
+  /// Attendance alerting Phase 3 — only the owning department may reopen
+  /// or reject an already-approved sheet (server: 403 for everyone else;
+  /// the server's `can_reopen` flag is the source of truth, the role check
+  /// only keeps the buttons away from admins who would be refused).
+  bool get _canReopenApproved {
+    if (_sub['can_reopen'] != true && _sub['can_reopen'] != 1) return false;
+    final role = _api.userRole;
+    return (widget.dept == 'edu' && role == UserRoles.eduDept) ||
+        (widget.dept == 'mezmur' && role == UserRoles.mezmurDept);
+  }
+
+  Future<void> _askReasonAndDecide(String status, {bool reopen = false}) async {
     final ctrl = TextEditingController();
+    final reject = status == 'rejected';
+    final title = reject
+        ? (reopen ? 'Reject this approved sheet' : 'Reject with a reason')
+        : (reopen ? 'Reopen for correction' : 'Return with a reason');
+    final button = reject ? 'Reject' : (reopen ? 'Reopen' : 'Return');
+    final colour = reject ? AppTheme.danger : AppTheme.warning;
     final reason = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Return with a reason'),
-        content: TextField(
-          controller: ctrl,
-          maxLines: 3,
-          maxLength: 500,
-          autofocus: true,
-          decoration: const InputDecoration(
-              hintText: 'Tell the taker what to fix…'),
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (reopen)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'This sheet is already approved. Attendance warnings for '
+                  'its members are recalculated and the taker is notified '
+                  'with your reason.',
+                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+              ),
+            TextField(
+              controller: ctrl,
+              maxLines: 3,
+              maxLength: 500,
+              autofocus: true,
+              decoration: const InputDecoration(
+                  hintText: 'Tell the taker what to fix…'),
+            ),
+          ],
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Cancel')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.warning),
+            style: ElevatedButton.styleFrom(backgroundColor: colour),
             onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('Return'),
+            child: Text(button),
           ),
         ],
       ),
@@ -914,10 +947,130 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
                           ),
                         );
                       }),
+                    if (_sub['events'] is List &&
+                        (_sub['events'] as List).isNotEmpty)
+                      _historyCard(_sub['events'] as List),
                   ],
                 ),
       bottomNavigationBar: open
-          ? SafeArea(
+          ? _decisionBar()
+          : (status == 'approved' && _canReopenApproved)
+              ? _reopenBar()
+              : null,
+    );
+  }
+
+  /// Phase 3: append-only review history (server `events[]`, EC stamps).
+  Widget _historyCard(List events) {
+    return Card(
+      margin: const EdgeInsets.only(top: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('History',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+            const SizedBox(height: 8),
+            for (final e in events)
+              if (e is Map)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        '${e['to_status'] ?? ''}' == 'approved'
+                            ? Icons.check_circle_outline
+                            : '${e['to_status'] ?? ''}' == 'rejected'
+                                ? Icons.cancel_outlined
+                                : Icons.history,
+                        size: 16,
+                        color: AppTheme.textSecondary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${e['label'] ?? e['to_status'] ?? ''}'
+                              '${'${e['actor_name'] ?? ''}'.isNotEmpty ? ' · ${e['actor_name']}' : ''}',
+                              style: const TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                            Text('${e['created_ec'] ?? ''}',
+                                style: const TextStyle(
+                                    fontSize: 11,
+                                    color: AppTheme.textSecondary)),
+                            if ('${e['reason'] ?? ''}'.trim().isNotEmpty)
+                              Text('${e['reason']}',
+                                  style: const TextStyle(fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Phase 3 (owner Q-3): department-only actions on an APPROVED sheet.
+  Widget _reopenBar() {
+    return SafeArea(
+      child: Container(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 56,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.danger,
+                      side: const BorderSide(color: AppTheme.danger),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14))),
+                  onPressed: _busy
+                      ? null
+                      : () => _askReasonAndDecide('rejected', reopen: true),
+                  child: const Text('Reject sheet',
+                      style: TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SizedBox(
+                height: 56,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.warning,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14))),
+                  onPressed: _busy
+                      ? null
+                      : () => _askReasonAndDecide('revision_needed',
+                          reopen: true),
+                  child: const Text('Reopen for correction',
+                      style: TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _decisionBar() {
+    return SafeArea(
               child: Container(
                 color: Theme.of(context).scaffoldBackgroundColor,
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -968,8 +1121,6 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
                   ],
                 ),
               ),
-            )
-          : null,
     );
   }
 }

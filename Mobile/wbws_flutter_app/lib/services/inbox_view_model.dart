@@ -129,6 +129,31 @@ int? warningTargetId(Map<String, dynamic> n) {
   return id > 0 ? id : null;
 }
 
+/// Attendance alerting Phase 3 (Q-2) — a returned / reopened / rejected
+/// sheet routes the teacher or taker back to that sheet. The server sends
+/// `target: {kind: 'attendance_sheet', id, department, class_id, section,
+/// attendance_date}`. Returns null for any other row (callers fall back to
+/// the member target / mark-read behaviour).
+/// Result keys: department ('edu'|'mezmur'), classId (int, 0 = none),
+/// section, date (Gregorian yyyy-MM-dd, '' when missing).
+Map<String, Object>? sheetTarget(Map<String, dynamic> n) {
+  final target = n['target'];
+  if (target is! Map) return null;
+  if ((target['kind'] ?? '').toString() != 'attendance_sheet') return null;
+  final dept = (target['department'] ?? '').toString();
+  if (dept != 'edu' && dept != 'mezmur') return null;
+  final rawClass = target['class_id'];
+  final classId = rawClass is num ? rawClass.toInt() : int.tryParse('${rawClass ?? ''}') ?? 0;
+  final date = (target['attendance_date'] ?? '').toString();
+  final validDate = RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date) ? date : '';
+  return {
+    'department': dept,
+    'classId': classId,
+    'section': (target['section'] ?? '').toString(),
+    'date': validDate,
+  };
+}
+
 int? memberTargetId(Map<String, dynamic> n) {
   final target = n['target'];
   if (target is! Map) return null;

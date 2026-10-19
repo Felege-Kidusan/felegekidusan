@@ -5,6 +5,27 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.7.1 (build 38) — Attendance sheet reopen + review bells (Phase 3 mobile)
+
+Mobile side of attendance alerting Phase 3 (owner decisions Q‑1/Q‑2/Q‑3,
+2026‑10‑19). Works against the Phase 3 server (`sql/073`).
+
+- **Reopen / reject an approved sheet** (Education and Mezmur department
+  accounts only): the review detail of an *approved* attendance sheet now
+  shows "Reopen for correction" and "Reject sheet". Both ask for a reason
+  (3–500 characters); the server recalculates attendance warnings and
+  notifies the teacher / taker. Admins never see these buttons (server
+  refuses them anyway).
+- **Review history** on every attendance review detail — who approved,
+  returned, reopened or rejected the sheet, when (Ethiopian calendar) and
+  why.
+- **Bell deep-link for teachers and takers**: a "sheet returned / rejected"
+  notification opens that exact sheet (class + date, or section + date)
+  so the correction can be made at once.
+- Return / reject dialogs name the action (Return / Reopen / Reject)
+  instead of always saying "Return".
+- No schema change; no new feature flag.
+
 ## 1.7.0 (build 37) — Attendance warnings (Phase 2 mobile)
 
 Mobile side of the approved attendance alerting Phase 2. Everything is

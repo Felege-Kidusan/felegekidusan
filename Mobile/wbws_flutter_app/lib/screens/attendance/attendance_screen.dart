@@ -28,7 +28,10 @@ import '../attendance_warnings/attendance_warning_widgets.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final int? initialClassId;
-  const AttendanceScreen({super.key, this.initialClassId});
+  /// Gregorian yyyy-MM-dd (API form). Used by the bell deep-link when
+  /// Education returns / reopens / rejects a sheet (Phase 3, Q-2).
+  final String? initialDate;
+  const AttendanceScreen({super.key, this.initialClassId, this.initialDate});
 
   @override
   State<AttendanceScreen> createState() => AttendanceScreenState();
@@ -100,6 +103,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void initState() {
     super.initState();
+    final wantedDate = widget.initialDate;
+    if (wantedDate != null && RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(wantedDate)) {
+      _selectedDate = wantedDate;
+    }
     _isOffline = !ConnectivityService().hasLink;
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
       if (!mounted || _isOffline == !hasLink) return;

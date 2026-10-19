@@ -494,12 +494,16 @@ final class MezmurSubmissionService
      * @return array{ok:bool,message:string}
      */
     /**
-     * Roles that may REOPEN or REJECT an already-approved packet (attendance
-     * alerting Phase 3). Deciding a packet awaiting review keeps
-     * REVIEW_ROLES; re-opening official data is a department action only
-     * (admins are read-only on attendance alerting, Phase 2 rule).
+     * Roles that may RETURN, REOPEN or REJECT a packet (attendance alerting
+     * Phase 3; owner decision Q-1 2026-10-19): every non-approve decision —
+     * on a submitted or an approved packet — is a department action only.
+     * REVIEW_ROLES admins may still approve a submitted packet; they are
+     * otherwise read-only on attendance alerting (Phase 2 rule).
      */
     public const REOPEN_ROLES = ['mezmur_dept'];
+
+    /** Bell type for the taker when a packet is returned, reopened or rejected (Q-2). */
+    public const REVIEW_NOTIFICATION_TYPE = 'attendance_submission_review';
 
     public static function reviewPacket(\mysqli $conn, int $packetId, string $newStatus, string $notes, int $actorId, string $actorRole = '', string $channel = 'web'): array
     {
@@ -539,10 +543,15 @@ final class MezmurSubmissionService
         // the Mezmur department only. Approving keeps the strict rule.
         $reopen = self::normalizeStatus($previousStatus) === self::STATUS_APPROVED
             && $newStatus !== self::STATUS_APPROVED;
+        // Q-1: returning / rejecting a packet (submitted OR approved) is the
+        // department's call — admins may only approve.
+        if ($newStatus !== self::STATUS_APPROVED && !in_array($actorRole, self::REOPEN_ROLES, true)) {
+            return ['ok' => false, 'code' => 'forbidden',
+                    'message' => $reopen
+                        ? 'Only the Mezmur department can reopen an approved packet.'
+                        : 'Only the Mezmur department can return or reject a packet.'];
+        }
         if ($reopen) {
-            if (!in_array($actorRole, self::REOPEN_ROLES, true)) {
-                return ['ok' => false, 'code' => 'forbidden', 'message' => 'Only the Mezmur department can reopen an approved packet.'];
-            }
             $transitionError = ReviewTransitionPolicy::reopenError($previousStatus, $newStatus, 'packet', 'taker');
         } else {
             // H9 (audit 2026-10-02, finding B): a reviewer decision is valid ONLY
@@ -626,6 +635,11 @@ final class MezmurSubmissionService
         $recalc = self::recalculateAttendanceWarnings(
             $conn, (string)($packet['attendance_date'] ?? ''), (string)($packet['section'] ?? ''), $actorId
         );
+        // Q-2: tell the taker (bell, in-app only) when the packet is
+        // returned, reopened or rejected — with the reason.
+        if ($newStatus !== self::STATUS_APPROVED) {
+            self::notifyTakerOfReview($conn, $packet, $packetId, $previousStatus, $newStatus, $notes, $actorId, $reopen);
+        }
 
         $friendly = [
             self::STATUS_APPROVED => 'Approved.',
@@ -633,6 +647,59 @@ final class MezmurSubmissionService
             self::STATUS_REVISION => $reopen ? 'Reopened — returned to the taker for correction.' : 'Returned to the taker for correction.',
         ];
         return ['ok' => true, 'message' => $friendly[$newStatus], 'reopened' => $reopen, 'recalc' => $recalc];
+    }
+
+    /**
+     * Q-2 (2026-10-19): in-app bell to the taker who owns the packet when
+     * the Mezmur department returns, reopens or rejects it. Targets ONE
+     * user; never fails the review. EC date in the text; machine date +
+     * section in data for the mobile deep-link.
+     *
+     * @param array<string,mixed> $packet
+     */
+    public static function notifyTakerOfReview(\mysqli $conn, array $packet, int $packetId, string $previousStatus, string $newStatus, string $reason, ?int $actorId, bool $reopen): void
+    {
+        try {
+            $takerId = (int)($packet['taker_id'] ?? 0);
+            $date = (string)($packet['attendance_date'] ?? '');
+            $section = (string)($packet['section'] ?? '');
+            if ($takerId <= 0 || $date === '') {
+                return;
+            }
+            if (!function_exists('ethio_date_format')) {
+                require_once dirname(__DIR__) . '/ethiopian_date.php';
+            }
+            $dateEc = ethio_date_format(new \DateTime($date), 'F j, Y');
+            $what = $newStatus === self::STATUS_REJECTED
+                ? ($reopen ? 'rejected (it was approved)' : 'rejected')
+                : ($reopen ? 'reopened for correction (it was approved)' : 'returned for correction');
+            $whatAm = $newStatus === self::STATUS_REJECTED ? 'ውድቅ ተደርጓል' : 'ለማስተካከያ ተመልሷል';
+            $title = ($newStatus === self::STATUS_REJECTED ? 'Mezmur attendance rejected' : 'Mezmur attendance returned')
+                . ' · ' . $whatAm;
+            $message = "Your Mezmur attendance for {$section} on {$dateEc} was {$what}.\nReason: {$reason}\n"
+                . "የ{$section} የ{$dateEc} የመዝሙር ተገኝነት {$whatAm}። ምክንያት፡ {$reason}";
+            $data = json_encode([
+                'submission_id' => $packetId, 'department' => 'mezmur', 'section' => $section,
+                'attendance_date' => $date, 'attendance_date_ec' => $dateEc,
+                'previous_status' => $previousStatus, 'new_status' => $newStatus, 'reopened' => $reopen ? 1 : 0,
+                'reason' => $reason,
+            ], JSON_UNESCAPED_UNICODE);
+            $stmt = $conn->prepare(
+                'INSERT INTO notifications (type, title, message, data, priority, source_dept, source_user_id, target_roles, target_user_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)'
+            );
+            if (!$stmt) {
+                return;
+            }
+            $type = self::REVIEW_NOTIFICATION_TYPE;
+            $priority = $newStatus === self::STATUS_REJECTED ? 'high' : 'normal';
+            $sourceDept = 'mezmur_dept';
+            $stmt->bind_param('ssssssii', $type, $title, $message, $data, $priority, $sourceDept, $actorId, $takerId);
+            $stmt->execute();
+            $stmt->close();
+        } catch (\Throwable $e) {
+            error_log('Mezmur review notification failed: ' . $e->getMessage());
+        }
     }
 
     /**
