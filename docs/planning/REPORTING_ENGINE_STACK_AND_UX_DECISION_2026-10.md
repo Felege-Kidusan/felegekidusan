@@ -149,7 +149,7 @@ Bilingual labels (am/en) come from the registry, so both UI and exports use the 
 | V2‑0 Foundation | DONE | `5d10294` |
 | V2‑1 New UI (`admin/reports_v2.php`, beta; legacy page kept) | DONE | `3d44f1c` |
 | V2‑2 Cross‑domain | DONE — members grain extended with Education enrolment (class section, enrolled‑on, class teacher, previous‑year class, year‑on‑year progression), Education + Mezmur attendance bands (current academic‑year date range, holidays excluded, late = attended), Family Link guardian (name/phone/relation, linked siblings), staff position titles; 5 new metrics; 5 new starters (Follow‑up / Promotion / Data quality); field categories; **export log** for school_admin/super_admin. Out of scope by decision: grades; groups (`wbws_group_members` has no `member_id`); app installs (device telemetry, not member‑linked). | this commit |
-| V2‑3 Saved views (shared) | NEXT — needs 1 migration (`report_definitions`) | — |
+| V2‑3 Saved views (shared) | DONE — `sql/070_report_definitions.sql` (owner runs in phpMyAdmin; code degrades gracefully until then), `admin/api_report_views.php` (list/get/save/delete/pin/opened; CSRF; definitions validated with the saver's role; owner‑or‑admin edit; admins pin **standing reports** which appear in the starter row for everyone), rail panel My views / My department / Shared, share links carry the view id, one‑click import of pre‑V2‑3 browser‑local views. | this commit |
 | V2‑4 Other departments | pending | — |
 
 ## 7. Decisions needed from the owner

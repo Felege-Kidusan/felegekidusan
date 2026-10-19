@@ -11,6 +11,8 @@ import json
 import os
 import re
 import sys
+import time
+import urllib.parse
 
 from playwright.sync_api import sync_playwright
 
@@ -117,7 +119,7 @@ with sync_playwright() as p:
     # language toggle
     page.click(".rc-seg [data-lang=am]")
     page.wait_for_timeout(1200)
-    check(page.locator(".rc-starter").first.inner_text().strip() != "" and re.search(r"[\u1200-\u137F]", page.locator(".rc-starter").first.inner_text()) is not None, "Amharic labels after toggle")
+    check(re.search(r"[\u1200-\u137F]", page.locator(".rc-starter:not(.is-pinned)").first.inner_text()) is not None, "Amharic labels after toggle")
     page.screenshot(path="/tmp/rc_amharic.png", full_page=True)
     page.click(".rc-seg [data-lang=en]")
     page.wait_for_timeout(600)
@@ -171,6 +173,41 @@ with sync_playwright() as p:
         page.keyboard.press("Escape")
     else:
         check(page.locator("#rc-exportlog-btn").count() == 0, "export log hidden for non-admins")
+
+    # ── V2-3: saved views (server) ──
+    page.set_viewport_size({"width": 1366, "height": 900})
+    page.click("button.rc-starter:has-text('under 50%')")
+    page.wait_for_timeout(800)
+    check(not page.locator("#rc-save-view").is_disabled(), "save view enabled (table present)")
+    page.click("#rc-save-view")
+    page.wait_for_timeout(300)
+    vname = "E2E %s %d" % (ROLE, int(time.time()))
+    page.fill("#rc-saveview-form input[name=name]", vname)
+    page.check("#rc-saveview-form input[name=scope][value=department]")
+    page.click("#rc-saveview-submit")
+    page.wait_for_timeout(1200)
+    check(page.locator("#rc-views .rc-view button:has-text('%s')" % vname).count() == 1, "saved view listed under my views")
+    check("%22v%22" in page.url or '"v"' in urllib.parse.unquote(page.url), "URL carries the view id")
+    # reload the link → view marker restored and population applied
+    page.reload()
+    page.wait_for_selector(".rc-kpi", timeout=15000)
+    page.wait_for_timeout(1500)
+    check(page.locator("#rc-views .rc-view.is-on button:has-text('%s')" % vname).count() == 1, "view link reopens with marker")
+    check(page.locator(".rc-chip").count() >= 2, "view link restores filters")
+    if ROLE in ("school", "super"):
+        # edit → pin as standing report → appears in starter row
+        page.click("#rc-views .rc-view:has-text('%s') button[aria-label='Edit view']" % vname)
+        page.wait_for_timeout(300)
+        page.check("#rc-saveview-form input[name=pinned]")
+        page.click("#rc-saveview-submit")
+        page.wait_for_timeout(1200)
+        check(page.locator(".rc-starter.is-pinned:has-text('%s')" % vname).count() == 1, "pinned view shows as standing report")
+    # delete it again (keeps the test DB tidy)
+    page.once("dialog", lambda d: d.accept())
+    page.click("#rc-views .rc-view:has-text('%s') button[aria-label='Delete view']" % vname)
+    page.wait_for_timeout(1000)
+    check(page.locator("#rc-views .rc-view button:has-text('%s')" % vname).count() == 0, "view deleted")
+    page.screenshot(path="/tmp/rc_views.png", full_page=False)
 
     # mobile layout smoke
     page.set_viewport_size({"width": 390, "height": 800})

@@ -158,5 +158,16 @@ if ROLE in ("super", "school"):
 else:
     check("export_history denied", status == 403, f"{status} {str(d)[:120]}")
 
+# saved views API reachable + visibility shape (V2-3)
+try:
+    status, body = get("/admin/api_report_views.php", action="list")
+    d = json.loads(body.decode("utf-8"))
+    check("views list", status == 200 and d.get("status") == "success" and "views" in d["data"], f"{status} {str(d)[:120]}")
+    if d["data"].get("available") and ROLE not in ("super", "school"):
+        bad = [v for v in d["data"]["views"] if not (v["mine"] or v["scope"] == "shared" or v["scope"] == "department")]
+        check("views visibility", not bad, str(bad)[:120])
+except Exception as e:  # noqa: BLE001
+    check("views list", False, str(e)[:120])
+
 print(json.dumps({"role": ROLE, "checks": checks, "failures": failures, "kpis": kpis}, ensure_ascii=False, indent=1))
 sys.exit(1 if failures else 0)

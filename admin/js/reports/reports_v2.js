@@ -56,6 +56,7 @@
   const state = {
     lang: localStorage.getItem(LS.lang) || CFG.lang || 'en',
     filters: [],
+    view: null,          // id of the saved view currently applied (server, V2‑3)
     search: '',
     columns: [],
     sort: [],
@@ -75,6 +76,7 @@
   const aborters = {};       // AbortControllers by kind
   const dirty = { overview: true, breakdown: true, list: true }; // tabs needing a reload
   let applyTimer = null;
+  let applyingView = false;   // set while a saved view is being applied so apply() keeps state.view
 
   // ───────────────────────── helpers ─────────────────────────
   const $ = (sel, root) => (root || document).querySelector(sel);
@@ -130,6 +132,7 @@
   // ───────────────────────── URL state ─────────────────────────
   function encodeState() {
     const d = { f: state.filters, s: state.search, c: state.columns, o: state.sort, g: state.groupBy, m: state.metrics, t: state.tab };
+    if (state.view) d.v = state.view;
     return '#q=' + encodeURIComponent(JSON.stringify(d));
   }
   function readState() {
@@ -144,6 +147,7 @@
       if (d.g && fieldByKey[d.g]) state.groupBy = d.g;
       if (Array.isArray(d.m) && d.m.length) state.metrics = d.m.filter((k) => metricByKey[k]);
       if (['overview', 'breakdown', 'list'].includes(d.t)) state.tab = d.t;
+      state.view = Number.isInteger(d.v) && d.v > 0 ? d.v : null;
       return true;
     } catch (e) { return false; }
   }
@@ -365,6 +369,19 @@
   function renderStarters() {
     const row = $('#rc-starters-row');
     row.innerHTML = '';
+    const pinned = (views.list || []).filter((v) => v.pinned);
+    if (pinned.length) {
+      const g = document.createElement('div'); g.className = 'rc-starter-group';
+      const lab = document.createElement('span'); lab.className = 'rc-starter-group-label'; lab.textContent = state.lang === 'am' ? 'ቋሚ ሪፖርቶች' : 'Standing reports'; g.appendChild(lab);
+      pinned.forEach((v) => {
+        const b = document.createElement('button'); b.type = 'button';
+        b.className = 'rc-starter is-pinned' + (state.view === v.id ? ' is-on' : '');
+        b.textContent = v.name; b.title = v.description || '';
+        b.addEventListener('click', () => openView(v));
+        g.appendChild(b);
+      });
+      row.appendChild(g);
+    }
     const groupsMeta = schema.starter_groups || {};
     const order = Object.keys(groupsMeta);
     const byGroup = {};
@@ -386,39 +403,179 @@
       row.appendChild(g);
     });
   }
-  function applyDefinition(def, starterKey) {
-    state.filters = (def.filters || []).map((f) => Object.assign({}, f));
+  function applyDefinition(def, starterKey, viewId) {
+    const all = (def.filters || []).map((f) => Object.assign({}, f));
+    state.filters = all.filter((f) => f && fieldByKey[f.field]);
+    if (state.filters.length !== all.length) toast('Some filters in this view use fields your role cannot see — they were left out.', true);
     state.search = def.search || '';
     if (def.columns && def.columns.length) state.columns = def.columns.filter((k) => fieldByKey[k]);
-    state.sort = def.sort ? def.sort.map((s) => ({ field: s.field, dir: String(s.dir).toLowerCase() })) : [];
-    if (def.group_by) state.groupBy = def.group_by;
+    state.sort = def.sort ? def.sort.filter((s) => s && fieldByKey[s.field]).map((s) => ({ field: s.field, dir: String(s.dir).toLowerCase() })) : [];
+    if (def.group_by && fieldByKey[def.group_by]) state.groupBy = def.group_by;
+    if (Array.isArray(def.metrics) && def.metrics.length) state.metrics = def.metrics.filter((k) => metricByKey[k]);
     state.starter = starterKey || null;
+    state.view = viewId || null;
+    applyingView = !!viewId;
     state.page = 1;
-    if (def.columns && state.tab === 'overview') switchTab('list');
+    const wantTab = def.ui && def.ui.tab;
+    if (wantTab && ['overview', 'breakdown', 'list'].includes(wantTab)) switchTab(wantTab);
+    else if (def.columns && state.tab === 'overview') switchTab('list');
     rebuildTable();
     apply();
+    renderViews();
   }
-  function loadViews() { try { return JSON.parse(localStorage.getItem(LS.views) || '[]'); } catch (e) { return []; } }
+  // ───────────────────────── saved views (server, V2‑3) ─────────────────────────
+  let views = { available: false, list: [], canPin: false, migration: '' };
+  function currentDefinition() {
+    return { dataset: 'members', filters: state.filters, search: state.search, columns: state.columns, sort: state.sort, group_by: state.groupBy, metrics: state.metrics, ui: { tab: state.tab } };
+  }
+  async function viewsApi(action, params, post) {
+    const url = CFG.viewsApi + (post ? '' : '?' + new URLSearchParams(Object.assign({ action: action }, params || {})).toString());
+    const init = { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } };
+    if (post) {
+      const fd = new FormData();
+      fd.append('action', action); fd.append('csrf_token', CFG.csrf);
+      Object.keys(params || {}).forEach((k) => fd.append(k, params[k]));
+      init.method = 'POST'; init.body = fd;
+    }
+    const res = await fetch(url, init);
+    let body = null; try { body = await res.json(); } catch (e) { body = null; }
+    if (res.status === 401) { window.location.href = '/admin/index.php?error=session_expired'; return null; }
+    if (!res.ok || !body || body.status !== 'success') throw new Error((body && body.message) || ('Request failed (' + res.status + ')'));
+    return body.data;
+  }
+  async function loadViewsFromServer() {
+    try {
+      const d = await viewsApi('list');
+      if (!d) return;
+      views = { available: !!d.available, list: d.views || [], canPin: !!d.can_pin, migration: d.migration || '' };
+    } catch (e) {
+      views = { available: false, list: [], canPin: false, migration: '' };
+    }
+    renderViews(); renderStarters();
+  }
+  function legacyLocalViews() { try { return JSON.parse(localStorage.getItem(LS.views) || '[]'); } catch (e) { return []; } }
   function renderViews() {
     const box = $('#rc-views');
-    const views = loadViews();
-    box.innerHTML = views.length ? '<span class="rc-field-label">My views (this browser)</span>' : '';
-    views.forEach((v, i) => {
-      const el = document.createElement('div'); el.className = 'rc-view';
-      el.innerHTML = '<button type="button" data-open>' + esc(v.name) + '</button><button type="button" class="rc-view-del" data-del aria-label="Delete">×</button>';
-      $('[data-open]', el).addEventListener('click', () => applyDefinition(v.def, null));
-      $('[data-del]', el).addEventListener('click', () => { views.splice(i, 1); localStorage.setItem(LS.views, JSON.stringify(views)); renderViews(); });
-      box.appendChild(el);
+    box.innerHTML = '';
+    const saveBtn = $('#rc-save-view');
+    if (!views.available) {
+      saveBtn.disabled = true;
+      saveBtn.title = 'Saved views are not set up yet' + (views.migration ? ' (run ' + views.migration + ')' : '');
+      if (CFG.role === 'super_admin' || CFG.role === 'school_admin') {
+        box.innerHTML = '<div class="rc-views-h">Saved views</div><div class="rc-muted">Not set up yet — run <code>' + esc(views.migration || 'sql/070_report_definitions.sql') + '</code> in phpMyAdmin.</div>';
+      }
+      return;
+    }
+    saveBtn.disabled = false; saveBtn.title = '';
+    const groups = [
+      { key: 'mine', label: 'My views', items: views.list.filter((v) => v.mine) },
+      { key: 'department', label: 'My department', items: views.list.filter((v) => !v.mine && v.scope === 'department') },
+      { key: 'shared', label: 'Shared with everyone', items: views.list.filter((v) => !v.mine && v.scope === 'shared') },
+    ];
+    if (CFG.role === 'super_admin' || CFG.role === 'school_admin') {
+      groups.push({ key: 'others', label: 'Other private views (admin)', items: views.list.filter((v) => !v.mine && v.scope === 'private') });
+    }
+    groups.forEach((g) => {
+      if (!g.items.length) return;
+      const h = document.createElement('div'); h.className = 'rc-views-h'; h.textContent = g.label; box.appendChild(h);
+      g.items.forEach((v) => {
+        const el = document.createElement('div'); el.className = 'rc-view' + (state.view === v.id ? ' is-on' : '');
+        const open = document.createElement('button'); open.type = 'button';
+        open.textContent = v.name;
+        open.title = (v.description ? v.description + ' — ' : '') + 'by ' + (v.owner || v.owner_role) + (v.run_count ? ' · opened ' + v.run_count + '×' : '');
+        if (v.pinned) { const t = document.createElement('span'); t.className = 'rc-view-tag'; t.textContent = 'pinned'; open.appendChild(t); }
+        open.addEventListener('click', () => openView(v));
+        el.appendChild(open);
+        if (v.can_edit) {
+          const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'rc-iconbtn'; ed.title = 'Rename / sharing'; ed.setAttribute('aria-label', 'Edit view');
+          ed.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16v4zM13 7l4 4"/></svg>';
+          ed.addEventListener('click', () => openSaveDialog(v));
+          el.appendChild(ed);
+          const del = document.createElement('button'); del.type = 'button'; del.className = 'rc-iconbtn rc-view-del'; del.title = 'Delete'; del.setAttribute('aria-label', 'Delete view');
+          del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+          del.addEventListener('click', () => deleteView(v));
+          el.appendChild(del);
+        }
+        box.appendChild(el);
+      });
     });
+    // one‑time import of views saved in this browser before V2‑3
+    const legacy = legacyLocalViews();
+    if (legacy.length) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'rc-btn rc-btn-ghost rc-btn-sm rc-views-import';
+      b.textContent = 'Import ' + legacy.length + ' view' + (legacy.length > 1 ? 's' : '') + ' saved in this browser';
+      b.addEventListener('click', importLegacyViews);
+      box.appendChild(b);
+    }
   }
-  function saveView() {
-    const name = prompt('Name this view (saved in this browser only — shared views come in the next phase):');
-    if (!name) return;
-    const views = loadViews();
-    views.unshift({ name: name.slice(0, 60), def: { filters: state.filters, search: state.search, columns: state.columns, sort: state.sort, group_by: state.groupBy } });
-    localStorage.setItem(LS.views, JSON.stringify(views.slice(0, 20)));
-    renderViews();
-    toast('View saved');
+  function openView(v) {
+    applyDefinition(v.definition || {}, null, v.id);
+    viewsApi('opened', { id: v.id }, true).catch(() => {});
+  }
+  async function deleteView(v) {
+    if (!confirm('Delete the view “' + v.name + '”' + (v.scope !== 'private' ? ' for everyone who can see it' : '') + '?')) return;
+    try {
+      await viewsApi('delete', { id: v.id }, true);
+      if (state.view === v.id) { state.view = null; writeState(); }
+      toast('View deleted');
+      loadViewsFromServer();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function importLegacyViews() {
+    const legacy = legacyLocalViews();
+    let n = 0;
+    for (const lv of legacy) {
+      try {
+        await viewsApi('save', { name: String(lv.name || 'Imported view').slice(0, 120), scope: 'private', definition: JSON.stringify(Object.assign({ dataset: 'members' }, lv.def || {})) }, true);
+        n++;
+      } catch (e) { /* keep going */ }
+    }
+    localStorage.removeItem(LS.views);
+    toast(n + ' view' + (n === 1 ? '' : 's') + ' imported as private');
+    loadViewsFromServer();
+  }
+  function openSaveDialog(existing) {
+    const modal = $('#rc-saveview');
+    const form = $('#rc-saveview-form');
+    form.reset();
+    form.elements.id.value = existing ? existing.id : '';
+    form.elements.name.value = existing ? existing.name : '';
+    form.elements.description.value = existing ? (existing.description || '') : '';
+    const scope = existing ? existing.scope : 'private';
+    $$('input[name=scope]', form).forEach((r) => { r.checked = r.value === scope; });
+    if (form.elements.pinned) form.elements.pinned.checked = !!(existing && existing.pinned);
+    $('#rc-saveview-title').textContent = existing ? 'Edit view' : 'Save view';
+    $('#rc-saveview-submit').textContent = existing ? 'Save changes' : 'Save';
+    const chips = state.filters.length + (state.search ? 1 : 0);
+    $('#rc-saveview-summary').textContent = existing
+      ? 'The population and columns are kept as saved; use “Save view” from the panel to store a new population under a new name.'
+      : (chips ? chips + ' filter' + (chips > 1 ? 's' : '') : 'No filters (all members)') + ' · ' + state.columns.length + ' columns · opens on the ' + state.tab + ' tab.';
+    form.dataset.mode = existing ? 'edit' : 'new';
+    modal.hidden = false;
+    form.elements.name.focus();
+  }
+  async function submitSaveDialog(e) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const existing = form.dataset.mode === 'edit' ? views.list.find((v) => String(v.id) === form.elements.id.value) : null;
+    const params = {
+      id: form.elements.id.value || '',
+      name: form.elements.name.value.trim(),
+      description: form.elements.description.value.trim(),
+      scope: ($$('input[name=scope]:checked', form)[0] || {}).value || 'private',
+      definition: JSON.stringify(existing ? existing.definition : currentDefinition()),
+    };
+    if (form.elements.pinned) { params.pinned = form.elements.pinned.checked ? '1' : '0'; if (params.pinned === '1') params.scope = 'shared'; }
+    if (!params.name) { form.elements.name.focus(); return; }
+    $('#rc-saveview-submit').disabled = true;
+    try {
+      const d = await viewsApi('save', params, true);
+      $('#rc-saveview').hidden = true;
+      toast(existing ? 'View updated' : 'View saved' + (params.scope === 'private' ? '' : ' and shared'));
+      if (d && d.view && !existing) { state.view = d.view.id; writeState(); }
+      loadViewsFromServer();
+    } catch (err) { toast(err.message, true); }
+    $('#rc-saveview-submit').disabled = false;
   }
 
   // ───────────────────────── KPIs ─────────────────────────
@@ -704,6 +861,8 @@
   function apply() {
     clearTimeout(applyTimer);
     applyTimer = setTimeout(() => {
+      if (state.view && !applyingView) { state.view = null; renderViews(); renderStarters(); }
+      applyingView = false;
       state.page = 1;
       renderQuick(); renderRules(); renderChips(); renderStarters();
       writeState();
@@ -718,7 +877,10 @@
     $('#rc-period').addEventListener('change', (e) => { setPeriod(e.target.value); state.starter = null; apply(); });
     $('#rc-add-rule').addEventListener('click', () => { $('#rc-rules').appendChild(ruleRow({}, null)); });
     $('#rc-clear').addEventListener('click', () => { state.filters = []; state.search = ''; state.starter = null; apply(); });
-    $('#rc-save-view').addEventListener('click', saveView);
+    $('#rc-save-view').addEventListener('click', () => openSaveDialog(null));
+    $('#rc-saveview-form').addEventListener('submit', submitSaveDialog);
+    $$('#rc-saveview [data-close]').forEach((b) => b.addEventListener('click', () => { $('#rc-saveview').hidden = true; }));
+    $('#rc-saveview').addEventListener('click', (e) => { if (e.target.id === 'rc-saveview') e.currentTarget.hidden = true; });
     $('#rc-copy-link').addEventListener('click', () => {
       const url = window.location.origin + window.location.pathname + encodeState();
       (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('Link copied — anyone with reporting access opens the same population.')).catch(() => prompt('Copy this link:', url));
@@ -727,6 +889,7 @@
     $$('.rc-seg [data-lang]').forEach((b) => b.addEventListener('click', () => {
       state.lang = b.dataset.lang; localStorage.setItem(LS.lang, state.lang);
       $$('.rc-seg [data-lang]').forEach((x) => x.classList.toggle('is-on', x === b));
+      applyingView = !!state.view; // language change does not alter the population
       renderBreakdownControls(); renderColumnPicker(); renderGlossary(); rebuildTable(); apply();
     }));
     // menus
@@ -742,7 +905,7 @@
     $('#rc-glossary-btn').addEventListener('click', () => { $('#rc-glossary').hidden = false; });
     $$('#rc-glossary [data-close]').forEach((b) => b.addEventListener('click', () => { $('#rc-glossary').hidden = true; }));
     $('#rc-glossary').addEventListener('click', (e) => { if (e.target.id === 'rc-glossary') e.currentTarget.hidden = true; });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#rc-glossary').hidden = true; const xl = $('#rc-exportlog'); if (xl) xl.hidden = true; $('#rc-rail').classList.remove('is-open'); } });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#rc-glossary').hidden = true; $('#rc-saveview').hidden = true; const xl = $('#rc-exportlog'); if (xl) xl.hidden = true; $('#rc-rail').classList.remove('is-open'); } });
     // export log (button only rendered for school_admin / super_admin)
     const xlBtn = $('#rc-exportlog-btn');
     if (xlBtn) {
@@ -783,7 +946,9 @@
     dirty.list = false; // rebuildTable already fetched page 1
     $$('.rc-tabs [data-tab]').forEach((b) => b.classList.toggle('is-on', b.dataset.tab === state.tab));
     $$('.rc-tabpane').forEach((p) => p.classList.toggle('is-on', p.id === 'pane-' + state.tab));
+    applyingView = !!state.view; // a #q=…&v=id link keeps its view marker
     apply();
+    loadViewsFromServer();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();

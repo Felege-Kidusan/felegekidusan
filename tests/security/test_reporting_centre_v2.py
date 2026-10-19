@@ -20,6 +20,8 @@ GATE = ROOT / "admin" / "backend" / "services" / "FeatureGate.php"
 HARNESS = ROOT / "tests" / "e2e" / "report_query_service_unit.php"
 VENDOR_JS = ROOT / "admin" / "js" / "vendor"
 PAGE = ROOT / "admin" / "reports_v2.php"
+VIEWS_API = ROOT / "admin" / "api_report_views.php"
+MIGRATION = ROOT / "sql" / "070_report_definitions.sql"
 PAGE_JS = ROOT / "admin" / "js" / "reports" / "reports_v2.js"
 PAGE_CSS = ROOT / "admin" / "css" / "reports_v2.css"
 
@@ -96,6 +98,39 @@ class ReportingCentreV2Static(unittest.TestCase):
                 declared = set(re.findall(r"'([a-z]+)'", m.group(1)))
                 self.assertTrue(used <= declared, "metric requires %s but uses %s" % (declared, used))
         self.assertIn("ReportRegistry::metricRequires($m)", _read(QS))
+
+    def test_v2_3_saved_views_guards(self):
+        """V2-3: saved-views API is role-gated, CSRF-protected on POST, validates
+        definitions with the saver's role, limits pinning to admins, audits writes,
+        and the migration is shared-hosting safe."""
+        acl = _read(ACL)
+        m = re.search(r"'api_report_views\.php'\s*=>\s*\[([^\]]+)\]", acl)
+        self.assertIsNotNone(m, "api_report_views.php missing from ROLE_MAP")
+        self.assertEqual(set(re.findall(r"'([a-z_]+)'", m.group(1))), {"super_admin", "school_admin", "info_dept", "hr_dept"})
+        self.assertIn("'api_report_views.php' => 'reports'", _read(GATE))
+        src = _read(VIEWS_API)
+        self.assertIn("ReportRegistry::READER_ROLES", src)
+        self.assertIn("validateCsrf(", src)
+        self.assertIn("$method === 'POST' && !validateCsrf", src)
+        self.assertIn("$fail(405, 'Use POST for changes.')", src)
+        self.assertIn("$svc->normalise($decoded)", src, "definitions must be validated with the saver's role")
+        self.assertIn("Only school administrators can pin", src)
+        self.assertIn("RV_MAX_DEFINITION_BYTES", src)
+        self.assertIn("RV_MAX_VIEWS_PER_USER", src)
+        for ev in ("'Report View Saved'", "'Report View Updated'", "'Report View Deleted'", "'Report View Pinned'"):
+            self.assertIn(ev, src)
+        # every SQL statement is a prepared statement with placeholders (no interpolated user input)
+        self.assertNotRegex(src, r"\$pdo->(query|exec)\(\s*[\"'].*\$_(POST|GET)")
+        self.assertNotRegex(src, r"json_encode\([^\n]*getMessage")
+        # migration: idempotent, no JSON type / generated columns / CHECK (shared hosting)
+        mig = _read(MIGRATION)
+        self.assertIn("CREATE TABLE IF NOT EXISTS `report_definitions`", mig)
+        self.assertNotRegex(mig, r"\bJSON\b\s*(NOT NULL|DEFAULT|,)|GENERATED ALWAYS|\bCHECK\s*\(")
+        self.assertIn("ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", mig)
+        # the UI sends the CSRF token and never writes with GET
+        js = _read(PAGE_JS)
+        self.assertIn("fd.append('csrf_token', CFG.csrf)", js)
+        self.assertIn("'csrf'       => generateCsrfToken()", _read(PAGE))
 
     def test_api_defense_in_depth(self):
         src = _read(API)

@@ -37,11 +37,13 @@ $cfg = [
     'userName'   => $userName,
     'memberUrl'  => '/admin/info_manage_member.php?id=',
     'legacyUrl'  => '/admin/reports.php',
+    'viewsApi'   => '/admin/api_report_views.php',
+    'csrf'       => generateCsrfToken(),
     'lang'       => 'en',
     'today'      => $todayFormatted,
     'schoolName' => defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS',
 ];
-$assetVer = '20261019a';
+$assetVer = '20261019b';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -133,7 +135,7 @@ $assetVer = '20261019a';
         <button type="button" class="rc-btn rc-btn-ghost rc-btn-sm" id="rc-save-view">Save view</button>
         <button type="button" class="rc-btn rc-btn-ghost rc-btn-sm" id="rc-copy-link">Copy link</button>
       </div>
-      <div class="rc-views" id="rc-views"></div>
+      <div class="rc-views" id="rc-views" aria-live="polite"></div>
     </aside>
 
     <!-- ───────── Workspace ───────── -->
@@ -220,6 +222,32 @@ $assetVer = '20261019a';
       <div class="rc-modal-hd"><h2 id="rc-glossary-title">Definitions</h2><button type="button" class="rc-iconbtn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
       <div class="rc-modal-bd" id="rc-glossary-body"></div>
     </div>
+  </div>
+
+  <!-- Save view dialog -->
+  <div class="rc-modal" id="rc-saveview" hidden>
+    <form class="rc-modal-card rc-modal-sm" role="dialog" aria-modal="true" aria-labelledby="rc-saveview-title" id="rc-saveview-form" autocomplete="off">
+      <div class="rc-modal-hd"><h2 id="rc-saveview-title">Save view</h2><button type="button" class="rc-iconbtn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="rc-modal-bd">
+        <input type="hidden" name="id" value="">
+        <label class="rc-form-row"><span>Name</span><input type="text" name="name" maxlength="120" required placeholder="e.g. Section A children without guardian phone"></label>
+        <label class="rc-form-row"><span>Description <small>(optional)</small></span><input type="text" name="description" maxlength="500" placeholder="What this list is for, who uses it"></label>
+        <fieldset class="rc-form-row rc-scope">
+          <legend>Who can open it</legend>
+          <label><input type="radio" name="scope" value="private" checked> <b>Only me</b><small>Private to your account</small></label>
+          <label><input type="radio" name="scope" value="department"> <b>My department</b><small>Everyone with your role</small></label>
+          <label><input type="radio" name="scope" value="shared"> <b>Everyone</b><small>All reporting‑centre users (Info, HR, admins)</small></label>
+        </fieldset>
+        <?php if (in_array($userRole, ['super_admin', 'school_admin'], true)): ?>
+        <label class="rc-form-row rc-pin-row"><input type="checkbox" name="pinned" value="1"> <span><b>Pin as standing report</b><small>Shown to everyone in the “Start from a question” row (forces “Everyone”)</small></span></label>
+        <?php endif; ?>
+        <p class="rc-muted" id="rc-saveview-summary"></p>
+      </div>
+      <div class="rc-modal-ft">
+        <button type="button" class="rc-btn rc-btn-ghost" data-close>Cancel</button>
+        <button type="submit" class="rc-btn rc-btn-primary" id="rc-saveview-submit">Save</button>
+      </div>
+    </form>
   </div>
 
   <!-- Export log (school_admin / super_admin) -->

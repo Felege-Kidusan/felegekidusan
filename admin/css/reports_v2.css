@@ -183,3 +183,25 @@ a{color:var(--rc-primary)}
 #rc-exportlog-table .tabulator { font-size: 12px; }
 .rc-chip-list { display: inline-flex; flex-wrap: wrap; gap: 3px; }
 .rc-chip-list span { background: #f1f5f9; border-radius: 6px; padding: 1px 6px; font-size: 11px; }
+
+/* ── V2‑3: saved views ── */
+.rc-modal-sm { max-width: 520px; }
+.rc-modal-ft { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--rc-line); }
+.rc-form-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; }
+.rc-form-row > span { font-weight: 600; color: var(--rc-text); }
+.rc-form-row small { color: var(--rc-muted); font-weight: 400; }
+.rc-form-row input[type=text] { border: 1px solid var(--rc-line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+.rc-scope { border: 1px solid var(--rc-line); border-radius: 10px; padding: 8px 10px; }
+.rc-scope legend { font-weight: 600; padding: 0 4px; }
+.rc-scope label, .rc-pin-row { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: start; padding: 6px 4px; cursor: pointer; }
+.rc-scope label b, .rc-pin-row b { display: block; font-weight: 600; }
+.rc-scope label small, .rc-pin-row small { display: block; }
+.rc-views-h { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #64748b; margin: 10px 0 2px; }
+.rc-view { display: flex; align-items: center; gap: 4px; }
+.rc-view > button:first-child { flex: 1; text-align: left; border: 0; background: transparent; padding: 5px 6px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 13px; color: var(--rc-text); }
+.rc-view > button:first-child:hover, .rc-view.is-on > button:first-child { background: #ecfeff; color: #0f766e; }
+.rc-view .rc-view-tag { font-size: 10px; color: #0f766e; background: #ecfeff; border-radius: 6px; padding: 1px 5px; margin-left: 4px; }
+.rc-view .rc-iconbtn { width: 24px; height: 24px; }
+.rc-starter.is-pinned { border-color: #e3b341; background: #fffbeb; }
+.rc-starter.is-pinned.is-on { background: #0f766e; }
+.rc-views-import { margin-top: 8px; }
