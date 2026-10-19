@@ -142,6 +142,16 @@ Bilingual labels (am/en) come from the registry, so both UI and exports use the 
 
 ---
 
+### 6.1 Delivery status (updated 2026‑10‑19)
+
+| Phase | Status | Commit |
+|---|---|---|
+| V2‑0 Foundation | DONE | `5d10294` |
+| V2‑1 New UI (`admin/reports_v2.php`, beta; legacy page kept) | DONE | `3d44f1c` |
+| V2‑2 Cross‑domain | DONE — members grain extended with Education enrolment (class section, enrolled‑on, class teacher, previous‑year class, year‑on‑year progression), Education + Mezmur attendance bands (current academic‑year date range, holidays excluded, late = attended), Family Link guardian (name/phone/relation, linked siblings), staff position titles; 5 new metrics; 5 new starters (Follow‑up / Promotion / Data quality); field categories; **export log** for school_admin/super_admin. Out of scope by decision: grades; groups (`wbws_group_members` has no `member_id`); app installs (device telemetry, not member‑linked). | this commit |
+| V2‑3 Saved views (shared) | NEXT — needs 1 migration (`report_definitions`) | — |
+| V2‑4 Other departments | pending | — |
+
 ## 7. Decisions needed from the owner
 
 1. **Q1 — Approve Option C** (composable stack with in‑house registry) over A (Metabase, needs VPS) and B (KoolReport, paid add‑ons)?

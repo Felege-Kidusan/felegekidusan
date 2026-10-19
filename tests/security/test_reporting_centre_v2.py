@@ -66,6 +66,37 @@ class ReportingCentreV2Static(unittest.TestCase):
         # Rows are rendered as text (Tabulator plaintext formatters) — no innerHTML of API data.
         self.assertNotRegex(js, r"formatter:\s*['\"]html['\"]")
 
+    def test_v2_2_cross_domain_guards(self):
+        """V2-2: export history is admin-only; cross-domain joins are one-row-per-member
+        and read-only; every metric that references a join declares `requires`."""
+        api = _read(API)
+        self.assertIn("'export_history'", api)
+        i = api.index("case 'export_history':")
+        self.assertIn("in_array($role, ['super_admin', 'school_admin'], true)", api[i:i + 400])
+        self.assertIn("$fail(403", api[i:i + 400])
+        self.assertIn("FROM activity_logs al", api)
+        reg = _read(REG)
+        # one-row-per-member pins for the enrolment joins (no member duplication)
+        self.assertIn("ce.id = (SELECT MAX(e.id)", reg)
+        self.assertIn("pe.id = (SELECT MAX(e.id)", reg)
+        self.assertIn("GROUP BY a.member_id) ea", reg)
+        self.assertIn("GROUP BY x.member_id) ma", reg)
+        # read-only: the registry must never contain a write verb
+        self.assertNotRegex(reg, r"\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE)\b")
+        # grades are out of scope for Info/HR (decision 2026-10-18)
+        self.assertNotRegex(reg, r"academic_records|grade_submissions|assessment")
+        # metrics that use a join alias declare `requires` (the query service attaches joins from it)
+        i = reg.index("public static function metrics()")
+        j = reg.index("public static function starters()")
+        for block in re.split(r"\n\s{12}'[a-z_0-9]+' => \[", reg[i:j])[1:]:
+            used = {a for a in ("ce", "pe", "ea", "ma") if re.search(r"\b" + a + r"\.[a-z_]+", block)}
+            if used:
+                m = re.search(r"'requires' => \[([^\]]*)\]", block)
+                self.assertIsNotNone(m, "metric uses join alias %s without requires: %s" % (used, block[:80]))
+                declared = set(re.findall(r"'([a-z]+)'", m.group(1)))
+                self.assertTrue(used <= declared, "metric requires %s but uses %s" % (declared, used))
+        self.assertIn("ReportRegistry::metricRequires($m)", _read(QS))
+
     def test_api_defense_in_depth(self):
         src = _read(API)
         self.assertIn("ReportRegistry::READER_ROLES", src)

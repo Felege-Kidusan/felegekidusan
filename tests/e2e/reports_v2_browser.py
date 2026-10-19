@@ -140,6 +140,38 @@ with sync_playwright() as p:
     check(page.locator("#rc-glossary-body .rc-def").count() >= 10, "glossary lists definitions")
     page.keyboard.press("Escape")
 
+    # ── V2-2: cross-domain ──
+    check(page.locator(".rc-starter-group").count() >= 3, "starters are grouped")
+    check(page.locator("#rc-quick-edu_attendance_band input").count() >= 4, "attendance band quick filter rendered")
+    page.click("button[data-tab=overview]")
+    page.wait_for_timeout(1200)
+    check(page.locator("#ch-edu_attendance_band canvas").count() == 1, "attendance band chart drawn")
+    check(page.locator("#ch-progression canvas").count() == 1, "progression chart drawn")
+    # starter: low attendance → list with cross-domain columns
+    page.click("button.rc-starter:has-text('under 50%')")
+    try:
+        page.wait_for_selector("#rc-table .tabulator-row", timeout=10000)
+    except Exception:
+        pass
+    page.wait_for_timeout(400)
+    heads = page.locator(".tabulator-col-title").all_inner_texts()
+    check(any("attendance" in h.lower() for h in heads), "cross-domain columns in list (%s)" % heads[:6])
+    check(page.locator(".tabulator-row").count() >= 1, "low attendance starter returns rows")
+    # column picker shows categories
+    page.click("#rc-columns-btn")
+    page.wait_for_timeout(300)
+    check(page.locator("#rc-columns-pop .rc-columns-cat").count() >= 6, "column picker grouped by category")
+    page.keyboard.press("Escape")
+    page.click("body", position={"x": 5, "y": 5})
+    # export log: admins only
+    if ROLE in ("school", "super"):
+        page.click("#rc-exportlog-btn")
+        page.wait_for_timeout(1200)
+        check(page.locator("#rc-exportlog-table .tabulator-row").count() >= 1, "export log lists events")
+        page.keyboard.press("Escape")
+    else:
+        check(page.locator("#rc-exportlog-btn").count() == 0, "export log hidden for non-admins")
+
     # mobile layout smoke
     page.set_viewport_size({"width": 390, "height": 800})
     page.wait_for_timeout(600)

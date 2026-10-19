@@ -41,7 +41,7 @@ $cfg = [
     'today'      => $todayFormatted,
     'schoolName' => defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS',
 ];
-$assetVer = '20261018a';
+$assetVer = '20261019a';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -74,6 +74,11 @@ $assetVer = '20261018a';
       <button type="button" class="rc-btn rc-btn-ghost" id="rc-glossary-btn" title="Definitions">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><span>Definitions</span>
       </button>
+      <?php if (in_array($userRole, ['super_admin', 'school_admin'], true)): ?>
+      <button type="button" class="rc-btn rc-btn-ghost" id="rc-exportlog-btn" title="Who exported what">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 9h8M8 13h8M8 17h5"/></svg><span>Export log</span>
+      </button>
+      <?php endif; ?>
       <a class="rc-btn rc-btn-ghost" href="<?= htmlspecialchars($cfg['legacyUrl'], ENT_QUOTES, 'UTF-8') ?>" title="Open the previous reports page">Classic view</a>
     </div>
   </header>
@@ -116,6 +121,8 @@ $assetVer = '20261018a';
       <div class="rc-field" id="rc-quick-status"></div>
       <div class="rc-field" id="rc-quick-membership_tier"></div>
       <div class="rc-field" id="rc-quick-gender"></div>
+      <div class="rc-field" id="rc-quick-edu_attendance_band"></div>
+      <div class="rc-field" id="rc-quick-progression"></div>
 
       <div class="rc-rules">
         <div class="rc-rules-head"><span class="rc-field-label">More rules</span><button type="button" class="rc-link" id="rc-add-rule">+ Add rule</button></div>
@@ -212,6 +219,17 @@ $assetVer = '20261018a';
     <div class="rc-modal-card" role="dialog" aria-modal="true" aria-labelledby="rc-glossary-title">
       <div class="rc-modal-hd"><h2 id="rc-glossary-title">Definitions</h2><button type="button" class="rc-iconbtn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
       <div class="rc-modal-bd" id="rc-glossary-body"></div>
+    </div>
+  </div>
+
+  <!-- Export log (school_admin / super_admin) -->
+  <div class="rc-modal" id="rc-exportlog" hidden>
+    <div class="rc-modal-card rc-modal-wide" role="dialog" aria-modal="true" aria-labelledby="rc-exportlog-title">
+      <div class="rc-modal-hd"><h2 id="rc-exportlog-title">Export log — who exported what</h2><button type="button" class="rc-iconbtn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="rc-modal-bd">
+        <p class="rc-muted" id="rc-exportlog-note">Last 200 member exports (files and PDF/legacy exports). Filters are recorded as field:operator — values are never stored.</p>
+        <div id="rc-exportlog-table"></div>
+      </div>
     </div>
   </div>
 

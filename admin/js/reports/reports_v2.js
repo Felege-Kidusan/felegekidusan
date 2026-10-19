@@ -24,7 +24,7 @@
     views: 'rc.views.' + ROLE,
     pageSize: 'rc.pagesize',
   };
-  const QUICK_FIELDS = ['age_group', 'status', 'membership_tier', 'gender'];
+  const QUICK_FIELDS = ['age_group', 'status', 'membership_tier', 'gender', 'edu_attendance_band', 'progression'];
   const PERIOD_OPS = ['this_ec_year', 'last_ec_year', 'last_days'];
   const KPI_METRICS = ['count', 'active', 'temporary', 'promotion_eligible', 'missing_phone', 'with_id_card'];
   const KPI_DRILL = {
@@ -45,6 +45,11 @@
     { field: 'completeness_score', kind: 'bar', sortByBucket: true },
     { field: 'current_class', kind: 'barh', top: 12 },
     { field: 'age_band', kind: 'bar' },
+    // V2‑2 cross‑domain (Education + Mezmur attendance, enrolment progression, Family Link)
+    { field: 'edu_attendance_band', kind: 'pie' },
+    { field: 'progression', kind: 'barh' },
+    { field: 'mezmur_attendance_band', kind: 'pie' },
+    { field: 'fl_guardian_relation', kind: 'pie' },
   ];
   const PALETTE = ['#0f766e', '#0e9aa7', '#e3b341', '#6f171e', '#7c3aed', '#2563eb', '#f97316', '#64748b', '#16a34a', '#db2777', '#0891b2', '#a16207'];
 
@@ -179,6 +184,19 @@
     return fieldLabel(f.field) + ' ' + opLabel(f.op) + (v !== '' ? ' ' + v : '');
   }
 
+  // Category label (schema.categories[key][lang]); falls back to the key.
+  function catLabel(key) {
+    const c = (schema.categories || {})[key];
+    return c ? (c[state.lang] || c.en) : key;
+  }
+  // Fields grouped by category, in registry order of categories.
+  function groupByCategory(fields) {
+    const order = Object.keys(schema.categories || {});
+    const groups = {};
+    fields.forEach((f) => { (groups[f.category || 'system'] = groups[f.category || 'system'] || []).push(f); });
+    return order.filter((k) => groups[k]).concat(Object.keys(groups).filter((k) => !order.includes(k))).map((k) => ({ key: k, label: catLabel(k), fields: groups[k] }));
+  }
+
   // ───────────────────────── rail rendering ─────────────────────────
   function renderQuick() {
     QUICK_FIELDS.forEach((key) => {
@@ -217,7 +235,7 @@
     row.className = 'rc-rule';
     const fields = schema.fields.filter((x) => x.filter && !x.hidden);
     const fsel = document.createElement('select');
-    fsel.innerHTML = '<option value="">Field…</option>' + fields.map((x) => '<option value="' + esc(x.key) + '"' + (x.key === f.field ? ' selected' : '') + '>' + esc(L(x, 'label')) + '</option>').join('');
+    fsel.innerHTML = '<option value="">Field…</option>' + groupByCategory(fields).map((g) => '<optgroup label="' + esc(g.label) + '">' + g.fields.map((x) => '<option value="' + esc(x.key) + '"' + (x.key === f.field ? ' selected' : '') + '>' + esc(L(x, 'label')) + '</option>').join('') + '</optgroup>').join('');
     const osel = document.createElement('select');
     const vbox = document.createElement('div');
     vbox.className = 'rc-rule-row';
@@ -347,12 +365,25 @@
   function renderStarters() {
     const row = $('#rc-starters-row');
     row.innerHTML = '';
-    schema.starters.forEach((s) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'rc-starter' + (state.starter === s.key ? ' is-on' : '');
-      b.textContent = L(s, 'title');
-      b.addEventListener('click', () => applyDefinition(s.definition, s.key));
-      row.appendChild(b);
+    const groupsMeta = schema.starter_groups || {};
+    const order = Object.keys(groupsMeta);
+    const byGroup = {};
+    schema.starters.forEach((s) => { (byGroup[s.group || 'other'] = byGroup[s.group || 'other'] || []).push(s); });
+    order.filter((k) => byGroup[k]).concat(Object.keys(byGroup).filter((k) => !order.includes(k))).forEach((gk) => {
+      const g = document.createElement('div');
+      g.className = 'rc-starter-group';
+      const lab = document.createElement('span');
+      lab.className = 'rc-starter-group-label';
+      lab.textContent = groupsMeta[gk] ? (groupsMeta[gk][state.lang] || groupsMeta[gk].en) : gk;
+      g.appendChild(lab);
+      byGroup[gk].forEach((s) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'rc-starter' + (state.starter === s.key ? ' is-on' : '');
+        b.textContent = L(s, 'title');
+        b.addEventListener('click', () => applyDefinition(s.definition, s.key));
+        g.appendChild(b);
+      });
+      row.appendChild(g);
     });
   }
   function applyDefinition(def, starterKey) {
@@ -588,7 +619,7 @@
     const pop = $('#rc-columns-pop');
     const fields = schema.fields.filter((f) => f.list && !f.hidden);
     pop.innerHTML = '<div class="rc-columns-head"><span>' + state.columns.length + ' selected</span><span><button type="button" class="rc-link" data-def>Defaults</button> · <button type="button" class="rc-link" data-all>All</button></span></div>'
-      + fields.map((f) => '<label><input type="checkbox" value="' + esc(f.key) + '"' + (state.columns.includes(f.key) ? ' checked' : '') + '> ' + esc(L(f, 'label')) + (f.pii ? '<span class="rc-pii">PII</span>' : '') + (!f.export ? '<span class="rc-pii">view only</span>' : '') + '</label>').join('');
+      + groupByCategory(fields).map((g) => '<div class="rc-columns-cat">' + esc(g.label) + '</div>' + g.fields.map((f) => '<label><input type="checkbox" value="' + esc(f.key) + '"' + (state.columns.includes(f.key) ? ' checked' : '') + '> ' + esc(L(f, 'label')) + (f.pii ? '<span class="rc-pii">PII</span>' : '') + (!f.export ? '<span class="rc-pii">view only</span>' : '') + '</label>').join('')).join('');
     const commit = () => {
       const picked = $$('input:checked', pop).map((i) => i.value);
       // keep existing order for already‑selected, append new ones in catalogue order
@@ -624,6 +655,32 @@
     html += schema.fields.filter((f) => f.definition).map((f) => '<div class="rc-def"><b>' + esc(L(f, 'label')) + '</b><span>' + esc(f.definition) + '</span></div>').join('');
     html += '<div class="rc-def-h">Limits & privacy</div><div class="rc-def"><span>Lists show up to ' + fmtNum(schema.limits.list_rows) + ' rows (' + schema.limits.page_size + ' per page); files contain up to ' + fmtNum(schema.limits.export_rows) + ' rows. Fields marked PII are personal data — every list query and export is recorded in the audit log with who, when and which filters (never the values).</span></div>';
     body.innerHTML = html;
+  }
+
+  // ───────────────────────── export log (admins) ─────────────────────────
+  let exportLogTable = null;
+  function openExportLog() {
+    const modal = $('#rc-exportlog');
+    modal.hidden = false;
+    api('export_history').then((d) => {
+      if (!d) return;
+      const rows = d.rows || [];
+      $('#rc-exportlog-note').textContent = rows.length + ' export events (newest first). Filters are recorded as field:operator — values are never stored.';
+      const cols = [
+        { title: 'When', field: 'at', width: 150 },
+        { title: 'User', field: 'username', width: 120 },
+        { title: 'Role', field: 'role', width: 110 },
+        { title: 'Event', field: 'action', width: 190 },
+        { title: 'Format', field: 'format', width: 70, hozAlign: 'center' },
+        { title: 'Title', field: 'title', width: 150 },
+        { title: 'Filters', field: 'filters', formatter: (c) => { const v = c.getValue() || []; const w = document.createElement('span'); w.className = 'rc-chip-list'; v.forEach((x) => { const e = document.createElement('span'); e.textContent = x; w.appendChild(e); }); return w; } },
+        { title: 'Cols', field: 'columns', width: 60, hozAlign: 'right' },
+        { title: 'PII fields', field: 'pii_fields', formatter: (c) => { const v = c.getValue() || []; const w = document.createElement('span'); w.className = 'rc-chip-list'; v.forEach((x) => { const e = document.createElement('span'); e.textContent = x; w.appendChild(e); }); return w; } },
+        { title: 'IP', field: 'ip', width: 120 },
+      ];
+      if (exportLogTable) { exportLogTable.setColumns(cols); exportLogTable.setData(rows); return; }
+      exportLogTable = new Tabulator('#rc-exportlog-table', { data: rows, columns: cols, layout: 'fitColumns', height: '60vh', placeholder: 'No exports recorded yet' });
+    }).catch(() => {});
   }
 
   // ───────────────────────── orchestration ─────────────────────────
@@ -685,7 +742,14 @@
     $('#rc-glossary-btn').addEventListener('click', () => { $('#rc-glossary').hidden = false; });
     $$('#rc-glossary [data-close]').forEach((b) => b.addEventListener('click', () => { $('#rc-glossary').hidden = true; }));
     $('#rc-glossary').addEventListener('click', (e) => { if (e.target.id === 'rc-glossary') e.currentTarget.hidden = true; });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#rc-glossary').hidden = true; $('#rc-rail').classList.remove('is-open'); } });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#rc-glossary').hidden = true; const xl = $('#rc-exportlog'); if (xl) xl.hidden = true; $('#rc-rail').classList.remove('is-open'); } });
+    // export log (button only rendered for school_admin / super_admin)
+    const xlBtn = $('#rc-exportlog-btn');
+    if (xlBtn) {
+      xlBtn.addEventListener('click', openExportLog);
+      $$('#rc-exportlog [data-close]').forEach((b) => b.addEventListener('click', () => { $('#rc-exportlog').hidden = true; }));
+      $('#rc-exportlog').addEventListener('click', (e) => { if (e.target.id === 'rc-exportlog') e.currentTarget.hidden = true; });
+    }
     // mobile rail
     $('#rc-rail-toggle').addEventListener('click', () => $('#rc-rail').classList.add('is-open'));
     $('#rc-rail-close').addEventListener('click', () => $('#rc-rail').classList.remove('is-open'));

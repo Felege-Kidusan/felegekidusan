@@ -232,12 +232,14 @@ final class ReportQueryService
     {
         $g = ReportRegistry::field($d['group_by']);
         [$where, $params, $joins] = $this->whereClause($d);
-        $joins = $this->flattenJoins(array_merge($joins, [$g['requires']]));
+        $joins[] = $g['requires'];
         $metrics = ReportRegistry::metrics();
         $sel = ["{$g['sql']} AS `bucket`"];
         foreach ($d['metrics'] as $m) {
             $sel[] = "{$metrics[$m]['sql']} AS `{$m}`";
+            $joins[] = ReportRegistry::metricRequires($m);
         }
+        $joins = $this->flattenJoins($joins);
         $sql = 'SELECT ' . implode(', ', $sel)
              . ' FROM ' . $this->fromClause(['members'], $joins)
              . ($where !== '' ? " WHERE {$where}" : '')
@@ -253,6 +255,7 @@ final class ReportQueryService
         $sel = [];
         foreach ($d['metrics'] as $m) {
             $sel[] = "{$metrics[$m]['sql']} AS `{$m}`";
+            $joins[] = ReportRegistry::metricRequires($m);
         }
         $sql = 'SELECT ' . implode(', ', $sel)
              . ' FROM ' . $this->fromClause(['members'], $this->flattenJoins($joins))

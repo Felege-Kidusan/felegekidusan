@@ -60,7 +60,7 @@ if (!isset($pdo) || !($pdo instanceof PDO)) {
 }
 
 $action = (string)($_GET['action'] ?? '');
-if (!in_array($action, ['schema', 'list', 'aggregate', 'kpis', 'options', 'export'], true)) {
+if (!in_array($action, ['schema', 'list', 'aggregate', 'kpis', 'options', 'export', 'export_history'], true)) {
     $fail(400, 'Unknown action');
 }
 
@@ -74,7 +74,7 @@ if (!$check['allowed']) {
 
 // Parse the definition (schema needs none).
 $definition = [];
-if ($action !== 'schema' && $action !== 'options') {
+if (!in_array($action, ['schema', 'options', 'export_history'], true)) {
     $q = (string)($_GET['q'] ?? '{}');
     if (strlen($q) > 8192) {
         $fail(400, 'Report definition too large.');
@@ -86,6 +86,42 @@ if ($action !== 'schema' && $action !== 'options') {
     $definition = $decoded;
 }
 $lang = (($_GET['lang'] ?? 'en') === 'am') ? 'am' : 'en';
+
+/**
+ * Last N export / bulk‑query audit rows, decoded for display. Reads activity_logs only.
+ * @return list<array<string,mixed>>
+ */
+function reportsV2ExportHistory(PDO $pdo, int $limit): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT al.id, al.username, al.action, al.details, al.ip_address, al.created_at, u.role AS user_role
+           FROM activity_logs al
+           LEFT JOIN users u ON u.id = al.user_id
+          WHERE al.action IN (\'Member Report Exported\', \'Member Report Requested\', \'Member Export Requested\')
+          ORDER BY al.id DESC
+          LIMIT ' . max(1, min(500, $limit))
+    );
+    $stmt->execute();
+    $rows = [];
+    while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $det = json_decode((string)$r['details'], true);
+        $det = is_array($det) ? $det : [];
+        $rows[] = [
+            'id'         => (int)$r['id'],
+            'at'         => (string)$r['created_at'],
+            'username'   => (string)$r['username'],
+            'role'       => (string)($r['user_role'] ?? ''),
+            'action'     => (string)$r['action'],
+            'format'     => (string)($det['format'] ?? ''),
+            'title'      => (string)($det['title'] ?? ''),
+            'filters'    => array_values(array_map('strval', (array)($det['filters'] ?? []))),
+            'columns'    => (int)($det['columns'] ?? 0),
+            'pii_fields' => array_values(array_map('strval', (array)($det['pii_fields'] ?? []))),
+            'ip'         => (string)$r['ip_address'],
+        ];
+    }
+    return $rows;
+}
 
 try {
     $service = new ReportQueryService($pdo, $role);
@@ -105,9 +141,10 @@ try {
         $summary = ReportQueryService::auditSummary($export['definition']);
         $summary['format'] = $format;
         $summary['pii_fields'] = $export['pii_fields'];
+        $title = (string)($_GET['title'] ?? 'members');
+        $summary['title'] = mb_substr(preg_replace('/[^\p{L}\p{N} _.\-]/u', '', $title) ?? '', 0, 80);
         SecurityAuditService::record($conn, 'Member Report Exported', $summary, 'member_analytics');
 
-        $title = (string)($_GET['title'] ?? 'members');
         $filename = ReportExportService::safeFilename($title, $format);
         if ($fallback) {
             header('X-Report-Format-Fallback: xlsx-unavailable');
@@ -141,6 +178,13 @@ try {
             break;
         case 'options':
             $payload = $service->options((string)($_GET['field'] ?? ''), (string)($_GET['prefix'] ?? ''));
+            break;
+        case 'export_history':
+            // Who exported what (V2‑2): school_admin / super_admin oversight of PII leaving the system.
+            if (!in_array($role, ['super_admin', 'school_admin'], true)) {
+                $fail(403, 'Export history is available to school administrators only.');
+            }
+            $payload = ['rows' => reportsV2ExportHistory($pdo, 200)];
             break;
         default:
             $fail(400, 'Unknown action');

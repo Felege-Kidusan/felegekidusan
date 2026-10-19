@@ -171,3 +171,15 @@ a{color:var(--rc-primary)}
   .rc-btn span{display:none}
   .rc-tabs button{padding:6px 10px}
 }
+
+/* ── V2‑2: grouped starters, categorised pickers, export log ── */
+.rc-starters-row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-start; }
+.rc-starter-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rc-starter-group-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #64748b; margin-right: 2px; }
+.rc-columns-cat { grid-column: 1 / -1; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #0f766e; margin: 8px 0 2px; padding-top: 6px; border-top: 1px dashed #e2e8f0; }
+.rc-columns-cat:first-of-type { border-top: 0; margin-top: 2px; }
+.rc-modal-wide { max-width: 1100px; width: min(1100px, 96vw); }
+.rc-muted { color: #64748b; font-size: 12px; margin: 0 0 10px; }
+#rc-exportlog-table .tabulator { font-size: 12px; }
+.rc-chip-list { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.rc-chip-list span { background: #f1f5f9; border-radius: 6px; padding: 1px 6px; font-size: 11px; }
