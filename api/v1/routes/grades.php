@@ -18,6 +18,16 @@
 $auth = apiRequireAuth();
 $action = $ROUTE['id'] ?? '';
 $sub = $ROUTE['sub'] ?? '';
+
+// /grades/followups[/counts|/{id}[/decide|/attempt]] — assessment follow-ups
+// after an Education reactivation (Attendance alerting Phase 5). Own role
+// set (teacher scoped / edu_dept write; HR / Info / admins read) and no
+// active-year requirement: historical assessments stay reachable (§12).
+if ($action === 'followups') {
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    require __DIR__ . '/assessment_followups.php';
+    exit;
+}
 $year = getCurrentAcademicYear();
 
 if (!$year) {

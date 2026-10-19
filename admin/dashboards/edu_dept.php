@@ -10,6 +10,7 @@ require_once __DIR__ . '/../backend/calendar_system.php';
 require_once __DIR__ . '/../backend/services/MemberCategory.php';
 require_once __DIR__ . '/../backend/services/AttendanceWarningService.php';
 require_once __DIR__ . '/../backend/services/AttendanceMonthRollupService.php';
+require_once __DIR__ . '/../backend/services/AssessmentFollowupService.php';
 require_once __DIR__ . '/../backend/services/ReportCardService.php';
 // Attendance alerting Phase 4: the analytics "attendance alert" threshold comes from the Education policy.
 $eduAttRiskThreshold = \App\Services\ReportCardService::attendanceRiskThreshold($conn);
@@ -17,6 +18,15 @@ $eduAttRiskLabel = rtrim(rtrim(number_format($eduAttRiskThreshold, 2, '.', ''), 
 $eduAttRiskMax = max(0, round($eduAttRiskThreshold - 0.1, 1));
 // Attendance alerting Phase 4: current EC month roll-up for the "Monthly Attendance" card (Education only).
 $attendanceMonthCard = \App\Services\AttendanceMonthRollupService::dashboardCard($conn, ['edu']);
+// Attendance alerting Phase 5: pending assessment follow-ups (make-up queue) for the dashboard card.
+$assessmentFollowupCard = ['available' => false, 'pending' => 0, 'makeup_required' => 0];
+try {
+    if (class_exists('\\App\\Services\\AssessmentFollowupService') && \App\Services\AssessmentFollowupService::available($conn)) {
+        $assessmentFollowupCard = \App\Services\AssessmentFollowupService::counts($conn) + ['available' => true];
+    }
+} catch (\Throwable $e) {
+    error_log('Dashboard assessment follow-up counts failed: ' . $e->getMessage());
+}
 // Attendance alerting Phase 2: open Education warnings for the dashboard card.
 $attendanceWarningsAvailable = false;
 $attendanceWarningCounts = ['edu' => ['total' => 0, 'critical' => 0], 'mezmur' => ['total' => 0, 'critical' => 0]];
@@ -561,6 +571,8 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div class="sc" style="background:linear-gradient(135deg,#ec4899,#d946ef)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700"><?= $totalEnrolled ?></div><div style="font-size:.75rem;opacity:.8">Enrolled</div></div><i class="fa-solid fa-user-graduate" style="font-size:1.5rem;opacity:.3"></i></div></div>
 <?php // Attendance alerting Phase 2: Open Attendance Warnings (Education only — server-scoped) ?>
 <a class="sc" id="aw-dashboard-card" href="/admin/attendance_warnings.php?department=edu" style="background:linear-gradient(135deg,#dc2626,#f97316);text-decoration:none;color:inherit" title="Open attendance warnings"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700" data-aw-total><?= $attendanceWarningsAvailable ? (int)$attendanceWarningCounts['edu']['total'] : '—' ?></div><div style="font-size:.75rem;opacity:.8">Open Attendance Warnings<?= $attendanceWarningsAvailable && (int)$attendanceWarningCounts['edu']['critical'] > 0 ? ' · ' . (int)$attendanceWarningCounts['edu']['critical'] . ' critical' : '' ?></div></div><i class="fa-solid fa-triangle-exclamation" style="font-size:1.5rem;opacity:.3"></i></div></a>
+<?php // Attendance alerting Phase 5: Assessment follow-ups (make-up queue opened when a member returns to Education) ?>
+<a class="sc" id="af-dashboard-card" href="/admin/assessment_followups.php" style="background:linear-gradient(135deg,#7c3aed,#a855f7);text-decoration:none;color:inherit" title="Assessments missed during an inactive period — decide make-up / exempt"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700" data-af-pending><?= $assessmentFollowupCard['available'] ? (int)$assessmentFollowupCard['pending'] : '—' ?></div><div style="font-size:.75rem;opacity:.8">Assessment Follow-ups · pending decision<?= $assessmentFollowupCard['available'] && (int)$assessmentFollowupCard['makeup_required'] > 0 ? ' · ' . (int)$assessmentFollowupCard['makeup_required'] . ' make-up' : '' ?></div></div><i class="fa-solid fa-clipboard-check" style="font-size:1.5rem;opacity:.3"></i></div></a>
 <?php // Attendance alerting Phase 4: Monthly Attendance (current EC month, Education only — server-scoped) ?>
 <a class="sc" id="am-dashboard-card" href="/admin/attendance_monthly.php?department=edu" style="background:linear-gradient(135deg,#0f766e,#14b8a6);text-decoration:none;color:inherit" title="Monthly attendance report (Ethiopian months)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700" data-am-below><?= $attendanceMonthCard['available'] ? (int)$attendanceMonthCard['below'] : '—' ?></div><div style="font-size:.75rem;opacity:.8">Monthly Attendance · <?= e($attendanceMonthCard['month_label_am']) ?> · below threshold<?= $attendanceMonthCard['available'] && $attendanceMonthCard['avg_rate'] !== null ? ' · avg ' . $attendanceMonthCard['avg_rate'] . '%' : '' ?></div></div><i class="fa-solid fa-calendar-days" style="font-size:1.5rem;opacity:.3"></i></div></a>
 </div>

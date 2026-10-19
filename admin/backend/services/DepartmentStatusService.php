@@ -26,6 +26,7 @@ namespace App\Services;
 
 require_once __DIR__ . '/FeatureGate.php';
 require_once __DIR__ . '/SecurityAuditService.php';
+require_once __DIR__ . '/AssessmentFollowupService.php';
 
 final class DepartmentStatusService
 {
@@ -402,7 +403,16 @@ final class DepartmentStatusService
             error_log('Department status audit failed: ' . $e->getMessage());
         }
 
-        return ['changed' => true, 'status' => $status, 'previous' => $previous, 'period_id' => $periodId];
+        // Attendance alerting Phase 5 (requirements §11–§12): an EDUCATION
+        // reactivation opens follow-ups for the assessments missed during
+        // the inactive period that was just closed ($current). Runs after the
+        // commit, never throws, no-op until FEATURE_ATTENDANCE_V2 + sql/075.
+        $followups = null;
+        if ($dept === 'edu' && $status === 'active' && $previous === 'inactive' && $current && class_exists('\\App\\Services\\AssessmentFollowupService')) {
+            $followups = AssessmentFollowupService::safeOnEducationReactivation($conn, $memberId, (int)$current['id'], $actorId, $auditActor);
+        }
+
+        return ['changed' => true, 'status' => $status, 'previous' => $previous, 'period_id' => $periodId, 'followups' => $followups];
     }
 
     // ── SQL helpers for rosters / denominators ────────────────────

@@ -15,6 +15,7 @@ require_once __DIR__ . '/../ethiopian_date.php';
 require_once __DIR__ . '/SubjectDurationPolicy.php';
 require_once __DIR__ . '/FeatureGate.php';
 require_once __DIR__ . '/AttendancePolicyService.php';
+require_once __DIR__ . '/AssessmentFollowupService.php';
 
 class ReportCardService
 {
@@ -789,6 +790,8 @@ class ReportCardService
                 // 1.6.7: the semester this mark belongs to (null = legacy
                 // row stamped before terms existed — counts in every term).
                 'term_id' => !empty($rec['term_id']) ? (int)$rec['term_id'] : null,
+                // Phase 5: 1 when the shown score is a make-up attempt (original kept in academic_records).
+                'is_makeup' => !empty($rec['is_makeup']) ? 1 : 0,
             ];
         }
 
@@ -967,6 +970,77 @@ class ReportCardService
             $out[$mid][$sid][] = $row;
         }
         $stmt->close();
+        return self::applyMakeupPrecedence($conn, $classId, $yearId, $termId, $out);
+    }
+
+    /**
+     * Attendance alerting Phase 5 (requirements §12, plan §Phase 5 — display
+     * precedence flagged for owner confirmation): when a make-up attempt
+     * exists for (member, assessment) the LATEST make-up supersedes the
+     * original score on the card; the original academic_records row is
+     * never modified. A member who had no original row gets a synthesized
+     * row so the make-up is not invisible. No-op until FEATURE_ATTENDANCE_V2
+     * + sql/075 (AssessmentFollowupService::available).
+     *
+     * @param array<int,array<int,list<array<string,mixed>>>> $out
+     * @return array<int,array<int,list<array<string,mixed>>>>
+     */
+    private static function applyMakeupPrecedence(\mysqli $conn, int $classId, int $yearId, int $termId, array $out): array
+    {
+        try {
+            $makeups = AssessmentFollowupService::latestMakeupsForClass($conn, $classId);
+        } catch (\Throwable $e) {
+            return $out;
+        }
+        if (!$makeups) {
+            return $out;
+        }
+        foreach ($makeups as $mid => $byAssessment) {
+            foreach ($byAssessment as $aid => $mk) {
+                if ($yearId > 0 && (int)$mk['academic_year_id'] > 0 && (int)$mk['academic_year_id'] !== $yearId) {
+                    continue;
+                }
+                if ($termId > 0 && (int)($mk['term_id'] ?? 0) > 0 && (int)$mk['term_id'] !== $termId) {
+                    continue;
+                }
+                $sid = (int)$mk['subject_id'];
+                $replaced = false;
+                if (isset($out[$mid][$sid])) {
+                    foreach ($out[$mid][$sid] as $i => $row) {
+                        if ((int)($row['assessment_id'] ?? 0) === (int)$aid) {
+                            $out[$mid][$sid][$i]['original_score'] = $row['score'];
+                            $out[$mid][$sid][$i]['score'] = $mk['score'];
+                            $out[$mid][$sid][$i]['max_score'] = $mk['max_score'];
+                            $out[$mid][$sid][$i]['is_makeup'] = 1;
+                            $replaced = true;
+                        }
+                    }
+                }
+                if (!$replaced) {
+                    $out[$mid][$sid][] = [
+                        'id' => 0,
+                        'member_id' => $mid,
+                        'class_id' => (int)$mk['class_id'],
+                        'subject_id' => $sid,
+                        'assessment_id' => (int)$aid,
+                        'score' => $mk['score'],
+                        'max_score' => $mk['max_score'],
+                        'remarks' => (string)($mk['remarks'] ?? ''),
+                        'academic_year_id' => (int)$mk['academic_year_id'],
+                        'term_id' => $mk['term_id'],
+                        'assessment_name' => (string)$mk['assessment_name'],
+                        'weight_percentage' => $mk['weight_percentage'],
+                        'assess_max' => $mk['assess_max'],
+                        'a_class_id' => (int)$mk['class_id'],
+                        'a_subject_id' => $sid,
+                        'subject_name' => (string)($mk['subject_name'] ?? 'Subject'),
+                        'subject_name_en' => (string)($mk['subject_name_en'] ?? ''),
+                        'original_score' => null,
+                        'is_makeup' => 1,
+                    ];
+                }
+            }
+        }
         return $out;
     }
 

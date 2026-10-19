@@ -15,6 +15,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
+require_once __DIR__ . '/../backend/services/AssessmentFollowupService.php';
 
 if (session_status() === PHP_SESSION_NONE) session_start();
 
@@ -279,6 +280,23 @@ $csrfToken = generateCsrfToken();
                             <div class="text-2xl font-bold"><?= array_sum(array_column($assignments, 'student_count')) ?></div>
                             <div class="text-sm opacity-80">Total Students</div>
                         </div>
+                        <?php
+                        // Attendance alerting Phase 5: follow-ups for assessments missed during an inactive
+                        // period, scoped to THIS teacher's class + subject assignments (server-side).
+                        $afCard = ['available' => false, 'pending' => 0, 'makeup_required' => 0];
+                        try {
+                            if (\App\Services\AssessmentFollowupService::available($conn)) {
+                                $afCard = \App\Services\AssessmentFollowupService::counts($conn, ['teacher_id' => (int)$userId]) + ['available' => true];
+                            }
+                        } catch (\Throwable $e) {
+                            error_log('Teacher follow-up counts failed: ' . $e->getMessage());
+                        }
+                        if ($afCard['available']): ?>
+                        <a id="af-dashboard-card" href="/admin/assessment_followups.php" class="stat-card bg-gradient-to-br from-violet-500 to-fuchsia-600 block" style="text-decoration:none;color:inherit" title="Assessments missed during an inactive period — decide make-up / exempt">
+                            <div class="text-2xl font-bold" data-af-pending><?= (int)$afCard['pending'] ?></div>
+                            <div class="text-sm opacity-80">Assessment Follow-ups · pending<?= (int)$afCard['makeup_required'] > 0 ? ' · ' . (int)$afCard['makeup_required'] . ' make-up' : '' ?></div>
+                        </a>
+                        <?php endif; ?>
                     </div>
                     
                     <!-- My Assigned Classes -->

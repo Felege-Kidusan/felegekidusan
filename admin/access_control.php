@@ -140,6 +140,13 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'api_attendance_policy.php' => ['super_admin', 'school_admin', 'hr_dept', 'info_dept', 'edu_dept', 'mezmur_dept'],
             'api_attendance_warnings.php' => ['super_admin', 'school_admin', 'hr_dept', 'info_dept', 'edu_dept', 'mezmur_dept'],
             'attendance_warnings.php' => ['super_admin', 'school_admin', 'hr_dept', 'info_dept', 'edu_dept', 'mezmur_dept'],
+            // Phase 4: shared monthly attendance report (read-only, department-scoped inside the API).
+            'api_attendance_monthly.php' => ['super_admin', 'school_admin', 'hr_dept', 'info_dept', 'edu_dept', 'mezmur_dept'],
+            'attendance_monthly.php' => ['super_admin', 'school_admin', 'hr_dept', 'info_dept', 'edu_dept', 'mezmur_dept'],
+            // Phase 5: assessment follow-ups / make-up queue. Teachers are scoped to
+            // their class + subject assignments and HR / Info / admins are read-only INSIDE the API.
+            'api_assessment_followups.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'hr_dept', 'info_dept'],
+            'assessment_followups.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'hr_dept', 'info_dept'],
 
             // ---- Marklists / report cards ----
             'api_communication.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
