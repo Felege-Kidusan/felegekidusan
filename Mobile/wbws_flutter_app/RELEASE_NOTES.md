@@ -5,6 +5,43 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.7.0 (build 37) — Attendance warnings (Phase 2 mobile)
+
+Mobile side of the approved attendance alerting Phase 2. Everything is
+behind the server feature flag `FEATURE_ATTENDANCE_V2` (`attendance_v2`
+in `/app/config`); with the flag off the app looks and behaves exactly
+like 1.6.10.
+
+- **Warnings screen** (Education, Mezmur, HR, Information homes): open and
+  closed attendance warnings per department, with Open / Closed filter,
+  kind filter (Consecutive / Low month), search by name or code, and
+  "Load more" paging. Counts per department come from the server.
+- **Warning detail**: stage, streak length, absence dates (Ethiopian
+  calendar), current month / year attendance rate, history events, and the
+  member's status in the other department when the viewer may see it.
+  Opens the member profile with one tap.
+- **Close with outcome** (department staff, HR, Information only — admins
+  are read-only, same as the web): Contacted / Excused / Escalated /
+  Deactivated / No Action, with an optional note (max 500 characters).
+  Closing never changes `members.status`.
+- **Bell deep-link**: tapping an `attendance_warning` notification opens
+  the warning itself; older alerts without a warning id still open the
+  member profile as before.
+- **Roster marker** (read-only): Education class sheets and Mezmur section
+  sheets show a small warning pill next to a member who has an open
+  warning. Teachers and attendance takers see the marker but cannot open
+  or close warnings.
+- **Member profile**: new "Attendance risk" block (per department: current
+  streak, month and year rates, open warning) for roles that may read it;
+  hidden silently otherwise or when offline.
+- Home tiles: "Warnings" tile on Education (also honours the server tile
+  list), Mezmur (staff only), HR and Information homes.
+
+Server: `/api/v1/attendance/warnings`, `/counts`, `/{id}`, `POST
+/{id}/close`, `GET /members/{id}/attendance-risk`; Education roster and
+Mezmur sheet rows now carry an additive `warning` key. All dates shown to
+users are Ethiopian calendar.
+
 ## 1.6.10 (build 36) — Report card: foldable A5 booklet, totals only
 
 The report card is redesigned as a classic **foldable report card**: an A4

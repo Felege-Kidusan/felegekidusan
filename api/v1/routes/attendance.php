@@ -188,6 +188,20 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
         }
     }
 
+    // Attendance alerting Phase 2: read-only "open warning" indicator per
+    // roster row (kind/stage only — no new PII). Empty when the feature is
+    // off or the tables are not there yet; never blocks the sheet.
+    $openWarnings = [];
+    if (class_exists('\\App\\Services\\AttendanceWarningService')) {
+        try {
+            $openWarnings = \App\Services\AttendanceWarningService::openByMembers(
+                $conn, 'edu', array_map(static fn($r) => (int)($r['member_id'] ?? $r['id'] ?? 0), $roster)
+            );
+        } catch (\Throwable $e) {
+            $openWarnings = [];
+        }
+    }
+
     $students = [];
     foreach ($roster as $row) {
         $mid = (int)($row['member_id'] ?? $row['id'] ?? 0);
@@ -203,6 +217,7 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
             'att_status' => $att['status'] ?? null,
             'notes' => $att['notes'] ?? null,
             'check_in_time' => $att['check_in_time'] ?? null,
+            'warning' => $openWarnings[$mid] ?? null,
         ];
     }
 

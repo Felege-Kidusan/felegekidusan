@@ -68,8 +68,48 @@ DB storage, `/api/v1` machine fields (`as_of`, window `from/to`, streak `dates[]
 | Q-2 | Historical rows without a packet | **Keep valid historical attendance eligible, after verifying the existing records.** | `LEGACY_ROWS_ELIGIBLE = true` stays. New read-only `--verify` mode (step 4 above) audits the rows and reports which would-open warnings depend on legacy rows. `AttendanceRiskService::$legacyRowsOverride` exists for that tooling only. |
 | Q-3 | Backlog size | **Yes — `--limit=` batches, with safeguards.** | `--after-id=` cursor, `--max-open` (default 100), `--max-errors` (default 5), interactive `APPLY` confirmation / `--yes`, lock file, per-batch audit row, idempotent re-runs (step 6 above). |
 
-## 7. Not done in this commit (Phase 2 remainder)
+## 7. Phase 2 remainder — Flutter + roster markers (2026-10-19, second commit)
 
-- **Flutter**: warnings screen (list / detail / close) for HR, Info, Edu, Mezmur; teacher read-only indicator; bell deep-link to warning detail; **APK build**. The sandbox has no Flutter SDK, so nothing was written rather than shipping untested Dart. Server endpoints are live and documented in §1; the current APK is unaffected.
-- **Teacher / attendance-taker web sheet indicator** ("open warning" marker on the roster row). Deferred together with the Flutter indicator so both read the same `GET /members/{id}/attendance-risk` contract.
+Owner chose "Flutter screens" as the next step. Everything below is behind
+`FEATURE_ATTENDANCE_V2` (`attendance_v2` in `GET /app/config`); with the
+flag off the app behaves exactly like 1.6.10 (build 36).
+
+### 7.1 Server (small, additive)
+
+| Where | Change |
+|---|---|
+| `api/v1/routes/attendance.php` (mobile Edu roster), `admin/api_attendance.php` (web Edu sheet), `MezmurAttendanceService::fetchSectionSheet` (web + mobile Mezmur sheet) | every member row carries `warning: {id, kind, stage} | null` (one `AttendanceWarningService::openByMembers` query per sheet; no per-row queries) |
+| `FeatureGate::mobileCapabilities` | adds `attendance_v2` |
+| `FeatureGate::filterMobileTiles` | tile id `warnings` is gated by `attendance_v2` |
+| `api/v1/core/app_release.php`, `app_release.example.php` | default Education tile list gains `warnings`; `latest_version 1.7.0`, `latest_build 37` |
+| `frontend/js/mezmur.js`, `admin/dashboards/teacher.php`, `admin/dashboards/attendance_taker.php` | read-only "open warning" chip on the Mezmur web sheet row and on the teacher / attendance-taker Education sheet row (existing `rate-chip` / `badge-warning` classes, no new CSS) |
+
+The deployed release config (`api/v1/app_release.local.php` / `.fkss_app_release.php`) is **not** in git. If its `tiles.education` list omits `warnings`, the app still shows the tile whenever `attendance_v2` is on (client-side append); adding `warnings` to that list is optional.
+
+### 7.2 Flutter (`Mobile/wbws_flutter_app`, 1.7.0+37)
+
+- `lib/services/api_service.dart` — `getAttendanceWarnings`, `getAttendanceWarningCounts`, `getAttendanceWarning`, `closeAttendanceWarning`, `getMemberAttendanceRisk`.
+- `lib/screens/attendance_warnings/attendance_warning_widgets.dart` — pure helpers (`warningStageLabel/Color`, `warningRateText`, `warningInt`, `warningDepartmentLabel`, `kWarningOutcomeLabels`), `WarningPill`, `RowWarningMarker`.
+- `attendance_warnings_screen.dart` — list with Open/Closed, kind filter, search, "Load more", per-department counts; `attendance_warning_detail_screen.dart` — detail, EC absence dates, month/year rates, history, other-department summary, "Member profile", close sheet (outcome + ≤500-char note; shown only when `can_close[dept]`). Pops `true` when a warning was closed so the list refreshes.
+- Bell: `inbox_view_model.dart` `warningTargetId(n)` reads `target.warning_id`; `notification_center_screen.dart` opens the warning detail when present, else the member profile (unchanged behaviour for old alerts).
+- Home tiles: `edu_home.dart` (`warnings` id, honours server tile list), `mezmur_home.dart` (staff only), `hr_home.dart`, `info_home.dart`.
+- Roster marker (read-only): `attendance_screen.dart` (Edu class sheet) and `mezmur_attendance.dart` keep the row's `warning` key and render `RowWarningMarker`. Teachers / takers never get list or close access (server 403 is the gate).
+- Member profile: `member_detail_screen.dart` "Attendance risk" block from `GET /members/{id}/attendance-risk`; silent on 403 / offline.
+- `pubspec.yaml` 1.7.0+37, `AppConfig.appVersion/appBuild`, `RELEASE_NOTES.md` entry, `test/attendance_warnings_test.dart` (10 tests).
+
+### 7.3 Verification (this commit)
+
+- Flutter 3.27.4 SDK was installed in the sandbox for verification only: `flutter analyze` → **0 errors** (pre-existing infos/warnings only); `flutter test` → **607/607 passed** (includes `version_sync_test`, `inbox_parity_test`, new `attendance_warnings_test`). `tool/const_gate.py` PASS on all changed Dart files.
+- Live API checks on the local test DB: Edu roster (mobile + web) and Mezmur sheet rows carry `warning` for a member with an open warning and `null` otherwise; `/app/config` reports `attendance_v2: true` for every staff role; `/attendance/warnings/counts` 200 for Edu/Mezmur/HR/Info and **403 for teacher**.
+- `php -l` on all touched PHP; `tests/e2e/attendance_warning_unit.php` 85/85; full security suite **2234 passed / 0 failed / 437 skipped** (version pins in `test_auth_outbox_rollout_gates.py`, `test_comm_offline_first.py`, `test_mezmur_art.py` moved to 1.7.0+37, as on every release).
+
+### 7.4 Owner steps — building the APK
+
+1. `git pull` on the build machine (Flutter ≥ 3.44 / Dart ≥ 3.12 per `pubspec.lock`; no dependency changes).
+2. `cd Mobile/wbws_flutter_app && flutter pub get && flutter test` (the build script already does this) then `flutter build apk --release` (or the usual split-per-ABI command) and sign as before.
+3. Upload build 37 through the existing release page; `latest_version`/`latest_build` in the deployed release config should become `1.7.0` / `37`. Keep `min_build` unchanged (no forced update).
+4. Production flag: the mobile screens appear only when `FEATURE_ATTENDANCE_V2` is true on the server (same flag as the web pages, §4).
+
+### 7.5 Still not done
+
 - Phase 3 (reopen/reject with reason + recalc), Phase 4 (monthly roll-up + shared monthly partial in all four dashboards, including HR), Phase 5 (make-up queue), Phase 6 (lesson-level) — each still needs its own approval.

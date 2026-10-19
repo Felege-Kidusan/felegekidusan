@@ -21,6 +21,7 @@ import '../../widgets/quick_confirm.dart';
 import '../../widgets/qr_scan_sheet.dart';
 import '../../widgets/status_banner.dart';
 import '../../services/qr_attendance.dart';
+import '../attendance_warnings/attendance_warning_widgets.dart';
 
 /// Mezmur attendance — VERBATIM clone of the teachers' attendance
 /// workflow, keyed by (date, section) instead of (date, class):
@@ -682,11 +683,17 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${m['student_name'] ?? ''} ${m['father_name'] ?? ''}',
-                      style: const TextStyle(
-                          fontSize: 13.5, fontWeight: FontWeight.w700),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                  Row(children: [
+                    Flexible(
+                      child: Text('${m['student_name'] ?? ''} ${m['father_name'] ?? ''}',
+                          style: const TextStyle(
+                              fontSize: 13.5, fontWeight: FontWeight.w700),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    // Attendance alerting Phase 2: read-only open-warning marker.
+                    RowWarningMarker(warning: m['warning'] is Map ? m['warning'] as Map : null),
+                  ]),
                   Text(
                     note.isNotEmpty
                         ? note

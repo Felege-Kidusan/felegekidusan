@@ -20,12 +20,12 @@
  *   cp FKSS-arm64-v8a.apk    /home/arkeonet/fkss_releases/fkss-arm64.apk
  *
  * After each new build, raise latest_version / latest_build to match
- * pubspec.yaml (currently 1.6.10+36). Raise min_build only after the staged
+ * pubspec.yaml (currently 1.7.0+37). Raise min_build only after the staged
  * compatibility window and adoption checks in the release runbook.
  */
 return [
-    'latest_version' => '1.6.10',
-    'latest_build'   => 36,
+    'latest_version' => '1.7.0',
+    'latest_build'   => 37,
     'min_version'    => '1.0.0',
     'min_build'      => 1,
     'force_update'   => false,
@@ -41,6 +41,6 @@ return [
     'apk_arm64_path' => '/home/arkeonet/fkss_releases/fkss-arm64.apk',
     'apk_arm32_path' => '/home/arkeonet/fkss_releases/fkss-arm32.apk',
     'tiles'          => [
-        'education' => ['classes', 'teachers', 'subjects', 'enrollment', 'grades', 'attendance'],
+        'education' => ['classes', 'teachers', 'subjects', 'enrollment', 'grades', 'attendance', 'warnings'],
     ],
 ];

@@ -117,6 +117,18 @@ int decrementCount(int current) => current > 0 ? current - 1 : 0;
 /// is 'member' (member detail screen). Returns the member id, or
 /// null when the row has no usable target — the caller then just
 /// marks it read, exactly like before.
+/// Attendance alerting Phase 2 — the server keeps `kind: 'member'` (so
+/// older apps still open the profile) and ADDS `warning_id` when the row
+/// is an attendance warning. Returns the warning id, or null when the
+/// row carries none — the caller then falls back to memberTargetId().
+int? warningTargetId(Map<String, dynamic> n) {
+  final target = n['target'];
+  if (target is! Map) return null;
+  final raw = target['warning_id'];
+  final id = raw is num ? raw.toInt() : int.tryParse('${raw ?? ''}') ?? 0;
+  return id > 0 ? id : null;
+}
+
 int? memberTargetId(Map<String, dynamic> n) {
   final target = n['target'];
   if (target is! Map) return null;

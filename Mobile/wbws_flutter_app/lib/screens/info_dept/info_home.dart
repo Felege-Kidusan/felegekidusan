@@ -11,6 +11,8 @@ import '../../widgets/use_website_note.dart';
 import '../../utils/transitions.dart';
 import '../members/member_list_screen.dart';
 import '../../widgets/notification_bell_button.dart';
+import '../../services/app_update_service.dart';
+import '../attendance_warnings/attendance_warnings_screen.dart';
 
 class InfoHomeScreen extends StatefulWidget {
   const InfoHomeScreen({super.key});
@@ -119,6 +121,10 @@ class InfoHomeScreenState extends State<InfoHomeScreen> {
         children: [
           FeatureTile(label: 'Members', icon: Icons.people_rounded, color: AppTheme.primary,
               onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const MemberListScreen()))),
+          // Attendance alerting Phase 2 (Education + Mezmur, close with outcome).
+          if (AppUpdateService().featureEnabled('attendance_v2', fallback: false))
+            FeatureTile(label: 'Warnings', icon: Icons.warning_amber_rounded, color: AppTheme.warning,
+                onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const AttendanceWarningsScreen()))),
         ],
       ),
       const SizedBox(height: 16),

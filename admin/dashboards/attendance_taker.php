@@ -483,7 +483,7 @@ $csrfToken = generateCsrfToken();
                 return `
                 <tr data-member-id="${s.member_id || s.id}">
                     <td>${i + 1}</td>
-                    <td class="font-medium">${escapeHtml((s.student_name || '') + ' ' + (s.father_name || ''))}</td>
+                    <td class="font-medium">${escapeHtml((s.student_name || '') + ' ' + (s.father_name || ''))}${s.warning && s.warning.kind ? ' <span class="badge badge-warning" title="Open attendance warning (read-only)">' + escapeHtml(s.warning.kind === 'low_month' ? 'Low month' : (s.warning.stage || 'warning')) + '</span>' : ''}</td>
                     <td><code class="text-xs bg-slate-100 px-2 py-1 rounded">${escapeHtml(s.member_code || '—')}</code></td>
                     <td>
                         <div class="flex justify-center gap-2">

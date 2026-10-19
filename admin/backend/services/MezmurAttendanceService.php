@@ -486,11 +486,25 @@ final class MezmurAttendanceService
             $marks = [];
         }
 
+        $roster = self::sectionRoster($conn, $section, $date);
+        // Attendance alerting Phase 2: read-only open-warning indicator per
+        // row (kind/stage only). Empty when the feature is off; never blocks.
+        $openWarnings = [];
+        if (class_exists('\\App\\Services\\AttendanceWarningService')) {
+            try {
+                $openWarnings = \App\Services\AttendanceWarningService::openByMembers(
+                    $conn, 'mezmur', array_map(static fn($r) => (int)($r['id'] ?? 0), $roster)
+                );
+            } catch (\Throwable $e) {
+                $openWarnings = [];
+            }
+        }
         $members = [];
-        foreach (self::sectionRoster($conn, $section, $date) as $m) {
+        foreach ($roster as $m) {
             $mark = $marks[$m['id']] ?? null;
             $m['mark'] = $mark['status'] ?? null;
             $m['notes'] = $mark['notes'] ?? '';
+            $m['warning'] = $openWarnings[(int)$m['id']] ?? null;
             $members[] = $m;
         }
 

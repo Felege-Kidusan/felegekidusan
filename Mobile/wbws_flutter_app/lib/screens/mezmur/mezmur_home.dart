@@ -16,6 +16,8 @@ import 'mezmur_attendance.dart';
 import 'mezmur_hymns.dart';
 import 'mezmur_downloads.dart';
 import '../../widgets/notification_bell_button.dart';
+import '../../services/app_update_service.dart';
+import '../attendance_warnings/attendance_warnings_screen.dart';
 
 /// Mezmur Department hub (mobile) — Ethiopian greeting, feature
 /// tiles and recent attendance days. Attendance itself lives in
@@ -294,6 +296,18 @@ class MezmurHomeScreenState extends State<MezmurHomeScreen>
                               const ReviewInboxScreen(dept: 'mezmur')))
                       : null,
                 ),
+                // Attendance alerting Phase 2: Mezmur's own warnings
+                // (department staff only; takers see the roster marker).
+                if (_isStaff &&
+                    AppUpdateService().featureEnabled('attendance_v2', fallback: false))
+                  FeatureTile(
+                    label: 'Warnings',
+                    icon: Icons.warning_amber_rounded,
+                    color: AppTheme.warning,
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) =>
+                            const AttendanceWarningsScreen(department: 'mezmur'))),
+                  ),
               ],
             ),
             const SizedBox(height: 18),

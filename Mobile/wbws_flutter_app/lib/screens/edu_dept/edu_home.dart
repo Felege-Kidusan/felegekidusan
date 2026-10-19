@@ -18,6 +18,7 @@ import 'edu_enrollment_screen.dart';
 import '../reviews/review_inbox_screen.dart';
 import 'edu_subjects_screen.dart';
 import '../../widgets/notification_bell_button.dart';
+import '../attendance_warnings/attendance_warnings_screen.dart';
 
 class EduHomeScreen extends StatefulWidget {
   const EduHomeScreen({super.key});
@@ -104,8 +105,12 @@ class EduHomeScreenState extends State<EduHomeScreen> {
   }
 
   List<Widget> _eduTiles() {
-    const fallback = ['classes', 'teachers', 'subjects', 'enrollment', 'grades', 'attendance'];
-    final ids = AppUpdateService().tilesFor('education', fallback);
+    const fallback = ['classes', 'teachers', 'subjects', 'enrollment', 'grades', 'attendance', 'warnings'];
+    final ids = List<String>.from(AppUpdateService().tilesFor('education', fallback));
+    // Attendance alerting Phase 2: the warnings tile follows the server
+    // feature flag even when an older release config omits the id.
+    final warningsOn = AppUpdateService().featureEnabled('attendance_v2', fallback: false);
+    if (warningsOn && !ids.contains('warnings')) ids.add('warnings');
     final all = <String, FeatureTile>{
       'classes': FeatureTile(label: 'Classes', icon: Icons.class_rounded, color: AppTheme.primary, onTap: () => _open(const EduClassesScreen())),
       'teachers': FeatureTile(label: 'Teachers', icon: Icons.person_rounded, color: const Color(0xFF7C3AED), onTap: () => _open(const EduTeachersScreen())),
@@ -114,12 +119,14 @@ class EduHomeScreenState extends State<EduHomeScreen> {
       'grades': FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.warning, onTap: () => _open(const TeacherGradesScreen())),
       'attendance': FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.accent, onTap: () => _open(const AttendanceScreen())),
       'reviews': FeatureTile(label: 'Reviews', icon: Icons.inbox_rounded, color: const Color(0xFF0F766E), onTap: () => _open(const ReviewInboxScreen(dept: 'edu'))),
+      'warnings': FeatureTile(label: 'Warnings', icon: Icons.warning_amber_rounded, color: AppTheme.warning, onTap: () => _open(const AttendanceWarningsScreen(department: 'edu'))),
     };
     return [
       for (final id in ids)
         if (all[id] != null
             && (id != 'attendance' || AppUpdateService().featureEnabled('attendance'))
-            && (id != 'grades' || AppUpdateService().featureEnabled('grades')))
+            && (id != 'grades' || AppUpdateService().featureEnabled('grades'))
+            && (id != 'warnings' || warningsOn))
           all[id]!,
     ];
   }

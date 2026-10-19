@@ -24,6 +24,7 @@ import '../../widgets/quick_confirm.dart';
 import '../../widgets/qr_scan_sheet.dart';
 import '../../widgets/status_banner.dart';
 import '../../services/qr_attendance.dart';
+import '../attendance_warnings/attendance_warning_widgets.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final int? initialClassId;
@@ -303,6 +304,9 @@ class AttendanceScreenState extends State<AttendanceScreen> {
               ? _orAbsent(_statusOf(s['att_status']))
               : _orAbsent(_firstStatus([pendingMap[mid], s['att_status']])),
           'notes': lockedEarly ? (s['notes'] ?? s['note'] ?? '') : (pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? ''),
+          // Attendance alerting Phase 2: read-only open-warning marker
+          // ({id, kind, stage} or null). Server-computed; never cached.
+          'warning': s['warning'] is Map ? s['warning'] : null,
         };
       }).toList();
 
@@ -954,12 +958,17 @@ class AttendanceScreenState extends State<AttendanceScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${s['student_name']} ${s['father_name']}',
-                      style: const TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                  Row(children: [
+                    Flexible(
+                      child: Text('${s['student_name']} ${s['father_name']}',
+                          style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    RowWarningMarker(warning: s['warning'] is Map ? s['warning'] as Map : null),
+                  ]),
                   Text(
                     (s['notes'] != null && '${s['notes']}'.trim().isNotEmpty)
                         ? '${s['notes']}'

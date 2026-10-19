@@ -1431,6 +1431,54 @@ class ApiService {
   Future<ApiResponse> getMemberAttendance(int id, {int days = 90}) =>
       get('/members/$id/attendance', params: {'days': '$days'});
 
+  // ============================================================
+  // ATTENDANCE WARNINGS (attendance alerting Phase 2)
+  // Server: api/v1/routes/attendance_warnings.php + members.php.
+  // Every date in these payloads is already an Ethiopian-calendar
+  // label (opened_ec, closed_ec, start_ec …) — the app never formats
+  // a Gregorian date for this feature.
+  // ============================================================
+
+  Future<ApiResponse> getAttendanceWarnings({
+    String department = 'all',
+    String status = 'open',
+    String kind = '',
+    String query = '',
+    int memberId = 0,
+    int limit = 100,
+    int offset = 0,
+  }) {
+    final params = <String, String>{
+      'department': department,
+      'status': status,
+      'limit': '$limit',
+      'offset': '$offset',
+    };
+    if (kind.isNotEmpty) params['kind'] = kind;
+    if (query.trim().isNotEmpty) params['q'] = query.trim();
+    if (memberId > 0) params['member_id'] = '$memberId';
+    return get('/attendance/warnings', params: params);
+  }
+
+  Future<ApiResponse> getAttendanceWarningCounts() =>
+      get('/attendance/warnings/counts');
+
+  Future<ApiResponse> getAttendanceWarning(int id) =>
+      get('/attendance/warnings/$id');
+
+  /// Close with an outcome (contacted | excused | escalated | deactivated |
+  /// no_action). The server enforces who may close (owning department,
+  /// HR, Information) and audits the action.
+  Future<ApiResponse> closeAttendanceWarning(int id,
+          {required String outcome, String note = ''}) =>
+      post('/attendance/warnings/$id/close',
+          body: {'outcome': outcome, 'note': note});
+
+  /// Per-member streak / month / year risk for the departments this role
+  /// may see. 403 for roles outside the attendance-warning readers.
+  Future<ApiResponse> getMemberAttendanceRisk(int id) =>
+      get('/members/$id/attendance-risk');
+
   // ── Phase 9: department review inbox (approve / return) ───────
   // dept ∈ {edu, mezmur, hr} — each department reviews ONLY its own
   // packets; the server re-checks the bearer's role on every call.

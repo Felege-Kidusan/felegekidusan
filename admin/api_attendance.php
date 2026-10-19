@@ -82,6 +82,16 @@ switch ($action) {
             $attStmt->close();
         }
 
+        // Attendance alerting Phase 2: read-only open-warning indicator per row.
+        $openWarnings = [];
+        try {
+            $openWarnings = \App\Services\AttendanceWarningService::openByMembers(
+                $conn, 'edu', array_map(static fn($r) => (int)($r['member_id'] ?? $r['id'] ?? 0), $roster)
+            );
+        } catch (\Throwable $e) {
+            $openWarnings = [];
+        }
+
         $students = [];
         foreach ($roster as $row) {
             $mid = (int)($row['member_id'] ?? $row['id'] ?? 0);
@@ -96,6 +106,7 @@ switch ($action) {
                 'attendance_id' => $att && !empty($att['id']) ? (int)$att['id'] : null,
                 'status' => $att['status'] ?? null,
                 'note' => $att['notes'] ?? '',
+                'warning' => $openWarnings[$mid] ?? null,
             ];
         }
         

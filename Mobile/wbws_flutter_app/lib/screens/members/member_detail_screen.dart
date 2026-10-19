@@ -5,6 +5,9 @@ import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/theme.dart';
+import '../../utils/transitions.dart';
+import '../attendance_warnings/attendance_warning_widgets.dart';
+import '../attendance_warnings/attendance_warnings_screen.dart';
 
 class MemberDetailScreen extends StatefulWidget {
   final int memberId;
@@ -24,10 +27,62 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
   bool _isOffline = false; // OS radio down / network error
   String? _error;
 
+  // Attendance alerting Phase 2: per-department streak / month / year.
+  // Loaded independently; a 403 (role outside the warning readers) or
+  // any failure simply hides the block — never an error on the profile.
+  Map<String, dynamic>? _risk;
+
   @override
   void initState() {
     super.initState();
     _loadMember();
+    _loadRisk();
+  }
+
+  Future<void> _loadRisk() async {
+    if (!ConnectivityService().hasLink) return;
+    final res = await _api.getMemberAttendanceRisk(widget.memberId);
+    if (!mounted) return;
+    if (res.success && res.data is Map && (res.data as Map)['available'] == true &&
+        (res.data as Map)['risk'] is Map) {
+      setState(() => _risk = Map<String, dynamic>.from((res.data as Map)['risk'] as Map));
+    }
+  }
+
+  Widget _riskSection() {
+    final risk = _risk;
+    if (risk == null) return const SizedBox.shrink();
+    final cards = <Widget>[];
+    risk.forEach((dept, value) {
+      if (value is! Map) return;
+      cards.add(Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: WarningRiskCard(risk: value),
+      ));
+    });
+    if (cards.isEmpty) return const SizedBox.shrink();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Expanded(
+                child: Text('Attendance risk & warnings',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+            TextButton(
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+              onPressed: () => Navigator.of(context).push(
+                  SmoothPageRoute(page: const AttendanceWarningsScreen())),
+              child: const Text('Warnings', style: TextStyle(fontSize: 12)),
+            ),
+          ]),
+          Text('Ethiopian calendar · streak counts submitted sheets only',
+              style: TextStyle(fontSize: 10.5, color: AppTheme.textSecondary)),
+          const SizedBox(height: 10),
+          ...cards,
+        ]),
+      ),
+    );
   }
 
   /// P1-A local-first load:
@@ -150,7 +205,9 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                   ],
                 ))
               : RefreshIndicator(
-                  onRefresh: _loadMember,
+                  onRefresh: () async {
+                    await Future.wait([_loadMember(), _loadRisk()]);
+                  },
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
@@ -201,6 +258,8 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                         ],
                       ]),
                       const SizedBox(height: 12),
+                      _riskSection(),
+                      if (_risk != null) const SizedBox(height: 12),
                       _buildSection('Address', [
                         _field('City', _member?['city']),
                         _field('Sub City', _member?['sub_city']),

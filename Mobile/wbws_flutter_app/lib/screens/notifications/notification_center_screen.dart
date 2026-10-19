@@ -13,6 +13,7 @@ import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../members/member_detail_screen.dart';
+import '../attendance_warnings/attendance_warning_detail_screen.dart';
 import 'messages_screen.dart';
 
 /// P72 — the mobile Notification Center: Alerts + Announcements in
@@ -388,6 +389,15 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
   /// contract; rows without a target behave exactly as before.
   void _openAlert(Map<String, dynamic> n) {
     _markRead(n); // fire-and-forget; it owns its own error handling
+    // Attendance alerting Phase 2: a warning bell opens the warning
+    // itself (reason, risk, close-with-outcome); every other member
+    // target still opens the profile.
+    final warningId = warningTargetId(n);
+    if (warningId != null) {
+      Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => AttendanceWarningDetailScreen(warningId: warningId)));
+      return;
+    }
     final memberId = memberTargetId(n);
     if (memberId == null) return;
     Navigator.of(context).push(MaterialPageRoute(

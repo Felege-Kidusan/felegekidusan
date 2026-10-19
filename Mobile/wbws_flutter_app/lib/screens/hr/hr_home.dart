@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../services/api_service.dart';
+import '../../services/app_update_service.dart';
 import '../../utils/theme.dart';
+import '../../utils/transitions.dart';
+import '../../widgets/feature_tile.dart';
 import '../../widgets/notification_bell_button.dart';
+import '../attendance_warnings/attendance_warnings_screen.dart';
 
 /// HR department home — RETIRED ATTENDANCE (2026-10-07).
 ///
@@ -34,6 +38,25 @@ class _HrDeptHomeScreenState extends State<HrDeptHomeScreen> {
                   fontWeight: FontWeight.w800,
                   letterSpacing: 1)),
           const SizedBox(height: 12),
+          // Attendance alerting Phase 2: HR reads Education + Mezmur
+          // warnings and may close them with an outcome. Hidden until the
+          // server reports the feature switched on.
+          if (AppUpdateService().featureEnabled('attendance_v2', fallback: false)) ...[
+            GridView.count(
+              crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 2.1,
+              children: [
+                FeatureTile(
+                  label: 'Attendance Warnings',
+                  icon: Icons.warning_amber_rounded,
+                  color: AppTheme.warning,
+                  onTap: () => Navigator.of(context).push(
+                      SmoothPageRoute(page: const AttendanceWarningsScreen())),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(

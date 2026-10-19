@@ -45,8 +45,8 @@ function fkssLoadAppRelease(): array
         // Keep these synchronized with Mobile/wbws_flutter_app/pubspec.yaml
         // and AppConfig. Deployment-owned metadata may move ahead only after
         // the matching APK and checksums have been published.
-        'latest_version' => '1.6.10',
-        'latest_build'   => 36,
+        'latest_version' => '1.7.0',
+        'latest_build'   => 37,
         'min_version'    => '1.0.0',
         'min_build'      => 1,
         'force_update'   => false,
@@ -60,7 +60,7 @@ function fkssLoadAppRelease(): array
         'apk_arm64_path' => '',
         'apk_arm32_path' => '',
         'tiles'          => [
-            'education' => ['classes', 'teachers', 'subjects', 'enrollment', 'grades', 'attendance'],
+            'education' => ['classes', 'teachers', 'subjects', 'enrollment', 'grades', 'attendance', 'warnings'],
         ],
     ];
 

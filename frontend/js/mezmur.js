@@ -2520,8 +2520,12 @@
             ? '<span class="rate-chip ' + (mark === 'present' || mark === 'late' ? 'ok' : mark === 'excused' ? 'warn' : 'bad') + '">' +
               mark.charAt(0).toUpperCase() + mark.slice(1) + '</span>'
             : '<span class="text-dim">not marked</span>';
+        var warn = m.warning && m.warning.kind
+            ? ' <span class="rate-chip warn" title="Open attendance warning">' +
+              (m.warning.kind === 'low_month' ? 'Low month' : (m.warning.stage || 'warning')) + '</span>'
+            : '';
         return '<div class="member-row">' +
-            '<div class="member-name">' + esc(m.student_name) + ' ' + esc(m.father_name || '') +
+            '<div class="member-name">' + esc(m.student_name) + ' ' + esc(m.father_name || '') + warn +
             '<div class="text-dim" style="font-size:.68rem">' + (note ? esc(note) : '') + '</div></div>' +
             chip + '</div>';
     }
