@@ -44,7 +44,15 @@ Not changed: `members.status` (never automated), warnings engine rules, Phase 1�
 1. `git pull` on production, then run **`sql/074_attendance_month_rollup.sql`** in phpMyAdmin (safe to re-run). Until it runs, the new card/report/Info pane show "not available yet" — nothing else breaks.
 2. Nothing to do for mobile — Phase 4 is web-only.
 
-## 4. Flags for owner decision (not decided here)
+## 4. Flags — OWNER DECISIONS 2026-10-19 (all three: keep as shipped in `c6796f2`)
+
+| Flag | Owner decision | Effect on code |
+|------|----------------|----------------|
+| F-1 Education analytics threshold | **Keep the split by feature flag** — `attendance_v2` off → legacy 60 %; on → Education policy `low_rate_threshold`. | None (already implemented in `ReportCardService::attendanceRiskThreshold`). |
+| F-2 Report-card attendance formula | **Keep the existing formula for now** (present + late ÷ total on report cards / analytics `attendance_rate`). | None — formula untouched; only the threshold is unified. |
+| F-3 Reporting Centre scope | **Keep the existing whole-year / all-rows scope for now** (weights + bands unified only). | None. |
+
+Original questions kept below for the record.
 
 * **F-1 Education analytics threshold 60 % → policy 75 %.** With `attendance_v2` on, the Education hub "Attendance alert" KPI, triage tiers and triage roster now use the Education policy threshold (75 % default) instead of the historical 60 %. The flag-off behaviour is unchanged. If 60 % should stay for analytics, set the Education policy's `low_rate_threshold` accordingly or tell me to split the two.
 * **F-2 Report-card attendance formula.** Printed/parent-facing report cards (`ReportCardService` attendance block) still use *present + late* ÷ total — it feeds the analytics `attendance_rate` per student. The threshold is unified (F-1) but this *formula* was left untouched because it changes a parent-facing document. Say the word and I'll switch it to the weighted formula too.
