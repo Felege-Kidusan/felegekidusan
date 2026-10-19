@@ -107,9 +107,9 @@ Scope of this pass: the Education / attendance / grading API surface, the
 mobile `/api/v1` routes, settings, impersonation, user management, login,
 Mezmur, AI, notifications, groups, workflow library. Every finding below is
 PATCHED and pinned by `tests/security/test_production_audit_pass2.py`
-(12 static + 8 live). Suite after pass 2: **2289 passed, 0 failed**.
+(13 static + 8 live). Suite after pass 2: **2290 passed, 0 failed** (see §11).
 
-## 7. Findings and patches (A1–A13)
+## 7. Findings and patches (A1–A14)
 
 | # | Severity | File | Problem | Fix |
 |---|----------|------|---------|-----|
@@ -124,6 +124,7 @@ PATCHED and pinned by `tests/security/test_production_audit_pass2.py`
 | A10 | High | `api_communication.php` `submit_marklist` | Trusted POST `class_id/subject_id`, no assignment check, bypassed the submitted/approved lock, blind `INSERT` duplicated packets. | Rewritten on the canonical path: class/subject from the assessment, active `teacher_assignments` (403), `teacherWriteRefusal` (409), scores via `upsertScore` in a transaction, packet via `upsertMarklist`, audit row. |
 | A11 | Medium | `admin/api_settings.php` | `dept_save` (member‑code format, registration defaults), `system_info`, `clear_cache` had **no role check** — any logged‑in teacher/taker could change them. | 403 unless super/school/info/hr. Profile actions untouched. |
 | A12 | Low (data) | `api/v1/routes/members.php` PUT | Partial name update (e.g. only `father_name`) rebuilt `full_name_am` from the payload alone → other name parts wiped. | Falls back to stored parts. Web `info_manage_member.php` already correct. |
+| A14 | Medium (audit) | `admin/api_finance.php` | Ledger add / update / **hard delete** of transactions left no audit trail. | `financeAudit()` → `activity_logs` rows (`Finance Transaction Added/Updated/Deleted`, amount/status/date deltas; deleted row captured before the DELETE). Semantics unchanged (soft‑delete would need owner approval). |
 | A13 | Medium (audit) | `admin/api_impersonate.php` | Role switch / restore (password‑less department powers) left **no audit trail**. | `activity_logs` rows `Role Switched` / `Role Restored` (from → to). |
 
 A2 (`scan_member` writes no packet) left as pass‑1 noted: QR scans are
@@ -165,12 +166,30 @@ grading, assessment CRUD headers), `api_communication.php` (`submit_marklist`,
 review path), `api_impersonate.php`, `api_settings.php` (gates + dept/system
 cases), `api_test_seed.php` header, `backend/login.php`, `user-save.php`
 (authorisation section), `api/v1/routes/{users,members,grades,enrollment,hr,
-auth,mezmur header,telemetry/app limits}`, `SubmissionService::upsertScore`.
+auth,mezmur header,telemetry/app limits}`, `SubmissionService::upsertScore`,
+`api_finance.php` (transactions), `api_timetable.php` + `api_assignments.php`
+(gates), `user-delete.php` / `user-toggle.php` (self‑lockout + password
+re‑verification), upload validation in `api_branding.php` / `GalleryService`.
 ANALYSIS INCOMPLETE remains for: the large dashboard pages
 (`edu_dept.php`, `hr-dept.php`, `info-dept.php`, `super-admin.php`, teacher /
-taker JS beyond the Phase‑6 parts), `api_finance.php`, `api_identity.php`,
+taker JS beyond the Phase‑6 parts), `api_identity.php`,
 `api_cms.php`, `api_branding.php`, `api_guardians.php`,
 `api_import_members.php`, `api_reports*.php`, `backend/academic_year.php`,
 `calendar_system.php`, the services not named above, and the Flutter app.
 These are covered by syntax gates, the 2289‑test suite, repo‑wide pattern
 scans and the live role journeys — not by a human‑style reading of every line.
+
+## 11. Pass‑2 verification record
+
+* `php -l` clean on every touched file; `node --check` unchanged (no JS edits).
+* `tests/security/test_production_audit_pass2.py`: 21 passed (13 static, 8 live).
+* Full suite: **2290 passed, 0 failed, 468 skipped** (`timeout 1700 python3 -m
+  pytest tests -q --ignore=tests/mutation -p no:cacheprovider`, ~47 s).
+* Live journeys re‑run this pass (users 1–9 on the local stack): teacher class
+  scope + future date; taker all classes; TIER 2b/2c matrix (teacher, taker,
+  Education); Education assessment‑type save→toggle→delete; teacher
+  `save_grades` with an enrolled + a stranger member; `submit_marklist`
+  submit → 409 on re‑submit → 403 on unassigned class; settings gate
+  (teacher 403 / Information 200); mobile partial name PUT; School Admin
+  role switch + restore audit rows; Finance add → update → delete audit rows.
+* No schema change; no migration for the owner; shared‑hosting compatible.

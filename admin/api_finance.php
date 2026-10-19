@@ -49,6 +49,27 @@ function financeMember(?int $id): void {
     $exists = (bool)$stmt->get_result()->fetch_assoc(); $stmt->close();
     if (!$exists) throw new LedgerInputException('Member not found.');
 }
+/**
+ * Audit 2026-10-20 (A14): every ledger mutation leaves an activity_logs row
+ * (who, what, which transaction, amount/description). Auditing never blocks
+ * the ledger operation itself.
+ */
+function financeAudit(string $action, string $details, ?int $entityId = null): void {
+    global $conn, $adminId;
+    try {
+        $stmt = $conn->prepare('INSERT INTO activity_logs (user_id, username, action, details, entity_type, entity_id, ip_address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())');
+        if (!$stmt) return;
+        $usr = (string)($_SESSION['admin_username'] ?? '');
+        $entity = 'finance_transaction';
+        $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+        $details = mb_substr($details, 0, 1000);
+        $stmt->bind_param('issssis', $adminId, $usr, $action, $details, $entity, $entityId, $ip);
+        $stmt->execute();
+        $stmt->close();
+    } catch (Throwable $e) {
+        // never block the ledger on audit failure
+    }
+}
 $financeTransactionOpen = false;
 try {
 switch ($action) {
@@ -144,7 +165,9 @@ $type = Input::choice($_POST['type'] ?? '', ['income','expense'], 'Transaction t
     // transaction_date is a string. Binding it as i truncated YYYY-MM-DD.
     $stmt->bind_param('siidssssiii', $type, $catId, $memberId, $amount, $desc, $receipt, $method, $date, $ecMonth, $ecYear, $adminId);
     $stmt->execute();
-    echo json_encode(['status'=>'success','id'=>$conn->insert_id,'message'=>'Transaction recorded']);
+    $newTxnId = (int)$conn->insert_id;
+    financeAudit('Finance Transaction Added', "$type $amount on $date" . ($receipt !== '' ? " receipt $receipt" : '') . ($desc !== '' ? " — $desc" : ''), $newTxnId);
+    echo json_encode(['status'=>'success','id'=>$newTxnId,'message'=>'Transaction recorded']);
     break;
 
 case 'update_transaction':
@@ -156,7 +179,7 @@ $id = Input::integer($_POST['id'] ?? 0, 'Transaction ID', 1);
     $method = Input::choice($_POST['payment_method'] ?? 'cash', ['cash','bank_transfer','mobile_money','check','other'], 'Payment method');
     $date = Input::date($_POST['transaction_date'] ?? '', 'Transaction date', date('Y-m-d'));
     $st = Input::choice($_POST['status'] ?? 'confirmed', ['confirmed','pending','cancelled'], 'Status');
-    $find = $conn->prepare('SELECT type FROM finance_transactions WHERE id=?');
+    $find = $conn->prepare('SELECT type, amount, status, transaction_date FROM finance_transactions WHERE id=?');
     $find->bind_param('i', $id); $find->execute();
     $existing = $find->get_result()->fetch_assoc(); $find->close();
     if (!$existing) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'Transaction not found.']); break; }
@@ -164,14 +187,20 @@ $id = Input::integer($_POST['id'] ?? 0, 'Transaction ID', 1);
     $stmt = $conn->prepare('UPDATE finance_transactions SET category_id=?,amount=?,description=?,receipt_number=?,payment_method=?,transaction_date=?,status=? WHERE id=?');
     $stmt->bind_param('idsssssi', $catId, $amount, $desc, $receipt, $method, $date, $st, $id);
     $stmt->execute();
+    financeAudit('Finance Transaction Updated', "#$id {$existing['type']}: amount {$existing['amount']} -> $amount, status {$existing['status']} -> $st, date {$existing['transaction_date']} -> $date", $id);
     echo json_encode(['status'=>'success','message'=>'Updated']);
     break;
 
 case 'delete_transaction':
 $id = Input::integer($_POST['id'] ?? 0, 'Transaction ID', 1);
+    // Capture the row before it disappears so the audit trail keeps the facts.
+    $find = $conn->prepare('SELECT type, amount, description, receipt_number, transaction_date, status FROM finance_transactions WHERE id=?');
+    $find->bind_param('i', $id); $find->execute();
+    $gone = $find->get_result()->fetch_assoc(); $find->close();
     $stmt = $conn->prepare('DELETE FROM finance_transactions WHERE id=?');
     $stmt->bind_param('i', $id); $stmt->execute();
     if ($stmt->affected_rows === 0) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'Transaction not found.']); break; }
+    financeAudit('Finance Transaction Deleted', "#$id {$gone['type']} {$gone['amount']} on {$gone['transaction_date']} ({$gone['status']})" . ((string)$gone['receipt_number'] !== '' ? " receipt {$gone['receipt_number']}" : '') . ((string)$gone['description'] !== '' ? " — {$gone['description']}" : ''), $id);
     echo json_encode(['status'=>'success','message'=>'Deleted']);
     break;
 

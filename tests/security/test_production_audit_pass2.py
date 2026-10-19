@@ -1,5 +1,5 @@
 """
-Production-readiness audit 2026-10-20 — PASS 2 guards (findings A1–A13).
+Production-readiness audit 2026-10-20 — PASS 2 guards (findings A1–A14).
 
 Static pins (always run):
   * A1  api_attendance.php: teachers are scoped to their assigned classes;
@@ -15,7 +15,8 @@ Static pins (always run):
         teacherWriteRefusal lock, upsertMarklist packet — no blind INSERT);
   * A11 api_settings.php dept_save/system_info/clear_cache are role-gated;
   * A12 PUT /api/v1/members/{id} keeps the stored name parts in full_name_am;
-  * A13 api_impersonate.php writes an audit row for switch and restore.
+  * A13 api_impersonate.php writes an audit row for switch and restore;
+  * A14 api_finance.php add/update/delete transaction write activity_logs rows.
 Live (skipped unless the local server + seed are present):
   * teacher 403 outside own class / taker allowed; future date 422 (web + legacy);
   * TIER 2c 403 for teacher + taker, 200 for Education;
@@ -187,6 +188,22 @@ class Pass2StaticGuards(unittest.TestCase):
         self.assertIn("$impersonationAudit('Role Switched'", src)
         self.assertIn("$impersonationAudit('Role Restored'", src)
         self.assertLess(src.index("$impersonationAudit('Role Switched'"), src.index("case 'restore':"))
+
+    # A14 ----------------------------------------------------------------
+    def test_a14_finance_ledger_mutations_are_audited(self):
+        src = read("admin/api_finance.php")
+        self.assertIn("function financeAudit(string $action, string $details, ?int $entityId = null): void", src)
+        self.assertIn("INSERT INTO activity_logs", src)
+        for case, label in (
+            ("case 'add_transaction':", "'Finance Transaction Added'"),
+            ("case 'update_transaction':", "'Finance Transaction Updated'"),
+            ("case 'delete_transaction':", "'Finance Transaction Deleted'"),
+        ):
+            body = block(src, case, "\ncase '")
+            self.assertIn("financeAudit(" + label, body, case)
+        # the deleted row is captured BEFORE the DELETE statement
+        body = block(src, "case 'delete_transaction':", "\ncase '")
+        self.assertLess(body.index("SELECT type, amount, description"), body.index("DELETE FROM finance_transactions"))
 
 
 # ──────────────────────────────────────────────────────────────────────
