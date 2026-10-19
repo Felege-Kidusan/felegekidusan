@@ -48,6 +48,18 @@ final class AttendanceRiskService
     public const ELIGIBLE_PACKET_STATUSES = ['submitted', 'approved'];
     /** Rows with no packet at all count as submitted (matches resolved*Status()). */
     public const LEGACY_ROWS_ELIGIBLE = true;
+    /**
+     * Runtime override of LEGACY_ROWS_ELIGIBLE for verification tooling ONLY
+     * (tools/attendance_rollout_2026.php --verify computes each candidate with
+     * and without legacy rows to show which warnings depend on them). Never
+     * set from request handlers.
+     */
+    public static ?bool $legacyRowsOverride = null;
+
+    public static function legacyRowsEligible(): bool
+    {
+        return self::$legacyRowsOverride ?? self::LEGACY_ROWS_ELIGIBLE;
+    }
     public const LATE_WEIGHT = 0.5;
     public const BAND_EXCELLENT = 90.0;
     public const BAND_GOOD = 75.0;
@@ -154,7 +166,7 @@ final class AttendanceRiskService
     /** @return array<int,array{date:string,status:string,ref:int}> */
     private static function eduRows(\mysqli $conn, int $memberId, string $from, string $to): array
     {
-        $packetFilter = self::LEGACY_ROWS_ELIGIBLE
+        $packetFilter = self::legacyRowsEligible()
             ? "(gs.id IS NULL OR gs.status IN ('submitted','approved'))"
             : "(gs.id IS NOT NULL AND gs.status IN ('submitted','approved'))";
         $sql = "SELECT a.attendance_date AS d, a.status AS s, a.class_id AS ref
@@ -175,7 +187,7 @@ final class AttendanceRiskService
     private static function mezmurRows(\mysqli $conn, int $memberId, string $from, string $to): array
     {
         $sectionExpr = MemberCategory::sqlSectionExpr('m');
-        $packetFilter = self::LEGACY_ROWS_ELIGIBLE
+        $packetFilter = self::legacyRowsEligible()
             ? "(ms.id IS NULL OR ms.status IN ('submitted','approved'))"
             : "(ms.id IS NOT NULL AND ms.status IN ('submitted','approved'))";
         $sql = "SELECT COALESCE(x.attendance_date, s.session_date) AS d, x.status AS s, x.session_id AS ref

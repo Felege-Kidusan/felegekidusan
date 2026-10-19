@@ -1,6 +1,6 @@
 # Attendance Alerting — Phase 2 implementation notes (2026-10-19)
 
-Status: **server + web implemented, tested, pushed** (this commit). Flutter screens / APK: **not built** (see §7).
+Status: **server + web implemented, tested, pushed** (`2a571c1`; rollout verify/batch safeguards in the follow-up commit). Flutter screens / APK: **not built** (see §7).
 Binding requirements: `ATTENDANCE_DEPT_STATUS_ALERTS_REQUIREMENTS_2026-10-19.md` §1–§14 (unchanged).
 Plan reference: `ATTENDANCE_ALERTING_IMPLEMENTATION_PLAN_2026-10-19.md` → Phase 2.
 
@@ -43,22 +43,30 @@ Plan reference: `ATTENDANCE_ALERTING_IMPLEMENTATION_PLAN_2026-10-19.md` → Phas
 1. `git pull`.
 2. phpMyAdmin: run `sql/072_attendance_warnings.sql` (071 must already be applied).
 3. Confirm `define('FEATURE_ATTENDANCE_V2', true);` in the environment file.
-4. Rollout back-fill from the server shell (no cron needed):
-   - `php tools/attendance_rollout_2026.php` → review counts (dry run, writes nothing)
-   - `php tools/attendance_rollout_2026.php --department=edu --apply`
-   - `php tools/attendance_rollout_2026.php --department=mezmur --apply`
-   - rows are marked "system-generated at rollout" and send no bells.
-5. Spot-check `/admin/attendance_warnings.php` as HR, Info, Education, Mezmur.
+4. **Verify the historical records (read-only):**
+   `php tools/attendance_rollout_2026.php --verify`
+   Prints, per department: rows with packets vs legacy rows (span, days, classes), future-dated rows, missing classes/members, members with no enrolment in the class, legacy rows with no recorder, class-/section-days where *every* student is absent (blank sheet or holiday saved as absences), and how many would-open warnings depend on legacy rows (with member ids). Exit 0 = clean, exit 1 = something flagged. Corrections are made by Education / Mezmur through their screens — the tool never edits or deletes attendance. Re-run until you are satisfied.
+5. **Dry run:** `php tools/attendance_rollout_2026.php` → review "Would open" and the summary. Use `--department=edu|mezmur` to split.
+6. **Apply in batches** (members are processed in id order; the tool prints the next cursor):
+   ```
+   php tools/attendance_rollout_2026.php --apply --limit=50
+   php tools/attendance_rollout_2026.php --apply --limit=50 --after-id=<printed cursor>
+   …repeat until "Nothing to scan"
+   ```
+   Safeguards built in: the plan for the batch is shown first and you must type `APPLY` (or pass `--yes` in a non-interactive shell); `--max-open=100` default caps new warnings per batch (abort before writing if the plan exceeds it; raise deliberately or use `--max-open=0`); `--max-errors=5` aborts the batch; a lock file prevents two runs at once; re-running a batch is idempotent; every apply writes an `Attendance Warnings Rollout` audit row with cursor, counts and opened ids. Rollout rows are flagged "system-generated at rollout" and send no bells.
+7. Spot-check `/admin/attendance_warnings.php` as HR, Info, Education, Mezmur.
 
 ## 5. Deliberately Gregorian (per `EC_ONLY_AUDIT_2026-10-19.md` §6)
 
 DB storage, `/api/v1` machine fields (`as_of`, window `from/to`, streak `dates[]`), CLI flag `--as-of=YYYY-MM-DD`. Every label shown to people is EC (`opened_ec`, `closed_ec`, `start_ec`, `absence_dates_ec`, reasons in English + Amharic). Event payloads no longer expose raw dates.
 
-## 6. Open questions (not decided — need owner)
+## 6. Owner decisions on the open questions (2026-10-19)
 
-- **Q-1 legacy `warning` statuses** (C-9): members whose `members.status = 'warning'` from the old automation — leave as is, or HR/Info bulk-set to `active` via the existing status tool? Nothing in Phase 2 touches them.
-- **Q-2 legacy rows without packets**: currently counted as eligible sessions (so history before the packet system still produces streaks at rollout). If you prefer rollout to start from "packet era only", set `LEGACY_ROWS_ELIGIBLE = false` before running `--apply`.
-- **Q-3 who sees the rollout warnings first**: the dry-run count tells you the opening backlog; if large, consider `--limit=` batches so departments can close them gradually.
+| # | Question | Decision | Implementation |
+|---|---|---|---|
+| Q-1 | Legacy `members.status = 'warning'` rows | **Leave existing rows unchanged.** | Nothing touches them. They are scanned by the rollout like any non-archived member (status is global, not a department status). |
+| Q-2 | Historical rows without a packet | **Keep valid historical attendance eligible, after verifying the existing records.** | `LEGACY_ROWS_ELIGIBLE = true` stays. New read-only `--verify` mode (step 4 above) audits the rows and reports which would-open warnings depend on legacy rows. `AttendanceRiskService::$legacyRowsOverride` exists for that tooling only. |
+| Q-3 | Backlog size | **Yes — `--limit=` batches, with safeguards.** | `--after-id=` cursor, `--max-open` (default 100), `--max-errors` (default 5), interactive `APPLY` confirmation / `--yes`, lock file, per-batch audit row, idempotent re-runs (step 6 above). |
 
 ## 7. Not done in this commit (Phase 2 remainder)
 
