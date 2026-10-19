@@ -140,11 +140,11 @@ echo json_encode($out);
 
     def test_mobile_api_draft_path_merges_partial_sheets(self):
         self.assertIn(
-            "apiValidateAttendanceSheet($conn, $classId, $yearId, $records, false)",
+            "apiValidateAttendanceSheet($conn, $classId, $yearId, $records, false, $date)",
             self.mobile_api,
         )
         self.assertIn(
-            "apiValidateAttendanceSheet($conn, $classId, $yearId, $records, true)",
+            "apiValidateAttendanceSheet($conn, $classId, $yearId, $records, true, $date)",
             self.mobile_api,
         )
         # Exactly one call site merges — the draft handler, not the submit.

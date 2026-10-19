@@ -415,6 +415,16 @@ renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'li
 </div></div>
 <div class="sg" id="attStats"></div>
 <div class="cd" id="attCard" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem"><div class="ct" style="margin-bottom:0">Details</div><button class="btn bo bs" onclick="exportAtt()"><i class="fa-solid fa-download"></i> Export</button></div><div class="tw"><table><thead><tr><th>Name</th><th>Section</th><th>Present</th><th>Absent</th><th>Late</th><th>Rate</th></tr></thead><tbody id="attBody"></tbody></table></div></div>
+
+<!-- Attendance policy (Attendance alerting — Phase 1). School Admin edits; Super Admin reads. -->
+<div class="cd no-print" id="attPolicyCard">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
+<div class="ct" style="margin-bottom:0"><i class="fa-solid fa-sliders" style="color:var(--ac)"></i> Attendance policy (per department)</div>
+<span id="attPolicyState" style="font-size:.7rem;color:var(--muted,#94a3b8)"></span>
+</div>
+<p style="font-size:.72rem;color:var(--muted,#94a3b8);margin-bottom:.6rem">Consecutive-absence stages (standard → prolonged → critical), the low-attendance threshold and the minimum number of sessions before a rate counts. Warnings go to the department, HR and Information; the member's global status is never changed automatically.</p>
+<div id="attPolicyGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.7rem"></div>
+</div>
 </div>
 
 <!-- ═══ CLASSES ═══ -->
@@ -1435,6 +1445,49 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 document.querySelectorAll('.mo').forEach(mo=>{mo.addEventListener('click',function(e){if(e.target===this)this.classList.remove('show');});});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));});
+</script>
+<script>
+// ── Attendance policy card (Attendance alerting — Phase 1) ──
+(function(){
+  const grid=document.getElementById('attPolicyGrid'), state=document.getElementById('attPolicyState');
+  if(!grid) return;
+  const FIELDS=[
+    ['consecutive_threshold','Standard warning after (sessions)',1,60,1],
+    ['prolonged_threshold','Prolonged warning after (sessions)',1,60,1],
+    ['critical_threshold','Critical warning after (sessions)',1,60,1],
+    ['low_rate_threshold','Low attendance below (%)',0.01,100,0.01],
+    ['min_sessions','Minimum sessions before rate counts',1,30,1]
+  ];
+  let loaded=false;
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function render(d){
+    const can=!!d.can_edit;
+    state.textContent=d.available?(can?'Editable by School Admin':'Read-only'):'Not enabled yet (feature flag / sql 071) — showing defaults';
+    grid.innerHTML=['edu','mezmur'].map(dep=>{
+      const p=d.policies[dep]||{};
+      let h='<div style="border:1px solid var(--border,#334155);border-radius:12px;padding:.7rem"><div style="font-weight:700;color:var(--bright);margin-bottom:.5rem">'+esc(p.label||dep)+'</div>';
+      FIELDS.forEach(f=>{h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.4rem"><label class="flbl" style="margin:0;flex:1">'+esc(f[1])+'</label><input type="number" class="inp" style="width:90px" data-pol="'+dep+'" data-f="'+f[0]+'" min="'+f[2]+'" max="'+f[3]+'" step="'+f[4]+'" value="'+esc(p[f[0]])+'"'+(can?'':' disabled')+'></div>';});
+      h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.5rem"><label class="flbl" style="margin:0;flex:1">Auto-deactivate at critical stage</label><input type="checkbox" data-pol="'+dep+'" data-f="auto_deactivate"'+(p.auto_deactivate?' checked':'')+(can?'':' disabled')+'></div>';
+      if(can) h+='<button class="btn bp bs" style="width:100%" onclick="saveAttPolicy(\''+dep+'\')"><i class="fa-solid fa-floppy-disk"></i> Save '+esc(p.label||dep)+'</button>';
+      h+='</div>'; return h;}).join('');
+  }
+  window.loadAttPolicy=function(){
+    fetch('/admin/api_attendance_policy.php?action=get',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+      if(d.status!=='success'){grid.innerHTML='<div style="font-size:.75rem;color:var(--danger,#f87171)">'+esc(d.message||'Unavailable')+'</div>';return;}
+      loaded=true; render(d);
+    }).catch(()=>{grid.innerHTML='<div style="font-size:.75rem">Could not load the attendance policy.</div>';});
+  };
+  window.saveAttPolicy=function(dep){
+    const body={action:'save',department:dep,csrf_token:CSRF};
+    grid.querySelectorAll('[data-pol="'+dep+'"]').forEach(el=>{body[el.getAttribute('data-f')]=el.type==='checkbox'?(el.checked?1:0):el.value;});
+    fetch('/admin/api_attendance_policy.php',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify(body)})
+      .then(r=>r.json()).then(d=>{toast(d.message||(d.status==='success'?'Saved':'Error'),d.status==='success'?'s':'e'); if(d.status==='success') render(Object.assign({can_edit:true,available:true},d));})
+      .catch(()=>toast('Network error','e'));
+  };
+  const nav=document.querySelector('[data-section="attendance"]');
+  if(nav) nav.addEventListener('click',()=>{ if(!loaded) setTimeout(loadAttPolicy,150); });
+  if(document.getElementById('section-attendance')&&document.getElementById('section-attendance').classList.contains('active')) loadAttPolicy();
+})();
 </script>
 <?php include __DIR__ . '/../components/account_link.php'; ?>
 <script>

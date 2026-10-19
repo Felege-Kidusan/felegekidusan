@@ -435,8 +435,11 @@ class ReportCardService
         $rosterYear = EnrollmentService::resolveRosterYear($conn, $classId, $preferredYear);
         $rosterYearId = $rosterYear['year_id'] ?? $preferredYear;
 
+        // Report cards are historical documents: a student deactivated in
+        // Education mid-year still gets the card for the work already done.
         $rosterRows = EnrollmentService::fetchRoster($conn, $classId, $rosterYearId, [
             'include_null_year' => true,
+            'include_dept_inactive' => true,
         ]);
         $roster = [];
         foreach ($rosterRows as $row) {

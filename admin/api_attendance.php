@@ -64,7 +64,7 @@ switch ($action) {
         
         $preferYear = $currentYear ? (int)$currentYear['id'] : null;
         $scope = EnrollmentService::resolveRosterYear($conn, $classId, $preferYear);
-        $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null);
+        $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null, ['on_date' => $date]);
 
         $attByMember = [];
         $attStmt = $conn->prepare(
@@ -128,7 +128,7 @@ switch ($action) {
         // Resolve the roster again at save time. A stale or partial browser
         // sheet must never erase students or silently mark them present.
         $scope = EnrollmentService::resolveRosterYear($conn, $classId, $academicYearId);
-        $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null);
+        $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null, ['on_date' => $date]);
         try {
             $records = AttendanceRecordService::normalizeCompleteSheet($records, $roster);
         } catch (DomainException $error) {

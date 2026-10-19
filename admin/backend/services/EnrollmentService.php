@@ -10,6 +10,7 @@ namespace App\Services;
 
 require_once __DIR__ . '/MemberCategory.php';
 require_once __DIR__ . '/IdentityCodeService.php';
+require_once __DIR__ . '/DepartmentStatusService.php';
 
 class EnrollmentService
 {
@@ -539,6 +540,14 @@ class EnrollmentService
         $includeNull = array_key_exists('include_null_year', $opts)
             ? (bool)$opts['include_null_year']
             : true;
+        // Attendance alerting §11: members inactive in Education (per-department
+        // status, Phase 1) are excluded from rosters/sheets/grades on the sheet
+        // date ('on_date', default today). History screens that must still
+        // list them pass 'include_dept_inactive' => true. No-op until
+        // FEATURE_ATTENDANCE_V2 + sql/071 are live.
+        $deptExclusion = !empty($opts['include_dept_inactive'])
+            ? ''
+            : DepartmentStatusService::exclusionSql($conn, 'edu', 'm.id', is_string($opts['on_date'] ?? null) ? $opts['on_date'] : null);
 
         $sql = "SELECT ce.id AS enrollment_id, ce.enrolled_at, ce.status AS enrollment_status,
                        ce.notes AS enrollment_notes, ce.academic_year_id,
@@ -563,6 +572,7 @@ class EnrollmentService
             $params[] = $yearId;
             $types .= 'i';
         }
+        $sql .= $deptExclusion;
 
         if ($search !== '') {
             $sql .= " AND (m.student_name LIKE ? OR m.father_name LIKE ? OR m.member_code LIKE ? OR m.baptismal_name LIKE ?)";
@@ -611,6 +621,7 @@ class EnrollmentService
                 $params[] = $yearId;
                 $types .= 'i';
             }
+            $sql .= $deptExclusion;
             $sql .= " ORDER BY m.student_name";
             $stmt = $conn->prepare($sql);
             if (!$stmt) {

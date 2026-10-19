@@ -688,6 +688,18 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
     <div class="mm-content">
         <!-- PREVIEW PANEL - ID MUST be: view-preview -->
         <div id="view-preview" style="display: block;">
+            <!-- Department status (Education / Mezmur) — Attendance alerting Phase 1.
+                 Rendered by /admin/js/department_status.js (DeptStatus.mount) because this
+                 page is injected into the dashboard panel via innerHTML. -->
+            <div class="mm-card mm-card-full">
+                <div class="mm-card-hdr">
+                    <div class="mm-card-icon mm-icon-amber"><i class="fas fa-user-clock"></i></div>
+                    <div class="mm-card-title">Department Status</div>
+                </div>
+                <div class="mm-card-body">
+                    <div data-dept-status="<?= (int)$m['id'] ?>"><span style="font-size:12px;color:#64748b">Department status loads inside the dashboard.</span></div>
+                </div>
+            </div>
             <!-- Photos -->
             <div class="mm-card mm-card-full">
                 <div class="mm-card-hdr">

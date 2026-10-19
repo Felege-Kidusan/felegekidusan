@@ -35,5 +35,6 @@ Registration/HR promotion analyses (`ANALYSIS_01…06`, `REGISTRATION_SYSTEM_ANA
 - `ATTENDANCE_ALERTING_DEEP_RESEARCH_2026-10-19.md` — how attendance alerting/`warning` status works today (verified by reproduction).
 - `ATTENDANCE_ALERTING_REQUIREMENTS_GAP_AND_OSS_RESEARCH_2026-10-19.md` — owner decisions vs. current system, Q1–Q12, open-source/industry research.
 - `ATTENDANCE_DEPT_STATUS_ALERTS_REQUIREMENTS_2026-10-19.md` — **locked** consolidated owner-approved requirements (verbatim, §1–§14).
-- `ATTENDANCE_ALERTING_IMPLEMENTATION_PLAN_2026-10-19.md` — phase-based implementation plan (Phases 0–6). Phase 0 approved and implemented 2026-10-19; Phases 1–6 await approval.
+- `ATTENDANCE_ALERTING_IMPLEMENTATION_PLAN_2026-10-19.md` — phase-based implementation plan (Phases 0–6). Phases 0–1 approved and implemented 2026-10-19; Phases 2–6 await approval.
+- `ATTENDANCE_PHASE1_IMPLEMENTATION_NOTES_2026-10-19.md` — Phase 1 (department status + policy) as shipped: deploy steps (`sql/071` + flag), semantics, roster call-site inventory, residuals.
 - `EC_ONLY_AUDIT_2026-10-19.md` — Ethiopian-calendar-only audit of attendance screens (Phase 0): calendar switch removed, raw-date fixes, residuals/questions.

@@ -451,7 +451,7 @@ switch ($action) {
         $yearId = $currentYear ? (int)$currentYear['id'] : null;
         $recordedBy = (int)$_SESSION['admin_id'];
         $scope = EnrollmentService::resolveRosterYear($conn, $classId, $yearId);
-        $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null);
+        $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null, ['on_date' => $attendanceDate]);
         try {
             $records = AttendanceRecordService::normalizeCompleteSheet($records, $roster);
         } catch (DomainException $error) {
@@ -506,7 +506,9 @@ switch ($action) {
 
         $preferYear = $currentYear ? (int)$currentYear['id'] : null;
         $scope = EnrollmentService::resolveRosterYear($conn, $classId, $preferYear);
-        $students = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null);
+        // Optional ?date= lets sheet builders use the department status as of that day.
+        $rosterDate = validateDate($_GET['date'] ?? '', date('Y-m-d'));
+        $students = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null, ['on_date' => $rosterDate]);
         
         echo json_encode([
             'status' => 'success',

@@ -6,6 +6,8 @@
  * POST   /members                 — register (Info / School Admin / Super Admin)
  * PUT    /members/{id}            — update (same roles)
  * GET    /members/{id}/attendance — attendance history (assigned class or PII role)
+ * GET    /members/{id}/department-status  — Education / Mezmur status (PII roles, HR, Edu, Mezmur)
+ * POST   /members/{id}/department-status  — change it (HR / Information only; reason required)
  */
 
 $auth = apiRequireAuth();
@@ -359,6 +361,73 @@ if ($method === 'PUT' && is_int($id)) {
     }
 
     ok(['message' => 'Member updated successfully', 'id' => $id]);
+}
+
+// ============================================================
+// GET|POST /members/{id}/department-status  (Attendance alerting — Phase 1)
+// ============================================================
+if (is_int($id) && $sub === 'department-status' && ($method === 'GET' || $method === 'POST')) {
+    require_once dirname(__DIR__, 3) . '/admin/backend/services/DepartmentStatusService.php';
+    $dsWriteRoles = ['hr_dept', 'info_dept'];
+    $dsReadRoles = array_merge(apiRolesPii(), ['hr_dept', 'edu_dept', 'mezmur_dept']);
+    if (!apiRoleIs($auth, $dsReadRoles)) {
+        err('You cannot view department status.', 403);
+    }
+    $__exists = $conn->prepare('SELECT id FROM members WHERE id = ? LIMIT 1');
+    $__exists->bind_param('i', $id);
+    $__exists->execute();
+    $__found = $__exists->get_result()->fetch_assoc();
+    $__exists->close();
+    if (!$__found) err('Member not found', 404);
+
+    $available = \App\Services\DepartmentStatusService::available($conn);
+    if ($method === 'GET') {
+        ok([
+            'available' => $available,
+            'can_change' => $available && apiRoleIs($auth, $dsWriteRoles),
+            'member_id' => $id,
+            'statuses' => \App\Services\DepartmentStatusService::statuses($conn, $id),
+            'history' => $available ? \App\Services\DepartmentStatusService::history($conn, $id, null, 50) : [],
+        ]);
+    }
+    if (!apiRoleIs($auth, $dsWriteRoles)) {
+        err('Only HR and Information may change a department status.', 403);
+    }
+    if (!$available) {
+        err('Department status is not available yet.', 409, ['available' => false]);
+    }
+    $input = getBody();
+    $dept = is_string($input['department'] ?? null) ? trim($input['department']) : '';
+    $status = is_string($input['status'] ?? null) ? strtolower(trim($input['status'])) : '';
+    $reason = is_string($input['reason'] ?? null) ? trim($input['reason']) : '';
+    if (!\App\Services\DepartmentStatusService::isDepartment($dept)) err('department must be edu or mezmur.');
+    if (!in_array($status, ['active', 'inactive'], true)) err('status must be active or inactive.');
+    if (mb_strlen($reason) < 3) err('A reason (at least 3 characters) is required.');
+    try {
+        $actor = \App\Services\SecurityAuditActor::fromAuthenticatedContext(
+            (int)$auth['uid'],
+            (string)($auth['usr'] ?? ''),
+            'api',
+            $_SERVER
+        );
+        $result = \App\Services\DepartmentStatusService::setStatus(
+            $conn, $id, $dept, $status, (int)$auth['uid'], $reason, 'manual', null, $actor
+        );
+    } catch (\DomainException $e) {
+        // Domain messages are user-facing validation text (no internals).
+        $__dsMessage = $e->getMessage();
+        err($__dsMessage, 422);
+    } catch (\Throwable $e) {
+        reportInternalError('Department status change failed', $e->getMessage());
+        err('Unable to change the department status right now.', 500);
+    }
+    logApiAction($auth['uid'], $auth['usr'], 'Department Status Changed', "ID: {$id} {$dept} {$result['previous']} -> {$result['status']}");
+    ok([
+        'available' => true,
+        'changed' => $result['changed'],
+        'message' => $result['changed'] ? ucfirst($dept === 'edu' ? 'Education' : 'Mezmur') . " status set to {$status}." : ($result['message'] ?? 'No change.'),
+        'statuses' => \App\Services\DepartmentStatusService::statuses($conn, $id),
+    ]);
 }
 
 err("No handler for {$method} /members" . ($id ? "/{$id}" : '') . ($sub ? "/{$sub}" : ''), 404);

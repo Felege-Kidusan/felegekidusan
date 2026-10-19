@@ -3165,6 +3165,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
             .then(html => {
                 content.innerHTML = html;
                 if (window.MemberNav) MemberNav.afterLoad(id);
+                if (window.DeptStatus) DeptStatus.mount(content);
                 if (title) title.textContent = 'Member #' + id;
                 // Default to Preview tab
                 switchManageTab('preview');
@@ -4348,6 +4349,7 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 <script src="/admin/js/member_nav.js?v=<?= SSMS_ASSET_VER ?>"></script>
+<script src="/admin/js/department_status.js?v=<?= SSMS_ASSET_VER ?>"></script>
 <script>
 // Explain a permission bounce (access_control.php → index.php → dashboard.php?error=access_denied).
 (function () {

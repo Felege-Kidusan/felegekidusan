@@ -28,7 +28,7 @@ $yearId = $year ? (int)$year['id'] : 0;
  * @param array<int,mixed> $records
  * @return array<int,array{member_id:int,status:string,note:string}>
  */
-function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, array $records, bool $requireComplete): array {
+function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, array $records, bool $requireComplete, ?string $sheetDate = null): array {
     if (!class_exists('\\App\\Services\\AttendanceRecordService')
         || !class_exists('\\App\\Services\\EnrollmentService')) {
         err('Attendance validation is temporarily unavailable.', 503);
@@ -42,7 +42,8 @@ function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, ar
     $roster = \App\Services\EnrollmentService::fetchRoster(
         $conn,
         $classId,
-        $scope['year_id'] ?? null
+        $scope['year_id'] ?? null,
+        ['on_date' => $sheetDate]
     );
     try {
         return \App\Services\AttendanceRecordService::normalizeSheet($records, $roster, $requireComplete);
@@ -133,7 +134,7 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
     }
 
     $roster = class_exists('\\App\\Services\\EnrollmentService')
-        ? \App\Services\EnrollmentService::fetchRoster($conn, $classId, $rosterYearId ?: null)
+        ? \App\Services\EnrollmentService::fetchRoster($conn, $classId, $rosterYearId ?: null, ['on_date' => $date])
         : [];
 
     // Fallback if the service is missing on an older deploy
@@ -232,7 +233,7 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
     }
     // Draft: a partial sheet is a normal workflow state (instant autosave);
     // unknown students are still rejected. See apiValidateAttendanceSheet.
-    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records, false);
+    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records, false, $date);
 
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
@@ -321,7 +322,7 @@ if ($method === 'POST' && $action === 'submit') {
     // Submit: the complete sheet is still required — a submission must be a
     // full, explicit record for the day (default-absent clients satisfy this
     // by construction; the guard still protects against roster drift).
-    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records, true);
+    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records, true, $date);
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
         err('This day’s attendance is already submitted. Only Education can change it.', 409,

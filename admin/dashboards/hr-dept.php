@@ -2293,6 +2293,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 <script src="/admin/js/manage-members.js" defer></script>
 <script src="/admin/js/guardian_picker.js?v=<?= SSMS_ASSET_VER ?>"></script>
 <script src="/admin/js/member_nav.js?v=<?= SSMS_ASSET_VER ?>"></script>
+<script src="/admin/js/department_status.js?v=<?= SSMS_ASSET_VER ?>"></script>
 <script src="/admin/js/family_link.js?v=<?= SSMS_ASSET_VER ?>"></script>
 
 <script src="/admin/js/new-members.js" defer></script>
@@ -3657,6 +3658,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             .then(html => {
                 content.innerHTML = html;
                 if (window.MemberNav) MemberNav.afterLoad(id);
+                if (window.DeptStatus) DeptStatus.mount(content);
                 if (title) title.textContent = 'Member #' + id;
                 // Default to Preview tab
                 switchManageTab('preview');

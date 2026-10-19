@@ -134,6 +134,10 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'api_attendance_info.php' => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'teacher', 'attendance_taker'],
             'attendance_info.php'     => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'teacher', 'attendance_taker'],
             'attendance_taker.php'    => ['super_admin', 'school_admin', 'attendance_taker'],
+            // Attendance alerting v2 (Phase 1): department status + policy.
+            // Writes are restricted further inside each API (HR/Info; School Admin).
+            'api_department_status.php' => ['super_admin', 'school_admin', 'hr_dept', 'info_dept', 'edu_dept', 'mezmur_dept'],
+            'api_attendance_policy.php' => ['super_admin', 'school_admin', 'hr_dept', 'info_dept', 'edu_dept', 'mezmur_dept'],
 
             // ---- Marklists / report cards ----
             'api_communication.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
