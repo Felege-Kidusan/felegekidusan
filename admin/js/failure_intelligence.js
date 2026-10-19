@@ -29,6 +29,16 @@
       .replace(/'/g, '&#39;');
   }
 
+  // Ethiopian calendar only (system-wide rule): technical timestamps are
+  // shown as EC date + 24h time; raw ISO stays in the API/DB only.
+  function fmtTs(v, dateOnly) {
+    if (v == null || v === '' || v === 'still open') return v == null ? '' : String(v);
+    var s = String(v).replace(' ', 'T');
+    if (typeof WBWSCalendar === 'undefined' || typeof WBWSCalendar.formatDate !== 'function') return String(v);
+    if (dateOnly || s.length <= 10) return WBWSCalendar.formatDate(s, 'medium');
+    return typeof WBWSCalendar.formatDateTime === 'function' ? WBWSCalendar.formatDateTime(s) : WBWSCalendar.formatDate(s, 'medium');
+  }
+
   function value(id, text) {
     var el = document.getElementById(id);
     if (el) el.textContent = text;
@@ -108,7 +118,7 @@
           '<td>' + Number(issue.affected || 0).toLocaleString() + '</td>' +
           '<td>' + Number(issue.occurrences || 0).toLocaleString() + '</td>' +
           '<td style="color:#94a3b8">' + Number(issue.total_occurrences || 0).toLocaleString() + '</td>' +
-          '<td style="font-size:.68rem;color:#94a3b8;white-space:nowrap">' + escapeHtml(String(issue.first_seen_at).slice(0, 10)) + ' → ' + escapeHtml(String(issue.last_seen_at).slice(0, 10)) + '</td>' +
+          '<td style="font-size:.68rem;color:#94a3b8;white-space:nowrap">' + escapeHtml(fmtTs(issue.first_seen_at, true)) + ' → ' + escapeHtml(fmtTs(issue.last_seen_at, true)) + '</td>' +
           '<td><span style="color:' + (STATUS_COLORS[status] || '#94a3b8') + ';font-weight:700;font-size:.72rem">' + status + '</span></td>' +
           '<td><button type="button" class="btn btn-outline btn-sm" onclick="FailureIntelligenceUI.detail(' + Number(issue.id) + ')">View</button></td>' +
           '</tr>';
@@ -155,7 +165,7 @@
       if (ev.request_ids && ev.request_ids.length) {
         evidenceHtml += '<h4 style="margin:.9rem 0 .4rem;color:#f8fafc;font-size:.85rem">Correlated request ids (sync monitor)</h4><div style="font-family:monospace;font-size:.7rem;color:#94a3b8;line-height:1.7">' +
           ev.request_ids.map(function (r) {
-            return escapeHtml(r.request_id) + ' @ ' + escapeHtml(r.started_at) + ' (HTTP ' + (r.http_status || '?') + ')';
+            return escapeHtml(r.request_id) + ' @ ' + escapeHtml(fmtTs(r.started_at)) + ' (HTTP ' + (r.http_status || '?') + ')';
           }).join('<br>') + '</div>';
       }
       if (ev.by_app_build && ev.by_app_build.length) {
@@ -168,12 +178,12 @@
         evidenceHtml += '<h4 style="margin:.9rem 0 .3rem;color:#f8fafc;font-size:.85rem">Crash signature</h4>' +
           '<div style="font-family:monospace;font-size:.75rem;color:#e2e8f0">' + escapeHtml(ev.crash_signature.signature_class) +
           (ev.crash_signature.signature_frames ? '<br>' + escapeHtml(ev.crash_signature.signature_frames) : '') + '</div>' +
-          '<div style="font-size:.7rem;color:#94a3b8;margin-top:.25rem">Lifetime ' + ev.crash_signature.total_events + ' events · first ' + escapeHtml(ev.crash_signature.first_seen_at) + ' · last ' + escapeHtml(ev.crash_signature.last_seen_at) + '</div>';
+          '<div style="font-size:.7rem;color:#94a3b8;margin-top:.25rem">Lifetime ' + ev.crash_signature.total_events + ' events · first ' + escapeHtml(fmtTs(ev.crash_signature.first_seen_at)) + ' · last ' + escapeHtml(fmtTs(ev.crash_signature.last_seen_at)) + '</div>';
       }
       if (ev.samples && ev.samples.length) {
         evidenceHtml += '<h4 style="margin:.9rem 0 .3rem;color:#f8fafc;font-size:.85rem">Latest server samples (redacted at capture)</h4>' +
           ev.samples.map(function (s) {
-            return '<div style="font-size:.72rem;color:#cbd5e1;margin-bottom:.35rem;padding:.4rem .5rem;border-left:2px solid #f59e0b;background:rgba(30,41,59,.5);border-radius:0 4px 4px 0">[' + escapeHtml(s.severity) + '] ' + escapeHtml(s.message) + '<br><span style="color:#7c8aa5">' + escapeHtml(s.file_path) + ':' + s.line_number + ' · ' + escapeHtml(s.created_at) + '</span></div>';
+            return '<div style="font-size:.72rem;color:#cbd5e1;margin-bottom:.35rem;padding:.4rem .5rem;border-left:2px solid #f59e0b;background:rgba(30,41,59,.5);border-radius:0 4px 4px 0">[' + escapeHtml(s.severity) + '] ' + escapeHtml(s.message) + '<br><span style="color:#7c8aa5">' + escapeHtml(s.file_path) + ':' + s.line_number + ' · ' + escapeHtml(fmtTs(s.created_at)) + '</span></div>';
           }).join('');
       }
 
@@ -191,8 +201,8 @@
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.5rem .9rem;margin-bottom:.9rem;font-size:.78rem">' +
         '<div><span style="color:#7c8aa5">24h</span><br><span style="color:#e2e8f0">' + d.occurrences_24h + ' occurrences · ' + d.affected_24h + ' affected</span></div>' +
         '<div><span style="color:#7c8aa5">7d</span><br><span style="color:#e2e8f0">' + d.occurrences_7d + ' occurrences · ' + d.affected_7d + ' affected</span></div>' +
-        '<div><span style="color:#7c8aa5">Lifetime</span><br><span style="color:#e2e8f0">' + d.total_occurrences + ' since ' + escapeHtml(d.first_seen_at) + '</span></div>' +
-        (d.resolved_at ? '<div><span style="color:#7c8aa5">Resolved</span><br><span style="color:#e2e8f0">' + escapeHtml(d.resolved_at) + ' by ' + escapeHtml(d.resolved_by || '?') + '</span></div>' : '') +
+        '<div><span style="color:#7c8aa5">Lifetime</span><br><span style="color:#e2e8f0">' + d.total_occurrences + ' since ' + escapeHtml(fmtTs(d.first_seen_at)) + '</span></div>' +
+        (d.resolved_at ? '<div><span style="color:#7c8aa5">Resolved</span><br><span style="color:#e2e8f0">' + escapeHtml(fmtTs(d.resolved_at)) + ' by ' + escapeHtml(d.resolved_by || '?') + '</span></div>' : '') +
         '</div>' +
         '<h4 style="margin:.4rem 0 .4rem;color:#f8fafc;font-size:.85rem">When (last 14 days)</h4>' + renderTimeline(d.timeline) +
         evidenceHtml +
@@ -268,9 +278,9 @@
         return '<tr>' +
           '<td><span style="color:' + (sevColors[r.severity] || '#94a3b8') + ';font-weight:700;font-size:.72rem">' + escapeHtml(r.severity) + '</span></td>' +
           '<td style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(r.issue_title) + '">' + escapeHtml(r.issue_title) + '</td>' +
-          '<td style="font-size:.68rem;color:#94a3b8;white-space:nowrap">' + escapeHtml(String(r.window_start).slice(0, 10)) + ' → ' + escapeHtml(String(r.window_end).slice(0, 10)) + '</td>' +
+          '<td style="font-size:.68rem;color:#94a3b8;white-space:nowrap">' + escapeHtml(fmtTs(r.window_start, true)) + ' → ' + escapeHtml(fmtTs(r.window_end, true)) + '</td>' +
           '<td style="font-size:.72rem;color:#94a3b8">' + escapeHtml(r.trigger) + '</td>' +
-          '<td style="font-size:.68rem;color:#94a3b8;white-space:nowrap">' + escapeHtml(r.created_at) + '</td>' +
+          '<td style="font-size:.68rem;color:#94a3b8;white-space:nowrap">' + escapeHtml(fmtTs(r.created_at)) + '</td>' +
           '<td><button type="button" class="btn btn-outline btn-sm" onclick="FailureIntelligenceUI.viewReport(' + Number(r.id) + ')">View</button></td>' +
           '</tr>';
       }).join('');
@@ -296,7 +306,7 @@
         .replace(/\n/g, '<br>');
       panel.innerHTML = '<div style="display:flex;justify-content:space-between;gap:1rem;margin-bottom:.7rem;align-items:flex-start">' +
         '<div><strong style="color:#f8fafc">Failure Report #' + r.id + '</strong>' +
-        '<div style="font-size:.72rem;color:#94a3b8">' + escapeHtml(r.issue_title) + ' · severity ' + escapeHtml(r.severity) + ' · ' + escapeHtml(r.trigger) + ' · generated by ' + escapeHtml(r.generated_by) + ' at ' + escapeHtml(r.created_at) + '</div></div>' +
+        '<div style="font-size:.72rem;color:#94a3b8">' + escapeHtml(r.issue_title) + ' · severity ' + escapeHtml(r.severity) + ' · ' + escapeHtml(r.trigger) + ' · generated by ' + escapeHtml(r.generated_by) + ' at ' + escapeHtml(fmtTs(r.created_at)) + '</div></div>' +
         '<div style="display:flex;gap:.4rem"><button type="button" class="btn btn-outline btn-sm" onclick="FailureIntelligenceUI.detail(' + Number(r.issue_id) + ')">Open issue</button>' +
         '<button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById(\'fi-report-view\').hidden=true">Close</button></div></div>' +
         '<div style="font-size:.8rem;line-height:1.6;color:#cbd5e1">' + body + '</div>';
@@ -324,7 +334,7 @@
           '<td><span style="color:' + (sevColors[a.severity] || '#94a3b8') + ';font-weight:700;font-size:.72rem">' + escapeHtml(a.severity) + '</span></td>' +
           '<td style="font-size:.72rem;color:#94a3b8">' + escapeHtml(kindLabels[a.kind] || a.kind) + '</td>' +
           '<td style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(a.title) + '">' + escapeHtml(a.title) + '</td>' +
-          '<td style="font-size:.68rem;color:#94a3b8;white-space:nowrap">' + escapeHtml(a.last_sent_at) + '</td>' +
+          '<td style="font-size:.68rem;color:#94a3b8;white-space:nowrap">' + escapeHtml(fmtTs(a.last_sent_at)) + '</td>' +
           '<td style="color:#94a3b8">' + Number(a.sent_count || 1) + '×</td>' +
           '</tr>';
       }).join('');

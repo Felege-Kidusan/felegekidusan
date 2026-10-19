@@ -27,6 +27,16 @@
       .replace(/'/g, '&#039;');
   }
 
+  // Ethiopian calendar only (system-wide rule): technical timestamps are
+  // shown as EC date + 24h time; raw ISO stays in the API/DB only.
+  function fmtTs(v, dateOnly) {
+    if (v == null || v === '' || v === 'still open') return v == null ? '' : String(v);
+    var s = String(v).replace(' ', 'T');
+    if (typeof WBWSCalendar === 'undefined' || typeof WBWSCalendar.formatDate !== 'function') return String(v);
+    if (dateOnly || s.length <= 10) return WBWSCalendar.formatDate(s, 'medium');
+    return typeof WBWSCalendar.formatDateTime === 'function' ? WBWSCalendar.formatDateTime(s) : WBWSCalendar.formatDate(s, 'medium');
+  }
+
   function formatRelativeTime(minutesAgo) {
     if (minutesAgo == null || isNaN(minutesAgo)) return 'Just now';
     var mins = parseInt(minutesAgo, 10);
@@ -404,7 +414,7 @@
           if (row.app_version) app += '<div style="font-size:.65rem;color:#94a3b8">build ' + escapeHtml(String(row.app_build || '?')) + '</div>';
           html += '<tr>' +
             '<td><span style="color:' + statusColor + ';font-weight:700">' + escapeHtml(row.status) + '</span></td>' +
-            '<td style="white-space:nowrap;font-size:.72rem">' + escapeHtml(row.started_at) + '</td>' +
+            '<td style="white-space:nowrap;font-size:.72rem">' + escapeHtml(fmtTs(row.started_at)) + '</td>' +
             '<td><div style="font-weight:600;color:#f8fafc">' + escapeHtml(row.domain) + '</div><div style="font-size:.68rem;color:#94a3b8;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(row.operation) + '">' + escapeHtml(row.operation) + '</div></td>' +
             '<td>' + escapeHtml(row.user_id) + '</td>' +
             '<td>' + attempt + '</td>' +
@@ -445,7 +455,7 @@
           ['Entity reference', row.entity_ref || 'not observed'], ['HTTP status', row.http_status || 'not observed'],
           ['Idempotency state', row.idempotency_state], ['Retry decision', row.retry_decision],
           ['Error category', row.error_category || 'none'], ['Safe error code', row.error_code || 'none'],
-          ['Started', row.started_at], ['Completed', row.completed_at || 'still open'], ['Duration (ms)', row.duration_ms]
+          ['Started', fmtTs(row.started_at)], ['Completed', row.completed_at ? fmtTs(row.completed_at) : 'still open'], ['Duration (ms)', row.duration_ms]
         ];
         panel.innerHTML = '<div style="display:flex;justify-content:space-between;gap:1rem;margin-bottom:.6rem"><strong style="color:#f8fafc">Safe attempt detail</strong><button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById(\'sync-monitor-detail\').hidden=true">Close</button></div>' +
           '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.45rem .9rem">' +

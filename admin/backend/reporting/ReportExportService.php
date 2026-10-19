@@ -24,6 +24,8 @@ use PDO;
 use PDOStatement;
 use RuntimeException;
 
+require_once __DIR__ . '/../ethiopian_date.php';
+
 final class ReportExportService
 {
     public const FORMATS = ['csv', 'xlsx'];
@@ -80,6 +82,11 @@ final class ReportExportService
         }
         if ($col['type'] === 'bool') {
             return ((int)$value === 1) ? 'Yes' : 'No';
+        }
+        if ($col['type'] === 'date') {
+            // Ethiopian calendar only in every user-facing output (exports included).
+            $s = (string)$value;
+            return strlen($s) > 10 ? \ethio_export_datetime($s) : \ethio_export_date($s);
         }
         if (is_array($col['options']) && isset($col['options'][(string)$value])) {
             return (string)$col['options'][(string)$value];

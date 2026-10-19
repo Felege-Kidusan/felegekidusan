@@ -93,6 +93,26 @@ final class ReportRegistry
     private const SQL_EC_YEAR = "(YEAR(%1\$s) - IF(DATE_FORMAT(%1\$s,'%%m%%d') >= IF(((YEAR(%1\$s)+1) %% 4 = 0 AND (YEAR(%1\$s)+1) %% 100 <> 0) OR (YEAR(%1\$s)+1) %% 400 = 0, '0912', '0911'), 7, 8))";
 
     /**
+     * Gregorian date of Meskerem 1 for the Ethiopian year that CONTAINS the
+     * given Gregorian DATE expression (11 or 12 Sept of the right year).
+     */
+    private const SQL_EC_YEAR_START = "DATE(CONCAT((%1\$s_EC_YEAR + 7), '-09-', IF(((%1\$s_EC_YEAR + 8) %% 4 = 0 AND (%1\$s_EC_YEAR + 8) %% 100 <> 0) OR (%1\$s_EC_YEAR + 8) %% 400 = 0, '12', '11')))";
+
+    /**
+     * Ethiopian "YYYY-MM Month" bucket (sortable, unambiguous) of a Gregorian
+     * DATE expression — used for month grouping; the system shows EC only.
+     * Month = days since Meskerem 1 / 30 + 1 (1..13, Pagume = 13).
+     */
+    private static function sqlEcMonthBucket(string $dateExpr): string
+    {
+        $ecYear = sprintf(self::SQL_EC_YEAR, $dateExpr);
+        $start = str_replace($dateExpr . '_EC_YEAR', $ecYear, sprintf(self::SQL_EC_YEAR_START, $dateExpr));
+        $month = "LEAST(13, FLOOR(DATEDIFF(DATE({$dateExpr}), {$start}) / 30) + 1)";
+        return "CONCAT({$ecYear}, '-', LPAD({$month}, 2, '0'), ' ', "
+            . "ELT({$month}, 'Meskerem','Tikimt','Hidar','Tahsas','Tir','Yekatit','Megabit','Miyazya','Ginbot','Sene','Hamle','Nehasse','Pagume'))";
+    }
+
+    /**
      * Datasets: base table + optional joins keyed by alias.
      * A join is attached only when a selected/filtered field requires it.
      */
@@ -245,7 +265,7 @@ final class ReportRegistry
             ],
             'registered_month' => [
                 'label_en' => 'Registration month', 'label_am' => 'የምዝገባ ወር', 'type' => 'string',
-                'sql' => "DATE_FORMAT(m.registered_at, '%Y-%m')", 'view' => self::R_ALL, 'export' => self::R_ALL,
+                'sql' => self::sqlEcMonthBucket('m.registered_at'), 'view' => self::R_ALL, 'export' => self::R_ALL,
                 'filter' => false, 'list' => false,
             ],
             'registered_ec_year' => [

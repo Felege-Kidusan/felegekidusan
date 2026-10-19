@@ -52,6 +52,16 @@
         return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     }
 
+    // EC date + 24h time for timestamps (exports / lists); empty → ''.
+    function fmtDateTime(s) {
+        if (!s) return '';
+        var iso = String(s).replace(' ', 'T');
+        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDateTime === 'function') {
+            return WBWSCalendar.formatDateTime(iso);
+        }
+        return String(s);
+    }
+
     function sectionBadge(sectionName) {
         if (!sectionName || sectionName === '—') {
             return '<span class="section-badge section-badge-other">—</span>';
@@ -2652,9 +2662,9 @@
         if (!_allPackets.length) { window.toast('Nothing to export on this tab.', 'e'); return; }
         var head = ['Date', 'Section', 'Taker', 'Members', 'Present', 'Late', 'Absent', 'Excused', 'Status', 'Updated'];
         var rows = _allPackets.map(function (p) {
-            return [p.attendance_date || '', p.section || '', p.taker_name || '', p.member_count || 0,
+            return [p.attendance_date ? fmtDate(p.attendance_date, 'medium') : '', p.section || '', p.taker_name || '', p.member_count || 0,
                 p.present_count || 0, p.late_count || 0, p.absent_count || 0, p.excused_count || 0,
-                p.status_label || p.status || '', p.updated_at || ''];
+                p.status_label || p.status || '', fmtDateTime(p.updated_at)];
         });
         if (window.XLSX) {
             var ws = XLSX.utils.aoa_to_sheet([head].concat(rows));
@@ -2936,7 +2946,7 @@
                 m.student_name + ' ' + (m.father_name || ''), m.member_code || '', m.section,
                 m.sessions_held, m.present, m.late, m.absent, m.attended,
                 m.rate == null ? '' : m.rate, m.absent_rate == null ? '' : m.absent_rate,
-                m.last_attended || ''
+                m.last_attended ? fmtDate(m.last_attended, 'medium') : ''
             ].map(function (v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(',');
         });
         var csv = '\ufeff' + head.join(',') + '\n' + rows.join('\n');

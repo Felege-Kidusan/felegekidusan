@@ -27,6 +27,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/ethiopian_date.php';
 require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 require_once __DIR__ . '/backend/pdf/tcpdf/tcpdf.php';
@@ -187,7 +188,7 @@ $pdf->SetFont('notosansethiopicb', '', 13);
 $pdf->Cell(0, 8, $deptTitle . ' ' . $groupLabel . ' — QR Roster', 0, 1);
 $pdf->SetFont('notosansethiopic', '', 9);
 $pdf->Cell(0, 5, 'Cut the tiles and hand one to each member. Scanned by attendance takers in the mobile app.', 0, 1);
-$pdf->Cell(0, 5, 'Page ' . $page . ' of ' . $pages . ' • ' . $total . ' members • Generated ' . date('Y-m-d H:i'), 0, 1);
+$pdf->Cell(0, 5, 'Page ' . $page . ' of ' . $pages . ' • ' . $total . ' members • Generated ' . (function_exists('ethio_export_datetime') ? ethio_export_datetime('now') : date('Y-m-d H:i')), 0, 1);
 $pdf->Ln(3);
 
 $tileW = 92; $tileH = 40; $gap = 4;

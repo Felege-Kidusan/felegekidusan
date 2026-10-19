@@ -4566,7 +4566,7 @@ function loadSystemInfo() {
                 '<div class="flex items-center gap-3 p-2 rounded-lg bg-slate-50">' +
                 '<div class="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center"><i class="fa-solid fa-clock-rotate-left text-blue-500 text-[10px]"></i></div>' +
                 '<div class="flex-1"><span class="text-xs font-medium text-slate-700">' + escapeHtml(a.username || '') + '</span> <span class="text-[10px] text-slate-400">' + escapeHtml(a.action || '') + '</span></div>' +
-                '<span class="text-[10px] text-slate-400">' + (a.created_at ? new Date(a.created_at).toLocaleString() : '') + '</span></div>'
+                '<span class="text-[10px] text-slate-400">' + (a.created_at ? ((typeof WBWSCalendar!=='undefined'&&WBWSCalendar.formatDateTime)?WBWSCalendar.formatDateTime(String(a.created_at).replace(' ','T')):String(a.created_at)) : '') + '</span></div>'
             ).join('') + '</div>';
     }).catch(() => { document.getElementById('sysStats').innerHTML = '<p class="text-xs text-red-400">Failed to load</p>'; });
 }

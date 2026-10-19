@@ -87,6 +87,16 @@
   const metricLabel = (key) => (metricByKey[key] ? L(metricByKey[key], 'label') : key);
   const opLabel = (op) => (schema && schema.operator_labels[op]) || op;
   const fmtNum = (v) => (v == null || v === '' ? '—' : Number(v).toLocaleString());
+  // Ethiopian calendar only (system-wide rule). Dates arrive as Gregorian ISO
+  // strings from the API and are converted for display here; exports are
+  // converted server-side by ReportExportService::present().
+  const fmtDate = (v) => {
+    if (v == null || v === '') return '';
+    const s = String(v);
+    if (typeof WBWSCalendar === 'undefined' || typeof WBWSCalendar.formatDate !== 'function') return s;
+    const iso = s.replace(' ', 'T');
+    return s.length > 10 && typeof WBWSCalendar.formatDateTime === 'function' ? WBWSCalendar.formatDateTime(iso) : WBWSCalendar.formatDate(iso, 'medium');
+  };
 
   function toast(msg, isErr) {
     const t = $('#rc-toast');
@@ -177,7 +187,7 @@
 
   function describeValue(f) {
     const fd = fieldByKey[f.field];
-    const lab = (v) => (fd && fd.options && fd.options[v] != null ? fd.options[v] : v);
+    const lab = (v) => (fd && fd.options && fd.options[v] != null ? fd.options[v] : (fd && fd.type === 'date' ? fmtDate(v) : v));
     if (f.value == null) return f.op === 'last_days' ? '' : '';
     if (Array.isArray(f.value)) return f.value.map(lab).join(', ');
     return lab(f.value);
@@ -319,7 +329,7 @@
       if (!fd) return;
       const op = osel.value;
       let value = null;
-      const inputs = $$('input,select', vbox);
+      const inputs = $$('input,select', vbox).filter((i) => !(i.readOnly && i.dataset && i.dataset.for));
       if (op === 'in' || op === 'not_in') {
         if (fd.options) value = $$('input:checked', vbox).map((i) => i.value);
         else value = (inputs[0].value || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -714,6 +724,7 @@
       const v = cell.getValue();
       if (v == null || v === '') return '<span class="rc-muted">—</span>';
       if (fd.type === 'bool') return '<span class="rc-bool ' + (Number(v) === 1 ? 'rc-bool-y' : 'rc-bool-n') + '"></span>' + (Number(v) === 1 ? 'Yes' : 'No');
+      if (fd.type === 'date') return esc(fmtDate(v));
       if (fd.key === 'status' || fd.key === 'membership_tier') return '<span class="rc-tag rc-tag-' + esc(v) + '">' + esc(fd.options && fd.options[v] || v) + '</span>';
       if (fd.options && fd.options[v] != null) return esc(fd.options[v]);
       return esc(v);

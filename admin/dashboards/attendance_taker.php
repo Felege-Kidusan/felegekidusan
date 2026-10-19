@@ -443,7 +443,7 @@ $csrfToken = generateCsrfToken();
                 .then(data => {
                     if (data.status === 'success') {
                         document.getElementById('attTitle').textContent = data.class_name || 'Attendance';
-                        document.getElementById('attSubtitle').textContent = `Date: ${date} | ${data.students.length} students`;
+                        document.getElementById('attSubtitle').textContent = `Date: ${(typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(date,'long'):date} | ${data.students.length} students`;
                         attendanceData = data.students;
                         renderAttendanceTable(data.students);
                         updateSummary();
@@ -460,7 +460,7 @@ $csrfToken = generateCsrfToken();
                 .then(data => {
                     if (data.status === 'success') {
                         document.getElementById('attTitle').textContent = 'Attendance';
-                        document.getElementById('attSubtitle').textContent = `Date: ${date} | ${data.students.length} students`;
+                        document.getElementById('attSubtitle').textContent = `Date: ${(typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(date,'long'):date} | ${data.students.length} students`;
                         attendanceData = data.students.map(s => ({...s, status: '', note: ''}));
                         renderAttendanceTable(attendanceData);
                         updateSummary();

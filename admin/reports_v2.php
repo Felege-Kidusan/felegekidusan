@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
+require_once __DIR__ . '/backend/calendar_system.php';
 
 if (empty($_SESSION['admin_logged_in'])) {
     header('Location: index.php');
@@ -265,6 +266,7 @@ $assetVer = '20261019b';
 </div>
 
 <script id="rc-config" type="application/json"><?= json_encode($cfg, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) ?></script>
+<?php if (function_exists('wbws_calendar_scripts')) { echo wbws_calendar_scripts(); } // calendar mode is fixed to Ethiopian; no DB access from this shell ?>
 <script src="/admin/js/vendor/tabulator/tabulator.min.js?v=<?= $assetVer ?>"></script>
 <script src="/admin/js/vendor/echarts/echarts.min.js?v=<?= $assetVer ?>"></script>
 <script src="/admin/js/reports/reports_v2.js?v=<?= $assetVer ?>"></script>

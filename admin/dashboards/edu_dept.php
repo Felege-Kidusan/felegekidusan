@@ -1731,6 +1731,8 @@ function apiErrorMessage(d){let m=d&&d.message?d.message:'Something went wrong. 
 ['subjectName','subjectNameEn','subjectDesc'].forEach(id=>bindCharCounter(id,{'subjectName':150,'subjectNameEn':150,'subjectDesc':2000}[id]));
 function fD(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'medium'):(d||'—');}
 function fDL(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'long'):(d||'—');}
+// EC date + 24h time for timestamps (exports and lists); empty → ''.
+function fDT(d){if(!d)return '';const s=String(d).replace(' ','T');return (typeof WBWSCalendar!=='undefined'&&WBWSCalendar.formatDateTime)?WBWSCalendar.formatDateTime(s):String(d);}
 function toast(m,t='ok'){
     const box=document.getElementById('toastC');
     if(!box)return;
@@ -3480,16 +3482,16 @@ function exportSubmissions(){
     const h=['Type','Status','Teacher','Class','What','Students','Present','Absent','Late','Average','Updated'];
     const r=allSubmissions.map(s=>[
         s.submission_type||'', s.status_label||s.status||'', s.teacher_name||'', s.class_name||'',
-        s.attendance_date||s.assessment_name||s.subject_name||'', s.student_count||0,
+        s.attendance_date?fD(s.attendance_date):(s.assessment_name||s.subject_name||''), s.student_count||0,
         s.present_count||'', s.absent_count||'', s.late_count||'', s.average_score||'',
-        s.updated_at||s.submitted_at||''
+        fDT(s.updated_at||s.submitted_at)
     ]);
     const ws=XLSX.utils.aoa_to_sheet([h,...r]);
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Submissions');
     if(_subAnalytics&&_subAnalytics.days){
         const dh=['Date','Present','Absent','Late','Excused','Recorded','Rate %'];
-        const dr=_subAnalytics.days.map(d=>[d.date,d.present,d.absent,d.late,d.excused,d.recorded,d.rate]);
+        const dr=_subAnalytics.days.map(d=>[fD(d.date),d.present,d.absent,d.late,d.excused,d.recorded,d.rate]);
         XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([dh,...dr]),'14-day attendance');
     }
     XLSX.writeFile(wb,'FKSS_Submissions.xlsx');

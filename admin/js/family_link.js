@@ -59,6 +59,7 @@
     if (!s) return '—';
     var d = new Date(String(s).replace(' ', 'T'));
     if (isNaN(d.getTime())) return esc(s);
+    if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDateTime === 'function') return WBWSCalendar.formatDateTime(d);
     return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
   function relLabel(r) { return r === 'father' ? 'Father' : r === 'mother' ? 'Mother' : 'Guardian'; }

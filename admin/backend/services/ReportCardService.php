@@ -11,6 +11,7 @@
 namespace App\Services;
 
 require_once __DIR__ . '/EnrollmentService.php';
+require_once __DIR__ . '/../ethiopian_date.php';
 require_once __DIR__ . '/SubjectDurationPolicy.php';
 
 class ReportCardService
@@ -2028,7 +2029,7 @@ class ReportCardService
         // Format Title & Banner
         $sheet->setCellValue('A1', ($brand['school_am'] ?? 'FKSS') . ' — ' . ($brand['school_en'] ?? ''));
         $sheet->setCellValue('A2', 'Filtered Student Performance & Attendance Report');
-        $sheet->setCellValue('A3', 'Total Students: ' . ($stats['total'] ?? 0) . ' | Avg Grade: ' . ($stats['avg_grade'] ?? 0) . '% | Avg Attendance (recorded): ' . ($stats['avg_attendance'] ?? 0) . '% | Exported: ' . date('Y-m-d H:i'));
+        $sheet->setCellValue('A3', 'Total Students: ' . ($stats['total'] ?? 0) . ' | Avg Grade: ' . ($stats['avg_grade'] ?? 0) . '% | Avg Attendance (recorded): ' . ($stats['avg_attendance'] ?? 0) . '% | Exported: ' . (function_exists('ethio_export_datetime') ? ethio_export_datetime('now') : date('Y-m-d H:i')));
 
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
         $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(11);

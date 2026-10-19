@@ -136,3 +136,59 @@ function ethio_date_format($input, string $format = 'F j, Y'): string
     }
     return $out;
 }
+
+/**
+ * Export-safe Ethiopian date (CSV / XLSX / PDF cells).
+ * Empty → '' ; unparsable → the raw string (never throws, never drops data).
+ * Default style matches the on-screen "medium" format (e.g. "Tik 9, 2019").
+ */
+function ethio_export_date($input, string $format = 'M j, Y'): string
+{
+    if ($input === null || $input === '' || $input === '0000-00-00' || $input === '0000-00-00 00:00:00') {
+        return '';
+    }
+    try {
+        $dt = $input instanceof DateTimeInterface
+            ? new DateTime($input->format('Y-m-d H:i:s'), $input->getTimezone())
+            : new DateTime((string)$input, new DateTimeZone('Africa/Addis_Ababa'));
+    } catch (Throwable $e) {
+        return (string)$input;
+    }
+    return ethio_date_format($dt, $format);
+}
+
+/**
+ * Export-safe Ethiopian date + 24h time ("Tik 9, 2019 16:36").
+ * Same safety rules as ethio_export_date().
+ */
+function ethio_export_datetime($input, string $format = 'M j, Y'): string
+{
+    if ($input === null || $input === '' || $input === '0000-00-00 00:00:00') {
+        return '';
+    }
+    try {
+        $dt = $input instanceof DateTimeInterface
+            ? new DateTime($input->format('Y-m-d H:i:s'), $input->getTimezone())
+            : new DateTime((string)$input, new DateTimeZone('Africa/Addis_Ababa'));
+    } catch (Throwable $e) {
+        return (string)$input;
+    }
+    return ethio_date_format($dt, $format) . ' ' . $dt->format('H:i');
+}
+
+/**
+ * Ethiopian month + year for a Gregorian date ("Tikimt 2019"); used where a
+ * report groups by month. Empty/invalid → ''.
+ */
+function ethio_export_month($input): string
+{
+    if ($input === null || $input === '') {
+        return '';
+    }
+    try {
+        $dt = new DateTime((string)$input, new DateTimeZone('Africa/Addis_Ababa'));
+    } catch (Throwable $e) {
+        return (string)$input;
+    }
+    return ethio_date_format($dt, 'F Y');
+}

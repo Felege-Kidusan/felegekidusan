@@ -548,8 +548,9 @@ class EducationAnalyticsService
         $auditMatrix = $data['exam_governance']['audit_matrix'];
         $triage = $data['triage_roster'];
 
-        $today = date('F j, Y');
-        $todayAm = date('Y-m-d');
+        // Ethiopian calendar only (system-wide rule); the EC year tag replaces the old Gregorian ISO echo.
+        $today = function_exists('ethio_export_date') ? ethio_export_date('now', 'F j, Y') : date('F j, Y');
+        $todayAm = function_exists('ethio_export_date') ? ethio_export_date('now', 'd/m/Y') . ' ዓ.ም.' : date('Y-m-d');
 
         header('Content-Type: text/html; charset=UTF-8');
         header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -917,7 +918,7 @@ table.rpt-tbl tr:nth-child(even){background:#fafafa}
 
         $s1->setCellValue('A1', ($brand['school_am'] ?? 'FKSS') . ' — ' . ($brand['school_en'] ?? ''));
         $s1->setCellValue('A2', 'Executive Education Intelligence Summary');
-        $s1->setCellValue('A3', 'Total Students: ' . ($stats['total'] ?? 0) . ' | Grade Mean: ' . ($stats['avg_grade'] ?? 0) . '% | Attendance Mean: ' . ($stats['avg_attendance'] ?? 0) . '% | Exam Delivery: ' . ($data['exam_governance']['summary']['delivery_rate'] ?? 0) . '% | Exported: ' . date('Y-m-d H:i'));
+        $s1->setCellValue('A3', 'Total Students: ' . ($stats['total'] ?? 0) . ' | Grade Mean: ' . ($stats['avg_grade'] ?? 0) . '% | Attendance Mean: ' . ($stats['avg_attendance'] ?? 0) . '% | Exam Delivery: ' . ($data['exam_governance']['summary']['delivery_rate'] ?? 0) . '% | Exported: ' . (function_exists('ethio_export_datetime') ? ethio_export_datetime('now') : date('Y-m-d H:i')));
 
         $s1->getStyle('A1')->getFont()->setBold(true)->setSize(14);
         $s1->getStyle('A2')->getFont()->setBold(true)->setSize(11);

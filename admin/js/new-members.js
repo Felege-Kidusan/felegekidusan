@@ -58,7 +58,7 @@
 
         var rc = document.createElement('td');
         rc.className = 'px-4 py-3 text-[11px] text-slate-600';
-        rc.textContent = member.registered_at ? new Date(member.registered_at).toLocaleDateString() : '—';
+        rc.textContent = member.registered_at ? ((typeof WBWSCalendar !== 'undefined' && WBWSCalendar.formatDate) ? WBWSCalendar.formatDate(String(member.registered_at).replace(' ', 'T'), 'medium') : String(member.registered_at)) : '—';
         row.appendChild(rc);
 
         var mmc = document.createElement('td');

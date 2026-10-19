@@ -11,6 +11,7 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/ethiopian_date.php';
 require_once __DIR__ . '/backend/ai_providers.php';
 
 /**
@@ -736,7 +737,7 @@ switch ($action) {
         $dataSnapshot = collectDataSnapshot($conn, 'overview');
         $dataJson = json_encode($dataSnapshot, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         
-        $today = date('F j, Y');
+        $today = function_exists('ethio_export_date') ? ethio_export_date('now', 'F j, Y') . ' (Ethiopian calendar)' : date('F j, Y');
         
         $reportPrompts = [
             'monthly' => "Generate a Monthly Status Report for ' . SCHOOL_NAME_SHORT . ' ' . SCHOOL_TYPE . ', dated {$today}. Include: Executive Summary, Member Statistics (with gender/age breakdown), Attendance Analysis, Financial Summary, Class Enrollment Status, Data Quality Assessment, and Recommendations. Format as a professional report with clear headings.",

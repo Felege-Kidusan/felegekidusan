@@ -53,3 +53,28 @@ those pages).
 - static: `wbws_get_calendar_mode` has no DB read and returns `'ethiopian'`; super-admin page has no `saveCalendarMode` / `value="gregorian"`; attendance screens no longer render the raw strings listed in §3;
 - PHP fixture: session `gregorian` + fake connection returning `gregorian` → function still returns `ethiopian` and rewrites the session value;
 - live: super-admin Settings page has no switch; `save_calendar_mode` is rejected and `dept_settings.calendar_mode` stays `ethiopian`.
+
+## 6. Export & remaining-display sweep (owner instruction 2026-10-19: "EC everywhere, exports included")
+
+Owner closed the §4 question: every export and every remaining display now shows Ethiopian dates. Storage stays Gregorian.
+
+| Surface | Before | After |
+|---|---|---|
+| Reporting Centre CSV / XLSX (`ReportExportService::present`) | raw `YYYY-MM-DD` for every `type=date` column | `ethio_export_date` / `ethio_export_datetime` |
+| Reporting Centre grid, filter chips, date pickers (`reports_v2.js`, `reports_v2.php`) | ISO cells, native Gregorian `<input type=date>` | EC cells (`fmtDate`), shared `wbws-calendar.js` pickers (page shell still has no DB access) |
+| Reporting Centre "Registration month" bucket (`ReportRegistry`) | `DATE_FORMAT(%Y-%m)` Gregorian | `sqlEcMonthBucket()` → `2019-02 Tikimt` (verified against the PHP converter for 1 491 consecutive days incl. Pagume and the 11/12 Sept boundary) |
+| Information PDF reports (`PdfReportService`) | Window / Generated / trend dates / member rows Gregorian | all EC |
+| QR roster PDF, Report-card XLSX, Executive XLSX "Exported/Generated" stamps | `date('Y-m-d H:i')` | EC date + time |
+| Executive HTML report "Report Date" | Gregorian + ISO | EC long + `dd/mm/yyyy ዓ.ም.` |
+| AI report prompt date (`api_ai.php`) | Gregorian | EC (labelled) |
+| Education submissions XLSX (`edu_dept.php`) | `attendance_date`, `updated_at`, 14-day `date` ISO | `fD` / new `fDT` |
+| Mezmur submissions XLSX/CSV + analytics CSV (`mezmur.js`) | `attendance_date`, `updated_at`, `last_attended` ISO | `fmtDate` / new `fmtDateTime` |
+| School Admin member CSV + XLSX | `created_at` raw | `fmtDate` |
+| Teacher / Attendance-taker sheet subtitle "Date: 2026-10-19" (missed in §3) | ISO | EC long |
+| HR + Info system activity feed, HR New-members list, Family Link timestamps, AI chat export stamp | `toLocaleString()` Gregorian | EC via `WBWSCalendar` |
+| Super Admin telemetry + failure-intelligence tables (`app_telemetry.js`, `failure_intelligence.js`) | raw timestamps | `fmtTs` EC date + time |
+
+New PHP helpers in `admin/backend/ethiopian_date.php`: `ethio_export_date()`, `ethio_export_datetime()`, `ethio_export_month()` (empty → '', unparsable → raw, never throws).
+Guard test: `tests/security/test_ec_only_exports.py` (14 checks, incl. a repo-wide scan that any `toLocaleDateString`/`toLocaleString` on a date sits under a `WBWSCalendar` guard).
+
+Deliberately unchanged: **file-name stamps** (`FKSS_Members_2026-10-19.xlsx` etc.) stay Gregorian ISO so files sort correctly on disk — say so if you want EC there too. Mobile app already renders EC (`formatGregorianAsEthiopian`). API JSON payloads stay ISO (machine interchange).

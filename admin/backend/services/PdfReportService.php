@@ -28,6 +28,7 @@
 namespace App\Services;
 
 require_once __DIR__ . '/../pdf/tcpdf/tcpdf.php';
+require_once __DIR__ . '/../ethiopian_date.php';
 
 class PdfReportService
 {
@@ -110,7 +111,7 @@ class PdfReportService
     {
         $kpi = InfoAnalyticsService::kpiBand($conn, $from, $to);
         $pdf->SetFont(self::FONT_BOLD, '', 11);
-        $pdf->Cell(0, 8, 'Window: ' . $kpi['from'] . ' to ' . $kpi['to'], 0, 1);
+        $pdf->Cell(0, 8, 'Window: ' . ethio_export_date($kpi['from']) . ' to ' . ethio_export_date($kpi['to']), 0, 1);
 
         self::sectionTitle($pdf, 'Department Comparison (sources stay separate)');
         $head = ['Department', 'Days', 'Groups', 'Marks', 'Attended', 'Rate', 'Absent', 'Late', 'Excused', 'Sheets', 'Approved'];
@@ -186,7 +187,7 @@ class PdfReportService
         self::tableHeader($pdf, $head, $widths);
         foreach ($items as $r) {
             self::tableRow($pdf, [
-                $r['date'],
+                ethio_export_date($r['date']),
                 (string)$r['marked'],
                 (string)$r['attended'],
                 (string)$r['absent'],
@@ -223,7 +224,7 @@ class PdfReportService
 
         [$fromD, $toD] = self::window($from, $to);
         $pdf->SetFont(self::FONT_BOLD, '', 9.5);
-        $pdf->Cell(0, 6, 'Window: ' . $fromD . ' to ' . $toD, 0, 1);
+        $pdf->Cell(0, 6, 'Window: ' . ethio_export_date($fromD) . ' to ' . ethio_export_date($toD), 0, 1);
 
         // Education (class-based) history
         self::memberSourceTable(
@@ -287,7 +288,7 @@ class PdfReportService
         self::tableHeader($pdf, $head, $widths);
         foreach ($rows as $r) {
             self::tableRow($pdf, [
-                (string)$r['attendance_date'],
+                ethio_export_date($r['attendance_date']),
                 (string)$r['status'],
                 (string)($r['grp'] ?? '—'),
                 (string)($r['notes'] ?? ''),
@@ -323,7 +324,7 @@ class PdfReportService
         $pdf->SetFont(self::FONT_BOLD, '', 12);
         $pdf->Cell(0, 8, $title, 0, 1);
         $pdf->SetFont(self::FONT, '', 9);
-        $pdf->Cell(0, 5, 'Generated: ' . date('Y-m-d H:i'), 0, 1);
+        $pdf->Cell(0, 5, 'Generated: ' . ethio_export_datetime('now'), 0, 1);
         $pdf->Ln(2);
         $pdf->SetDrawColor(180, 180, 180);
         $pdf->Line(12, $pdf->GetY(), 198, $pdf->GetY());

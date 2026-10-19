@@ -4,6 +4,7 @@
  * Chat with AI about your school data — powered by Google Gemini (Free)
  */
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../backend/calendar_system.php';
 if (empty($_SESSION['admin_id'])) { header('Location: ../index.php'); exit; }
 
 $fullName = $_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'Admin';
@@ -141,6 +142,7 @@ $csrfToken = generateCsrfToken();
         }
     </style>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
+<?= function_exists('wbws_calendar_scripts') ? wbws_calendar_scripts($conn ?? null) : '' ?>
 </head>
 <body>
 
@@ -543,7 +545,7 @@ function downloadMsg(btn) {
 function exportChat() {
     const messages = document.querySelectorAll('.message');
     if (messages.length === 0) return alert('No messages to export');
-    let text = '<?= SCHOOL_NAME_SHORT ?> AI Assistant — Chat Export\nDate: ' + new Date().toLocaleString() + '\n' + '='.repeat(50) + '\n\n';
+    let text = '<?= SCHOOL_NAME_SHORT ?> AI Assistant — Chat Export\nDate: ' + ((typeof WBWSCalendar!=='undefined'&&WBWSCalendar.formatDateTime)?WBWSCalendar.formatDateTime(new Date()):new Date().toLocaleString()) + '\n' + '='.repeat(50) + '\n\n';
     messages.forEach(m => {
         const role = m.classList.contains('user') ? 'You' : 'AI';
         const content = m.querySelector('.msg-bubble').innerText;
