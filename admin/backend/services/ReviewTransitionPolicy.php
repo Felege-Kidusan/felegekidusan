@@ -122,6 +122,40 @@ final class ReviewTransitionPolicy
     }
 
     /**
+     * Attendance alerting Phase 3 (requirements §5): an attendance packet is
+     * official the moment it is submitted ("submitted = approved by
+     * default"), so authorised staff may later REOPEN (return for
+     * correction) or REJECT it even after an explicit approval — always
+     * with a reason, which the caller enforces. Approving is never a
+     * reopen and keeps the strict rule above.
+     *
+     * Returns null when the transition is allowed, otherwise the same
+     * user-safe sentence error() would give.
+     */
+    public static function reopenError(
+        ?string $current,
+        string $target,
+        string $noun = 'sheet',
+        string $actor = 'teacher'
+    ): ?string {
+        if ($target === self::STATUS_APPROVED || !self::isReviewTarget($target)) {
+            return self::error($current, $target, $noun, $actor);
+        }
+        $cur = self::normalize($current);
+        if ($cur === self::STATUS_SUBMITTED || $cur === self::STATUS_APPROVED) {
+            return null; // official packet — may be returned or rejected with a reason
+        }
+        return self::error($current, $target, $noun, $actor);
+    }
+
+    /** True when $current is an official state a reopen may start from. */
+    public static function isReopenable(?string $current): bool
+    {
+        $cur = self::normalize($current);
+        return $cur === self::STATUS_SUBMITTED || $cur === self::STATUS_APPROVED;
+    }
+
+    /**
      * The message shown when the guarded UPDATE matched zero rows — i.e.
      * another reviewer decided the packet between our SELECT and our
      * UPDATE. Callers surface this as a 409-style conflict.

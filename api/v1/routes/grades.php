@@ -1350,6 +1350,8 @@ if ($method === 'POST' && $action === 'submission-review') {
     }
     require_once __DIR__ . '/../../../admin/backend/services/SubmissionService.php';
     require_once __DIR__ . '/../../../admin/backend/services/SecurityAuditService.php';
+    require_once __DIR__ . '/../../../admin/backend/services/AttendanceSubmissionEventService.php';
+    require_once __DIR__ . '/../../../admin/backend/services/AttendanceWarningService.php';
 
     $input = getBody();
     $submissionId = (int)($input['id'] ?? 0);
@@ -1362,62 +1364,18 @@ if ($method === 'POST' && $action === 'submission-review') {
     if ($newStatus !== 'approved' && mb_strlen($notes) < 3) {
         err('Write a short reason so the teacher knows what to fix.', 422);
     }
-    if (mb_strlen($notes) > 500) $notes = mb_substr($notes, 0, 500);
 
-    $stmt = $conn->prepare(
-        "SELECT teacher_id, class_id, submission_type, attendance_date,
-                assessment_id, status
-         FROM grade_submissions WHERE id = ? LIMIT 1"
+    // Phase 3 (attendance alerting): same decision path as the web console
+    // — H9 transition guard, race-safe UPDATE, audit, per-packet history and
+    // attendance-warning recalculation. Approved ATTENDANCE sheets may be
+    // reopened / rejected by edu_dept only (reason required).
+    $review = \App\Services\SubmissionService::reviewPacket(
+        $conn, $submissionId, $newStatus, $notes, (int)$userId, (string)$userRole, 'mobile'
     );
-    if (!$stmt) err('Could not open the submission.', 500);
-    $stmt->bind_param('i', $submissionId);
-    $stmt->execute();
-    $packet = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    if (!$packet) err('Submission not found.', 404);
-    $previousStatus = (string)($packet['status'] ?? '');
-
-    // H9: only packets AWAITING review may be decided — no approving
-    // rejected lists, rejecting approved ones, or "reviewing" drafts.
-    $transitionError = \App\Services\SubmissionService::reviewTransitionError($previousStatus, $newStatus);
-    if ($transitionError !== null) {
-        err($transitionError, 422);
+    if (empty($review['ok'])) {
+        err((string)($review['message'] ?? 'Review failed.'), (int)($review['http'] ?? 409));
     }
-
-    // Guarded update: race-safe against a concurrent decision/resubmission.
-    $stmt = $conn->prepare("UPDATE grade_submissions
-        SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
-        WHERE id = ? AND status = 'submitted'");
-    if (!$stmt) err('Could not update the submission.', 500);
-    $stmt->bind_param('sisi', $newStatus, $userId, $notes, $submissionId);
-    $done = $stmt->execute() && $stmt->affected_rows > 0;
-    $stmt->close();
-    if (!$done) err('This list is no longer awaiting review. Refresh and try again.', 409);
-
-    \App\Services\SecurityAuditService::record(
-        $conn,
-        'Submission Reviewed',
-        [
-            'new_status' => $newStatus,
-            'previous_status' => $previousStatus,
-            'reason' => $notes,
-            'kind' => (string)$packet['submission_type'],
-            'class_id' => (int)$packet['class_id'],
-            'attendance_date' => (string)($packet['attendance_date'] ?? ''),
-            'assessment_id' => (int)($packet['assessment_id'] ?? 0),
-            'teacher_id' => (int)$packet['teacher_id'],
-            'channel' => 'mobile',
-        ],
-        'grade_submission',
-        $submissionId
-    );
-
-    $friendly = [
-        'approved' => 'Approved',
-        'rejected' => 'Rejected',
-        'revision_needed' => 'Returned to the teacher for correction',
-    ];
-    ok(['message' => $friendly[$newStatus]]);
+    ok(['message' => (string)$review['message'], 'reopened' => !empty($review['reopened'])]);
 }
 
 err("No handler for {$method} /grades" . ($action ? "/{$action}" : ''), 404);

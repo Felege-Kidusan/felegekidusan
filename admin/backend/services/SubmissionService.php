@@ -13,6 +13,7 @@
 namespace App\Services;
 
 require_once __DIR__ . '/ReviewTransitionPolicy.php';
+require_once __DIR__ . '/AttendanceSubmissionEventService.php';
 
 class SubmissionService
 {
@@ -836,6 +837,15 @@ class SubmissionService
                     }
                 }
             }
+            // Phase 3 (attendance alerting): durable "who submitted / when"
+            // trail — the packet row keeps one teacher_id and clears the
+            // reviewer columns on resubmission, so append the step here.
+            if ($ok && $changed > 0 && $entersReviewQueue) {
+                AttendanceSubmissionEventService::record(
+                    $conn, 'edu', $existingId, self::normalizeStatus($curStatus), self::STATUS_SUBMITTED,
+                    $teacherId, '', (string)($opts['channel'] ?? 'web')
+                );
+            }
             return [
                 'ok' => (bool)$ok,
                 'id' => $existingId,
@@ -893,6 +903,11 @@ class SubmissionService
                 'message' => 'Another save for this class and date is in progress. Please try again.',
             ];
         }
+        if ($ok && $id > 0 && $status === self::STATUS_SUBMITTED) {
+            AttendanceSubmissionEventService::record(
+                $conn, 'edu', $id, '', self::STATUS_SUBMITTED, $teacherId, '', (string)($opts['channel'] ?? 'web')
+            );
+        }
         return [
             'ok' => (bool)$ok,
             'id' => $id,
@@ -901,6 +916,190 @@ class SubmissionService
                 ? 'Attendance submitted.'
                 : 'Saved as a draft for Education.',
         ];
+    }
+
+    /**
+     * Roles that may REOPEN or REJECT an attendance packet that is already
+     * approved (attendance alerting Phase 3). Deciding a packet that is
+     * merely awaiting review keeps the historical reviewer roles (see the
+     * callers); re-opening official data is a department action only —
+     * admins are read-only on attendance alerting (Phase 2 rule).
+     */
+    public const ATTENDANCE_REOPEN_ROLES = ['edu_dept'];
+
+    /**
+     * Phase 3: ONE implementation of the Education review decision, shared
+     * by the web console (api_communication.php review_submission) and the
+     * mobile API (POST /grades/submission-review).
+     *
+     * Rules:
+     *  - approve / return / reject a packet awaiting review: unchanged
+     *    (ReviewTransitionPolicy::error, race-safe guarded UPDATE);
+     *  - ATTENDANCE packets only: an already APPROVED packet may be returned
+     *    (revision_needed) or rejected by edu_dept, with a reason — this is
+     *    the requirements §5 "reopen / reject with reason";
+     *  - every non-approve decision needs a reason of >= 3 characters;
+     *  - every transition is audited (SecurityAuditService), appended to
+     *    attendance_submission_events, and — for attendance packets — the
+     *    members on the sheet are re-evaluated so reopened / rejected rows
+     *    stop counting and open warnings are flagged, never deleted.
+     *
+     * @return array{ok:bool,message:string,code?:string,http?:int,new_status?:string,previous_status?:string,recalc?:array}
+     */
+    public static function reviewPacket(
+        \mysqli $conn,
+        int $submissionId,
+        string $newStatus,
+        string $notes,
+        int $actorId,
+        string $actorRole,
+        string $channel = 'web'
+    ): array {
+        $notes = trim($notes);
+        if ($submissionId <= 0 || !in_array($newStatus, ['approved', 'rejected', 'revision_needed'], true)) {
+            return ['ok' => false, 'http' => 422, 'code' => 'invalid_parameters', 'message' => 'Invalid review parameters.'];
+        }
+        // A returned/rejected packet must tell the teacher what to fix —
+        // otherwise the unlock is meaningless.
+        if ($newStatus !== 'approved' && mb_strlen($notes) < 3) {
+            return ['ok' => false, 'http' => 422, 'code' => 'reason_required', 'message' => 'Write a short reason so the teacher knows what to fix.'];
+        }
+        if (mb_strlen($notes) > 500) {
+            $notes = mb_substr($notes, 0, 500);
+        }
+
+        $stmt = $conn->prepare(
+            "SELECT teacher_id, class_id, submission_type, attendance_date,
+                    assessment_id, status
+             FROM grade_submissions WHERE id = ? LIMIT 1"
+        );
+        if (!$stmt) {
+            return ['ok' => false, 'http' => 500, 'code' => 'storage', 'message' => 'Could not open the submission.'];
+        }
+        $stmt->bind_param('i', $submissionId);
+        $stmt->execute();
+        $packet = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$packet) {
+            return ['ok' => false, 'http' => 404, 'code' => 'not_found', 'message' => 'Submission not found.'];
+        }
+        $previousStatus = (string)($packet['status'] ?? '');
+        $isAttendance = (string)($packet['submission_type'] ?? '') === self::TYPE_ATTENDANCE;
+        $reopen = $isAttendance
+            && self::normalizeStatus($previousStatus) === self::STATUS_APPROVED
+            && $newStatus !== 'approved';
+
+        if ($reopen) {
+            if (!in_array($actorRole, self::ATTENDANCE_REOPEN_ROLES, true)) {
+                return ['ok' => false, 'http' => 403, 'code' => 'forbidden', 'message' => 'Only the Education department can reopen an approved attendance sheet.'];
+            }
+            $transitionError = ReviewTransitionPolicy::reopenError($previousStatus, $newStatus, 'list', 'teacher');
+        } else {
+            // H9: only packets AWAITING review may be decided — no approving
+            // rejected lists, rejecting approved ones, or "reviewing" drafts.
+            $transitionError = self::reviewTransitionError($previousStatus, $newStatus);
+        }
+        if ($transitionError !== null) {
+            return ['ok' => false, 'http' => 422, 'code' => 'invalid_transition', 'message' => $transitionError];
+        }
+
+        // Guarded update: the status must still be what we read when the
+        // write lands (race-safe against a concurrent decision, resubmission
+        // or another reopen).
+        $expected = $reopen ? self::STATUS_APPROVED : self::STATUS_SUBMITTED;
+        $up = $conn->prepare("UPDATE grade_submissions
+            SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
+            WHERE id = ? AND status = ?");
+        if (!$up) {
+            return ['ok' => false, 'http' => 500, 'code' => 'storage', 'message' => 'Could not update the submission.'];
+        }
+        $up->bind_param('sisis', $newStatus, $actorId, $notes, $submissionId, $expected);
+        $ok = $up->execute();
+        $affected = $up->affected_rows;
+        $up->close();
+        if (!$ok) {
+            return ['ok' => false, 'http' => 500, 'code' => 'storage', 'message' => 'Could not update the submission.'];
+        }
+        if ($affected < 1) {
+            // affected_rows = 0 means the packet changed state between our
+            // read and this write (concurrent decision/resubmit).
+            return ['ok' => false, 'http' => 409, 'code' => 'not_awaiting_review',
+                    'message' => $reopen
+                        ? 'This list is no longer approved. Refresh the inbox and try again.'
+                        : 'This list is no longer awaiting review. Refresh the inbox and try again.'];
+        }
+
+        // Immutable trail: who decided, from which state, and why.
+        $auditDetails = [
+            'new_status' => $newStatus,
+            'previous_status' => $previousStatus,
+            'reason' => $notes,
+            'kind' => (string)$packet['submission_type'],
+            'class_id' => (int)$packet['class_id'],
+            'attendance_date' => (string)($packet['attendance_date'] ?? ''),
+            'assessment_id' => (int)($packet['assessment_id'] ?? 0),
+            'teacher_id' => (int)$packet['teacher_id'],
+        ];
+        if ($channel !== 'web') {
+            $auditDetails['channel'] = $channel;
+        }
+        if ($reopen) {
+            $auditDetails['reopened'] = true;
+        }
+        if (class_exists('\App\Services\SecurityAuditService')) {
+            SecurityAuditService::record($conn, 'Submission Reviewed', $auditDetails, 'grade_submission', $submissionId);
+        }
+
+        $recalc = null;
+        if ($isAttendance) {
+            AttendanceSubmissionEventService::record(
+                $conn, 'edu', $submissionId, self::normalizeStatus($previousStatus), $newStatus, $actorId, $notes, $channel
+            );
+            // Requirements §5: reopened / rejected records must not create
+            // false absence warnings — recompute streaks, month rates and
+            // open warnings for everyone on this sheet. Never fails the review.
+            $recalc = self::recalculateAttendanceWarnings(
+                $conn, (int)$packet['class_id'], (string)($packet['attendance_date'] ?? ''), $actorId
+            );
+        }
+
+        $friendly = [
+            'approved' => 'Approved',
+            'rejected' => $reopen ? 'Rejected — the sheet no longer counts' : 'Rejected',
+            'revision_needed' => $reopen ? 'Reopened — returned to the teacher for correction' : 'Returned to the teacher for correction',
+        ];
+        return [
+            'ok' => true,
+            'message' => $friendly[$newStatus],
+            'new_status' => $newStatus,
+            'previous_status' => $previousStatus,
+            'reopened' => $reopen,
+            'recalc' => $recalc,
+        ];
+    }
+
+    /**
+     * Re-evaluate attendance warnings for every member on one class/day
+     * sheet (Phase 2 evaluator; no-op when the feature is off or tables are
+     * missing). Best-effort: errors are logged, never thrown.
+     *
+     * @return array{evaluated:int,actions:int}|null
+     */
+    public static function recalculateAttendanceWarnings(\mysqli $conn, int $classId, string $date, ?int $actorId): ?array
+    {
+        if ($classId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return null;
+        }
+        try {
+            if (!class_exists('\App\Services\AttendanceWarningService')) {
+                require_once __DIR__ . '/AttendanceWarningService.php';
+            }
+            $ids = AttendanceWarningService::memberIdsFromRecords(self::attendanceRows($conn, $classId, $date));
+            return AttendanceWarningService::safeEvaluateMany($conn, 'edu', $ids, $date, $actorId);
+        } catch (\Throwable $e) {
+            error_log('Attendance warning recalculation failed: ' . $e->getMessage());
+            return null;
+        }
     }
 
     /**
@@ -1386,8 +1585,13 @@ class SubmissionService
         $packet = self::presentRow($raw);
 
         $packet['rows'] = [];
+        $packet['events'] = [];
         if (($packet['submission_type'] ?? '') === self::TYPE_ATTENDANCE) {
             $packet['rows'] = self::attendanceRows($conn, (int)$packet['class_id'], (string)($packet['attendance_date'] ?? ''));
+            // Phase 3: durable per-packet history (submitted / returned /
+            // reopened / rejected, with actor, reason, EC timestamp).
+            $packet['events'] = AttendanceSubmissionEventService::forPacket($conn, 'edu', $id);
+            $packet['can_reopen'] = ReviewTransitionPolicy::isReopenable((string)($packet['status'] ?? ''));
         } elseif (($packet['submission_type'] ?? '') === self::TYPE_MARKLIST && !empty($packet['assessment_id'])) {
             $packet['rows'] = self::marklistRows($conn, (int)$packet['assessment_id']);
         }

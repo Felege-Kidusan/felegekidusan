@@ -17,6 +17,8 @@ require_once __DIR__ . '/backend/ethiopian_date.php';
 require_once __DIR__ . '/backend/services/SubmissionService.php';
 require_once __DIR__ . '/backend/services/ReportCardService.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+require_once __DIR__ . '/backend/services/AttendanceSubmissionEventService.php';
+require_once __DIR__ . '/backend/services/AttendanceWarningService.php';
 
 if (empty($_SESSION['admin_id'])) {
     http_response_code(401);
@@ -270,70 +272,32 @@ switch ($action) {
         if ($newStatus !== 'approved' && mb_strlen($notes) < 3) {
             echo json_encode(['status' => 'error', 'message' => 'Write a short reason so the teacher knows what to fix.']); exit;
         }
-        if (mb_strlen($notes) > 500) {
-            $notes = mb_substr($notes, 0, 500);
-        }
 
-        $stmt = $conn->prepare(
-            "SELECT teacher_id, class_id, submission_type, attendance_date,
-                    assessment_id, status
-             FROM grade_submissions WHERE id = ? LIMIT 1"
+        // Phase 3 (attendance alerting): ONE shared decision path for web
+        // and mobile — transition guard (H9), race-safe guarded UPDATE,
+        // SecurityAudit trail, per-packet history, and the attendance
+        // warning recalculation after every transition. Approved
+        // ATTENDANCE sheets may be reopened / rejected by edu_dept only.
+        $review = \App\Services\SubmissionService::reviewPacket(
+            $conn, $submissionId, (string)$newStatus, $notes, (int)$userId, (string)$userRole, 'web'
         );
-        $stmt->bind_param('i', $submissionId);
-        $stmt->execute();
-        $packet = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        if (!$packet) {
-            echo json_encode(['status' => 'error', 'message' => 'Submission not found']); exit;
+        if (empty($review['ok'])) {
+            $code = (string)($review['code'] ?? '');
+            if ($code === 'invalid_transition') {
+                respondApiError((string)$review['message'], 422, 'invalid_transition');
+            }
+            if ($code === 'not_awaiting_review') {
+                // The packet stopped awaiting review between read and write
+                // (concurrent decision/resubmit).
+                http_response_code(409);
+                echo json_encode(['status' => 'error', 'code' => 'not_awaiting_review', 'message' => (string)$review['message']]); exit;
+            }
+            if ($code === 'forbidden') {
+                http_response_code(403);
+            }
+            echo json_encode(['status' => 'error', 'message' => (string)$review['message']]); exit;
         }
-        $previousStatus = (string)($packet['status'] ?? '');
-
-        // H9: only packets AWAITING review may be decided — no approving
-        // rejected lists, rejecting approved ones, or "reviewing" drafts.
-        $transitionError = \App\Services\SubmissionService::reviewTransitionError($previousStatus, $newStatus);
-        if ($transitionError !== null) {
-            respondApiError($transitionError, 422, 'invalid_transition');
-        }
-
-        // Guarded update: the status must still be 'submitted' when the write
-        // lands (race-safe against a concurrent decision or resubmission).
-        $stmt = $conn->prepare("UPDATE grade_submissions
-            SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
-            WHERE id = ? AND status = 'submitted'");
-        $stmt->bind_param("sisi", $newStatus, $userId, $notes, $submissionId);
-
-        if ($stmt->execute() && $stmt->affected_rows > 0) {
-            $stmt->close();
-            // Immutable trail: who decided, from which state, and why.
-            \App\Services\SecurityAuditService::record(
-                $conn,
-                'Submission Reviewed',
-                [
-                    'new_status' => $newStatus,
-                    'previous_status' => $previousStatus,
-                    'reason' => $notes,
-                    'kind' => (string)$packet['submission_type'],
-                    'class_id' => (int)$packet['class_id'],
-                    'attendance_date' => (string)($packet['attendance_date'] ?? ''),
-                    'assessment_id' => (int)($packet['assessment_id'] ?? 0),
-                    'teacher_id' => (int)$packet['teacher_id'],
-                ],
-                'grade_submission',
-                $submissionId
-            );
-            $friendly = [
-                'approved' => 'Approved',
-                'rejected' => 'Rejected',
-                'revision_needed' => 'Returned to the teacher for correction',
-            ];
-            echo json_encode(['status' => 'success', 'message' => $friendly[$newStatus]]);
-        } else {
-            $stmt->close();
-            // affected_rows = 0 means the packet stopped awaiting review
-            // between our read and this write (concurrent decision/resubmit).
-            http_response_code(409);
-            echo json_encode(['status' => 'error', 'code' => 'not_awaiting_review', 'message' => 'This list is no longer awaiting review. Refresh the inbox and try again.']);
-        }
+        echo json_encode(['status' => 'success', 'message' => (string)$review['message'], 'reopened' => !empty($review['reopened'])]);
         break;
 
     // ============================================================

@@ -202,6 +202,7 @@ try {
                 $requireComplete = $packetStatus === MezmurSubmissionService::STATUS_SUBMITTED;
                 $summary = MezmurAttendanceService::saveSectionSheet($conn, $date, $section, $records, (int)$auth['uid'], false, $requireComplete);
                 $packet = MezmurSubmissionService::upsert($conn, [
+                    'channel' => 'mobile',
                     'taker_id' => (int)$auth['uid'],
                     'date' => $date,
                     'section' => $section,
@@ -756,9 +757,13 @@ try {
             (int)($input['id'] ?? 0),
             (string)($input['status'] ?? ''),
             (string)($input['notes'] ?? ''),
-            (int)$auth['uid']
+            (int)$auth['uid'],
+            (string)($auth['rol'] ?? $auth['role'] ?? ''),
+            'mobile'
         );
-        if (empty($result['ok'])) err((string)($result['message'] ?? 'Review failed.'), 409);
+        if (empty($result['ok'])) {
+            err((string)($result['message'] ?? 'Review failed.'), ($result['code'] ?? '') === 'forbidden' ? 403 : 409);
+        }
         ok($result);
     }
 

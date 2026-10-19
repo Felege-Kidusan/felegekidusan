@@ -370,6 +370,7 @@ if ($method === 'POST' && $action === 'submit') {
             $records
         );
         $packet = \App\Services\SubmissionService::upsertAttendance($conn, [
+            'channel' => 'mobile',
             'teacher_id' => $userId,
             'class_id' => $classId,
             'date' => $date,

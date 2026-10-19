@@ -618,6 +618,15 @@
 .sub-stat b { display: block; font-size: 1.35rem; font-weight: 700; line-height: 1.2; }
 .sub-stat span { font-size: 0.65rem; opacity: 0.85; }
 
+/* Attendance alerting Phase 3: per-packet history (submitted / returned /
+   reopened / rejected) shown in the Mezmur review + packet modals. */
+.packet-history { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.25rem; font-size: 0.76rem; }
+.packet-history li { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: baseline; }
+.packet-history .ph-when { color: var(--school-text-muted, #94a3b8); white-space: nowrap; }
+.packet-history .ph-reason { color: var(--school-warning, #b45309); }
+.packet-history-title { font-size: 0.8rem; font-weight: 700; margin: 0.9rem 0 0.3rem; }
+.packet-reopen-note { font-size: 0.76rem; color: var(--school-text-muted, #64748b); margin: 0 0 0.5rem; }
+
 /* -- Mezmur Feature 3: catalog + browse tabs + multi-select -- */
 .check-grid { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; }
 

@@ -30,6 +30,7 @@ require_once __DIR__ . '/ReviewTransitionPolicy.php';
 // MezmurHymnService for the same hardening.
 require_once __DIR__ . '/SecurityAuditService.php';
 require_once __DIR__ . '/MemberCategory.php';
+require_once __DIR__ . '/AttendanceSubmissionEventService.php';
 
 final class MezmurSubmissionService
 {
@@ -414,6 +415,15 @@ final class MezmurSubmissionService
             }
             if ($ok) {
                 self::auditPacket($conn, $date, $section, $takerId, $status, $count);
+                // Phase 3: durable "who submitted / when" trail (the packet
+                // row keeps one taker_id and clears the reviewer columns on
+                // resubmission, so append the step here).
+                if ($changed > 0 && $entersReviewQueue) {
+                    AttendanceSubmissionEventService::record(
+                        $conn, 'mezmur', $existingId, self::normalizeStatus($curStatus), self::STATUS_SUBMITTED,
+                        $takerId, '', (string)($opts['channel'] ?? 'web')
+                    );
+                }
             }
             return [
                 'ok' => (bool)$ok,
@@ -459,6 +469,11 @@ final class MezmurSubmissionService
         $ins->close();
         if ($ok) {
             self::auditPacket($conn, $date, $section, $takerId, $status, $count);
+            if ($id > 0 && $status === self::STATUS_SUBMITTED) {
+                AttendanceSubmissionEventService::record(
+                    $conn, 'mezmur', $id, '', self::STATUS_SUBMITTED, $takerId, '', (string)($opts['channel'] ?? 'web')
+                );
+            }
         }
         return [
             'ok' => (bool)$ok,
@@ -478,7 +493,15 @@ final class MezmurSubmissionService
      *
      * @return array{ok:bool,message:string}
      */
-    public static function reviewPacket(\mysqli $conn, int $packetId, string $newStatus, string $notes, int $actorId): array
+    /**
+     * Roles that may REOPEN or REJECT an already-approved packet (attendance
+     * alerting Phase 3). Deciding a packet awaiting review keeps
+     * REVIEW_ROLES; re-opening official data is a department action only
+     * (admins are read-only on attendance alerting, Phase 2 rule).
+     */
+    public const REOPEN_ROLES = ['mezmur_dept'];
+
+    public static function reviewPacket(\mysqli $conn, int $packetId, string $newStatus, string $notes, int $actorId, string $actorRole = '', string $channel = 'web'): array
     {
         if ($packetId <= 0 || !in_array($newStatus, [self::STATUS_APPROVED, self::STATUS_REJECTED, self::STATUS_REVISION], true)) {
             return ['ok' => false, 'message' => 'Invalid review parameters.'];
@@ -511,11 +534,23 @@ final class MezmurSubmissionService
         }
         $previousStatus = (string)($packet['status'] ?? '');
 
-        // H9 (audit 2026-10-02, finding B): a reviewer decision is valid ONLY
-        // on a packet awaiting review. Without this, replaying a review request
-        // flipped approved→rejected, rejected→approved or decided a packet the
-        // taker had never submitted. Same rule Education enforces.
-        $transitionError = ReviewTransitionPolicy::error($previousStatus, $newStatus, 'packet', 'taker');
+        // Phase 3 (attendance alerting, requirements §5): an APPROVED packet
+        // may be reopened (returned) or rejected later — with a reason — by
+        // the Mezmur department only. Approving keeps the strict rule.
+        $reopen = self::normalizeStatus($previousStatus) === self::STATUS_APPROVED
+            && $newStatus !== self::STATUS_APPROVED;
+        if ($reopen) {
+            if (!in_array($actorRole, self::REOPEN_ROLES, true)) {
+                return ['ok' => false, 'code' => 'forbidden', 'message' => 'Only the Mezmur department can reopen an approved packet.'];
+            }
+            $transitionError = ReviewTransitionPolicy::reopenError($previousStatus, $newStatus, 'packet', 'taker');
+        } else {
+            // H9 (audit 2026-10-02, finding B): a reviewer decision is valid ONLY
+            // on a packet awaiting review. Without this, replaying a review request
+            // flipped approved→rejected, rejected→approved or decided a packet the
+            // taker had never submitted. Same rule Education enforces.
+            $transitionError = ReviewTransitionPolicy::error($previousStatus, $newStatus, 'packet', 'taker');
+        }
         if ($transitionError !== null) {
             return ['ok' => false, 'code' => 'invalid_transition', 'message' => $transitionError];
         }
@@ -523,11 +558,18 @@ final class MezmurSubmissionService
         try {
             // The `status = 'submitted'` predicate closes the check-then-act
             // race: two reviewers deciding at once, only one UPDATE matches.
-            $up = $conn->prepare(
-                "UPDATE mezmur_submissions
-                 SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
-                 WHERE id = ? AND status = 'submitted'"
-            );
+            // A reopen asserts `status = 'approved'` the same way.
+            $up = $reopen
+                ? $conn->prepare(
+                    "UPDATE mezmur_submissions
+                     SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
+                     WHERE id = ? AND status = 'approved'"
+                )
+                : $conn->prepare(
+                    "UPDATE mezmur_submissions
+                     SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
+                     WHERE id = ? AND status = 'submitted'"
+                );
         } catch (\Throwable $e) {
             $up = false;
         }
@@ -546,32 +588,75 @@ final class MezmurSubmissionService
             return [
                 'ok' => false,
                 'code' => 'conflict',
-                'message' => ReviewTransitionPolicy::raceLostMessage('packet'),
+                'message' => $reopen
+                    ? 'This packet is no longer approved. Refresh and try again.'
+                    : ReviewTransitionPolicy::raceLostMessage('packet'),
             ];
         }
 
         // Immutable trail: who decided, from which state, and why.
+        $auditDetails = [
+            'new_status' => $newStatus,
+            'previous_status' => $previousStatus,
+            'reason' => $notes,
+            'section' => (string)($packet['section'] ?? ''),
+            'attendance_date' => (string)($packet['attendance_date'] ?? ''),
+            'taker_id' => (int)($packet['taker_id'] ?? 0),
+        ];
+        if ($channel !== 'web') {
+            $auditDetails['channel'] = $channel;
+        }
+        if ($reopen) {
+            $auditDetails['reopened'] = true;
+        }
         \App\Services\SecurityAuditService::record(
             $conn,
             'Mezmur Submission Reviewed',
-            [
-                'new_status' => $newStatus,
-                'previous_status' => $previousStatus,
-                'reason' => $notes,
-                'section' => (string)($packet['section'] ?? ''),
-                'attendance_date' => (string)($packet['attendance_date'] ?? ''),
-                'taker_id' => (int)($packet['taker_id'] ?? 0),
-            ],
+            $auditDetails,
             'mezmur_submission',
             $packetId
         );
 
+        // Phase 3: durable per-packet history + attendance warning
+        // recalculation (reopened / rejected rows stop counting; open
+        // warnings are flagged, never deleted). Never fails the review.
+        AttendanceSubmissionEventService::record(
+            $conn, 'mezmur', $packetId, self::normalizeStatus($previousStatus), $newStatus, $actorId, $notes, $channel
+        );
+        $recalc = self::recalculateAttendanceWarnings(
+            $conn, (string)($packet['attendance_date'] ?? ''), (string)($packet['section'] ?? ''), $actorId
+        );
+
         $friendly = [
             self::STATUS_APPROVED => 'Approved.',
-            self::STATUS_REJECTED => 'Rejected.',
-            self::STATUS_REVISION => 'Returned to the taker for correction.',
+            self::STATUS_REJECTED => $reopen ? 'Rejected — the packet no longer counts.' : 'Rejected.',
+            self::STATUS_REVISION => $reopen ? 'Reopened — returned to the taker for correction.' : 'Returned to the taker for correction.',
         ];
-        return ['ok' => true, 'message' => $friendly[$newStatus]];
+        return ['ok' => true, 'message' => $friendly[$newStatus], 'reopened' => $reopen, 'recalc' => $recalc];
+    }
+
+    /**
+     * Re-evaluate attendance warnings for every member on one (date, section)
+     * sheet (Phase 2 evaluator; no-op when the feature is off or tables are
+     * missing). Best-effort: errors are logged, never thrown.
+     *
+     * @return array{evaluated:int,actions:int}|null
+     */
+    public static function recalculateAttendanceWarnings(\mysqli $conn, string $date, string $section, ?int $actorId): ?array
+    {
+        if (!self::validDate($date) || $section === '') {
+            return null;
+        }
+        try {
+            if (!class_exists('\App\Services\AttendanceWarningService')) {
+                require_once __DIR__ . '/AttendanceWarningService.php';
+            }
+            $ids = AttendanceWarningService::memberIdsFromRecords(self::rows($conn, $date, $section));
+            return AttendanceWarningService::safeEvaluateMany($conn, 'mezmur', $ids, $date, $actorId);
+        } catch (\Throwable $e) {
+            error_log('Mezmur attendance warning recalculation failed: ' . $e->getMessage());
+            return null;
+        }
     }
 
     // ── inbox / detail ──────────────────────────────────────────
@@ -706,6 +791,10 @@ final class MezmurSubmissionService
         }
         $packet = self::presentRow($raw);
         $packet['rows'] = self::rows($conn, (string)$packet['attendance_date'], (string)$packet['section']);
+        // Phase 3: durable per-packet history (submitted / returned /
+        // reopened / rejected, with actor, reason, EC timestamp).
+        $packet['events'] = AttendanceSubmissionEventService::forPacket($conn, 'mezmur', $id);
+        $packet['can_reopen'] = ReviewTransitionPolicy::isReopenable((string)($packet['status'] ?? ''));
         return $packet;
     }
 

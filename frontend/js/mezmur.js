@@ -2570,7 +2570,7 @@
     var _allPackets = [];
 
     function switchSubTab(tab) {
-        ['draft', 'submitted', 'insights'].forEach(function (t) {
+        ['draft', 'submitted', 'approved', 'insights'].forEach(function (t) {
             var id = 'mzSubTab' + (t === 'insights' ? 'Insights' : t.charAt(0).toUpperCase() + t.slice(1));
             var b = $(id);
             if (!b) return;
@@ -2612,8 +2612,10 @@
             if (!_allPackets.length) {
                 var empty = status === 'draft'
                     ? 'No drafts yet. When a taker taps Save, the unfinished sheet appears here.'
-                    : 'No submitted sheets yet. Submit is used when the section sheet is complete.';
-                tb.innerHTML = '<tr><td colspan="8">' + emptyState('fa-inbox', status === 'draft' ? 'No drafts' : 'Nothing submitted', empty) + '</td></tr>';
+                    : (status === 'approved'
+                        ? 'No approved packets yet.'
+                        : 'No submitted sheets yet. Submit is used when the section sheet is complete.');
+                tb.innerHTML = '<tr><td colspan="8">' + emptyState('fa-inbox', status === 'draft' ? 'No drafts' : (status === 'approved' ? 'Nothing approved' : 'Nothing submitted'), empty) + '</td></tr>';
                 return;
             }
             tb.innerHTML = _allPackets.map(function (p) {
@@ -2745,6 +2747,19 @@
         }).catch(function () { /* filter stays optional */ });
     }
 
+    // Phase 3: per-packet history list (EC timestamps come from the server).
+    function packetHistoryHtml(events) {
+        events = events || [];
+        if (!events.length) return '';
+        return '<div class="packet-history-title"><i class="fa-solid fa-clock-rotate-left"></i> History</div>' +
+            '<ul class="packet-history">' + events.map(function (ev) {
+                return '<li><span class="ph-when">' + esc(ev.created_ec || '') + '</span>' +
+                    '<b>' + esc(ev.label || ev.event || '') + '</b>' +
+                    (ev.actor_name ? '<span>· ' + esc(ev.actor_name) + '</span>' : '') +
+                    (ev.reason ? '<span class="ph-reason">— ' + esc(ev.reason) + '</span>' : '') + '</li>';
+            }).join('') + '</ul>';
+    }
+
     var _reviewMeta = {};
     function openReview(id) {
         apiGet('action=submission_detail&id=' + encodeURIComponent(id)).then(function (d) {
@@ -2756,7 +2771,13 @@
                 '<span class="badge badge-info">' + fmtDate(p.attendance_date) + '</span>' +
                 '<span class="badge badge-active amharic">' + esc(p.section) + '</span>' +
                 '<span class="text-dim">by ' + esc(p.taker_name || '—') + '</span>' +
-                statusChip(p.status);
+                statusChip(p.status) +
+                // Phase 3: an approved packet can be reopened / rejected with a
+                // reason (department only; the server re-checks the role).
+                (p.status === 'approved'
+                    ? '<p class="packet-reopen-note">This packet is approved and counts for attendance. Reopening or rejecting it needs a reason and immediately recalculates streaks and warnings for its members.</p>'
+                    : '') +
+                packetHistoryHtml(p.events);
             // A previously returned packet keeps its decision context.
             $('mzRvDecision').value = p.status === 'submitted' ? 'approved' : 'revision_needed';
             $('mzRvNotes').value = '';
@@ -2814,6 +2835,7 @@
                 }).join('');
             }
             body += '</tbody></table></div>';
+            body += packetHistoryHtml(p.events);
             $('mzPacketBody').innerHTML = body;
             openModalF('mzPacketModal', null);
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });

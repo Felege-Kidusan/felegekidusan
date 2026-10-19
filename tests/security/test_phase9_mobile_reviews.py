@@ -46,7 +46,16 @@ class ReviewGatewayTests(unittest.TestCase):
         self.assertIn("action === 'submission-review'", self.grades)
         self.assertIn("'approved', 'rejected', 'revision_needed'", self.grades)
         self.assertIn("mb_strlen($notes) < 3", self.grades)
-        self.assertIn("SecurityAuditService::record", self.grades)
+        # Attendance alerting Phase 3: web console and mobile share ONE
+        # decision path (SubmissionService::reviewPacket) which carries the
+        # SecurityAudit trail, the per-packet history and the warning
+        # recalculation — so the audit call lives there, not in the route.
+        self.assertIn("SubmissionService::reviewPacket(", self.grades)
+        web = (ROOT / "admin/api_communication.php").read_text(encoding="utf-8")
+        self.assertIn("SubmissionService::reviewPacket(", web)
+        svc = (ROOT / "admin/backend/services/SubmissionService.php").read_text(encoding="utf-8")
+        body = svc[svc.index("public static function reviewPacket"):]
+        self.assertIn("SecurityAuditService::record", body)
         self.assertIn("$__eduReviewRoles", self.grades)
 
     def test_mobile_member_registration_removed(self):

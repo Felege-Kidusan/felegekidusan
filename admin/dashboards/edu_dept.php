@@ -74,6 +74,8 @@ $csrfToken = generateCsrfToken();
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>Education Department — <?= SCHOOL_NAME_SHORT ?></title>
 <script>const CSRF_TOKEN='<?= $csrfToken ?>';
+/* Attendance alerting Phase 3: only edu_dept may reopen / reject an APPROVED attendance sheet (server re-checks). */
+const CAN_REOPEN_ATTENDANCE=<?= json_encode($userRole === 'edu_dept') ?>;
 /* P71: section/age-group definition injected from App\Services\MemberCategory (single source of truth). secCode('ህጻናት') maps legacy section names onto codes. */
 const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSON_UNESCAPED_UNICODE) ?>;function eduSecLabel(code){const s=EDU_SECTIONS[code];return s?s.am+' · '+s.ages:(code||'—');}function eduSecCode(name){if(!name)return '';if(EDU_SECTIONS[name])return name;for(const c in EDU_SECTIONS){if(EDU_SECTIONS[c].am===name)return c;}return '';}</script>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -780,6 +782,7 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1rem">
 <button class="tbn act" id="subTabDraft" type="button" onclick="switchSubTab('draft')"><i class="fa-solid fa-pen-to-square"></i> Drafts</button>
 <button class="tbn" id="subTabSubmitted" type="button" onclick="switchSubTab('submitted')"><i class="fa-solid fa-paper-plane"></i> Submitted</button>
+<button class="tbn" id="subTabApproved" type="button" onclick="switchSubTab('approved')" title="Approved lists — an approved attendance sheet can be reopened or rejected with a reason"><i class="fa-solid fa-circle-check"></i> Approved</button>
 <button class="tbn" id="subTabInsights" type="button" onclick="switchSubTab('insights')"><i class="fa-solid fa-chart-line"></i> Insights</button>
 </div>
 <input autocomplete="off" type="hidden" id="subFilterStatus" value="draft">
@@ -3404,7 +3407,7 @@ function subStatusChip(st){
     return `<span class="ch ${map[st]||'ch-w'}">${label[st]||esc(st||'—')}</span>`;
 }
 function switchSubTab(tab){
-    ['draft','submitted','insights'].forEach(t=>{
+    ['draft','submitted','approved','insights'].forEach(t=>{
         const b=document.getElementById('subTab'+(t==='insights'?'Insights':t.charAt(0).toUpperCase()+t.slice(1)));
         if(b) b.className='tbn'+(t===tab?' act':'');
     });
@@ -3586,6 +3589,21 @@ function paintReviewShell(s){
             </div>
         </div>
         <div id="reviewRowsBox">${rows.length?'':'<p style="text-align:center;color:#94a3b8">Loading students…</p>'}</div>
+        ${isAtt&&(s.events||[]).length?`
+        <div style="margin-top:1rem">
+            <h4 style="font-weight:700;font-size:.8rem;margin:0 0 .4rem"><i class="fa-solid fa-clock-rotate-left" style="color:#64748b"></i> History</h4>
+            <ul style="list-style:none;margin:0;padding:0;font-size:.76rem;color:#475569;display:grid;gap:.25rem">${(s.events||[]).map(ev=>`<li style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:baseline"><span style="color:#94a3b8;white-space:nowrap">${esc(ev.created_ec||'')}</span><strong>${esc(ev.label||ev.event||'')}</strong>${ev.actor_name?`<span>· ${esc(ev.actor_name)}</span>`:''}${ev.reason?`<span style="color:#b45309">— ${esc(ev.reason)}</span>`:''}</li>`).join('')}</ul>
+        </div>`:''}
+        ${isAtt&&s.status==='approved'&&CAN_REOPEN_ATTENDANCE?`
+        <div style="border-top:1px solid #f1f5f9;padding-top:1rem;margin-top:1rem">
+            <p style="font-size:.76rem;color:#64748b;margin:0 0 .5rem">This sheet is approved and counts for attendance. Reopening or rejecting it needs a reason and immediately recalculates streaks and warnings for its students.</p>
+            <label class="lbl">Reason (required)</label>
+            <textarea id="reviewNotes" class="inp" rows="2" maxlength="500" placeholder="Why is this sheet being reopened or rejected?"></textarea>
+            <div style="display:flex;gap:.5rem;margin-top:.75rem;justify-content:flex-end">
+                <button class="btn btn-d" onclick="doReview(${s.id},'rejected')"><i class="fa-solid fa-ban"></i> Reject sheet</button>
+                <button class="btn btn-w" onclick="doReview(${s.id},'revision_needed')"><i class="fa-solid fa-rotate-left"></i> Reopen for correction</button>
+            </div>
+        </div>`:''}
         ${s.status==='submitted'?`
         <div style="border-top:1px solid #f1f5f9;padding-top:1rem;margin-top:1rem">
             <label class="lbl">Review Notes</label>

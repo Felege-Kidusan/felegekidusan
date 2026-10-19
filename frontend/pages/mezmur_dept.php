@@ -379,6 +379,7 @@ ob_start();
                     <div class="sub-tabs" role="tablist" aria-label="Submission tabs">
                         <button class="sub-tab active" id="mzSubTabDraft" type="button" role="tab" aria-selected="true" onclick="Mezmur.switchSubTab('draft')"><i class="fa-solid fa-pen-to-square"></i> Drafts</button>
                         <button class="sub-tab" id="mzSubTabSubmitted" type="button" role="tab" aria-selected="false" onclick="Mezmur.switchSubTab('submitted')"><i class="fa-solid fa-paper-plane"></i> Submitted</button>
+                        <button class="sub-tab" id="mzSubTabApproved" type="button" role="tab" aria-selected="false" onclick="Mezmur.switchSubTab('approved')" title="Approved packets — can be reopened or rejected with a reason"><i class="fa-solid fa-circle-check"></i> Approved</button>
                         <button class="sub-tab" id="mzSubTabInsights" type="button" role="tab" aria-selected="false" onclick="Mezmur.switchSubTab('insights')"><i class="fa-solid fa-chart-line"></i> Insights</button>
                     </div>
                     <input autocomplete="off" type="hidden" id="mzSubTabStatus" value="draft">

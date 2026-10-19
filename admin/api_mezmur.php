@@ -1169,12 +1169,17 @@ try {
                 (int)($_POST['submission_id'] ?? 0),
                 (string)($_POST['new_status'] ?? ''),
                 (string)($_POST['notes'] ?? ''),
-                $adminId
+                $adminId,
+                (string)$mezmurRole,
+                'web'
             );
             if (!$result['ok']) {
+                if (($result['code'] ?? '') === 'forbidden') {
+                    http_response_code(403);
+                }
                 mezmur_respond(['status' => 'error', 'message' => $result['message']]);
             }
-            mezmur_respond(['status' => 'success', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message'], 'reopened' => !empty($result['reopened'])]);
         }
 
         default:
