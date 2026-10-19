@@ -134,6 +134,7 @@
       const highAchievers = s.high_achievers || 0;
       const atRiskGrade = s.at_risk_grade || 0;
       const atRiskAtt = s.at_risk_att || 0;
+      const attT = Number(s.attendance_threshold || 60); // Attendance alerting Phase 4: policy threshold from the server
 
       const cards = [
         {
@@ -167,7 +168,7 @@
           title: 'Triage / Priority Alerts',
           amharic: 'ልዩ ትኩረት የሚያስፈልጋቸው',
           value: (atRiskGrade + atRiskAtt).toLocaleString(),
-          sub: `${atRiskGrade} score risk (<50%) · ${atRiskAtt} att alert (<60%)`,
+          sub: `${atRiskGrade} score risk (<50%) · ${atRiskAtt} att alert (<${attT}%)`,
           icon: 'fa-triangle-exclamation',
           color: (atRiskGrade + atRiskAtt) > 0 ? '#dc2626' : '#059669',
           bg: (atRiskGrade + atRiskAtt) > 0 ? '#fef2f2' : '#ecfdf5'
@@ -202,12 +203,14 @@
       const t = (this.data.stats && this.data.stats.triage_health) || {};
       const tot = this.data.stats.total || 1;
 
+      const attT = Number(((this.data && this.data.macro_stats) || {}).attendance_threshold || 60);
+      const attMax = Math.max(0, Math.round((attT - 0.1) * 10) / 10);
       const tiers = [
         { key: 'mastery', label: '🌟 Mastery (≥85% Score & ≥80% Att)', count: t.mastery || 0, color: '#059669', bg: '#ecfdf5', preset: [85, 100, 80, 100] },
         { key: 'proficient', label: '📈 Proficient (70–84.9% Score & ≥70% Att)', count: t.proficient || 0, color: '#0284c7', bg: '#f0f9ff', preset: [70, 84.9, 70, 100] },
         { key: 'academic_risk', label: '⚠️ Academic Support Needed (<50% Score)', count: t.academic_risk || 0, color: '#d97706', bg: '#fffbeb', preset: [0, 49.9, 0, 100] },
-        { key: 'attendance_risk', label: '⏰ Attendance Intervention (<60% Att)', count: t.attendance_risk || 0, color: '#ea580c', bg: '#fff7ed', preset: [0, 100, 0, 59.9] },
-        { key: 'dual_critical', label: '🚨 Dual Risk (<50% Score & <60% Att)', count: t.dual_critical || 0, color: '#dc2626', bg: '#fef2f2', preset: [0, 49.9, 0, 59.9] },
+        { key: 'attendance_risk', label: `⏰ Attendance Intervention (<${attT}% Att)`, count: t.attendance_risk || 0, color: '#ea580c', bg: '#fff7ed', preset: [0, 100, 0, attMax] },
+        { key: 'dual_critical', label: `🚨 Dual Risk (<50% Score & <${attT}% Att)`, count: t.dual_critical || 0, color: '#dc2626', bg: '#fef2f2', preset: [0, 49.9, 0, attMax] },
         { key: 'untracked', label: '⚪ Untracked Attendance (0 Recorded Days)', count: t.untracked || 0, color: '#64748b', bg: '#f8fafc', preset: null }
       ];
 

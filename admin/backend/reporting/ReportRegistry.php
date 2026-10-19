@@ -31,6 +31,8 @@ declare(strict_types=1);
 
 namespace App\Reporting;
 
+require_once dirname(__DIR__) . '/services/AttendanceRiskService.php';
+
 final class ReportRegistry
 {
     /** Roles that may open the centre at all (mirrors access_control.php). */
@@ -59,6 +61,13 @@ final class ReportRegistry
     public const MAX_COLUMNS     = 40;
 
     /** Current / previous academic year (Education data) as scalar sub‑selects. */
+    // Attendance alerting Phase 4: single source of truth for the attendance formula (AttendanceRiskService).
+    public const LATE_WEIGHT    = \App\Services\AttendanceRiskService::LATE_WEIGHT;
+    public const BAND_EXCELLENT = \App\Services\AttendanceRiskService::BAND_EXCELLENT;
+    public const BAND_GOOD      = \App\Services\AttendanceRiskService::BAND_GOOD;
+    public const BAND_FAIR      = \App\Services\AttendanceRiskService::BAND_FAIR;
+    public const SQL_ATTENDED_WEIGHTED_EDU    = "(SUM(a.status = 'present') + SUM(a.status = 'excused') + " . self::LATE_WEIGHT . " * SUM(a.status = 'late'))";
+    public const SQL_ATTENDED_WEIGHTED_MEZMUR = "(SUM(x.status = 'present') + SUM(x.status = 'excused') + " . self::LATE_WEIGHT . " * SUM(x.status = 'late'))";
     public const SQL_CURRENT_AY       = '(SELECT ay.id FROM `academic_years` ay WHERE ay.is_current = 1 ORDER BY ay.id DESC LIMIT 1)';
     public const SQL_CURRENT_AY_START = "COALESCE((SELECT ay.start_date FROM `academic_years` ay WHERE ay.is_current = 1 ORDER BY ay.id DESC LIMIT 1), '1000-01-01')";
     public const SQL_CURRENT_AY_END   = "COALESCE((SELECT ay.end_date FROM `academic_years` ay WHERE ay.is_current = 1 ORDER BY ay.id DESC LIMIT 1), '9999-12-31')";
@@ -139,17 +148,20 @@ final class ReportRegistry
                            . "WHERE e.member_id = m.id AND e.academic_year_id = " . self::SQL_PREVIOUS_AY . ")",
                     'pcl' => "LEFT JOIN `classes` pcl ON pcl.id = pe.class_id",
                     // ── Attendance bands (Education + Mezmur, read‑only), current academic‑year date range ──
-                    // Holidays are excluded; late counts as attended (same rule as InfoAnalyticsService).
-                    'ea'  => "LEFT JOIN (SELECT a.member_id, COUNT(*) AS sessions, SUM(a.status IN ('present','late')) AS attended, "
+                    // Attendance alerting Phase 4: the SAME weighted formula as AttendanceRiskService —
+                    // attended = present + excused + 0.5·late over marked sessions (holidays never count).
+                    // Scope note: this is the whole academic year, all rows (no packet/period scoping) —
+                    // the official per‑month figures are in attendance_month_rollup / the Monthly attendance report.
+                    'ea'  => "LEFT JOIN (SELECT a.member_id, COUNT(*) AS sessions, " . self::SQL_ATTENDED_WEIGHTED_EDU . " AS attended, "
                            . "SUM(a.status = 'absent') AS absent, MAX(CASE WHEN a.status IN ('present','late') THEN a.attendance_date END) AS last_present, "
                            . "SUM(a.status = 'absent' AND a.attendance_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)) AS absent_30d "
-                           . "FROM `attendance` a WHERE a.status <> 'holiday' AND a.attendance_date BETWEEN " . self::SQL_CURRENT_AY_START . " AND " . self::SQL_CURRENT_AY_END . " "
+                           . "FROM `attendance` a WHERE a.status IN ('present','absent','late','excused') AND a.attendance_date BETWEEN " . self::SQL_CURRENT_AY_START . " AND " . self::SQL_CURRENT_AY_END . " "
                            . "GROUP BY a.member_id) ea ON ea.member_id = m.id",
                     // Mezmur rows are date‑based (sql/023); legacy rows may only carry a session_id.
-                    'ma'  => "LEFT JOIN (SELECT x.member_id, COUNT(*) AS sessions, SUM(x.status IN ('present','late')) AS attended, "
+                    'ma'  => "LEFT JOIN (SELECT x.member_id, COUNT(*) AS sessions, " . self::SQL_ATTENDED_WEIGHTED_MEZMUR . " AS attended, "
                            . "MAX(CASE WHEN x.status IN ('present','late') THEN COALESCE(x.attendance_date, s.session_date) END) AS last_present "
                            . "FROM `mezmur_attendance` x LEFT JOIN `mezmur_sessions` s ON s.id = x.session_id "
-                           . "WHERE (s.id IS NULL OR s.status = 'active') AND COALESCE(x.attendance_date, s.session_date) BETWEEN " . self::SQL_CURRENT_AY_START . " AND " . self::SQL_CURRENT_AY_END . " "
+                           . "WHERE (s.id IS NULL OR s.status = 'active') AND x.status IN ('present','absent','late','excused') AND COALESCE(x.attendance_date, s.session_date) BETWEEN " . self::SQL_CURRENT_AY_START . " AND " . self::SQL_CURRENT_AY_END . " "
                            . "GROUP BY x.member_id) ma ON ma.member_id = m.id",
                     // ── Family Link (HR data): the primary / first guardian record ──
                     'mgp' => "LEFT JOIN `member_guardians` mgp ON mgp.member_id = m.id AND mgp.guardian_id = (SELECT mg.guardian_id FROM `member_guardians` mg "
@@ -366,12 +378,12 @@ final class ReportRegistry
                 'label_en' => 'Edu attendance %', 'label_am' => 'የትምህርት ክትትል %', 'type' => 'int',
                 'sql' => 'ROUND(100 * ea.attended / NULLIF(ea.sessions, 0))', 'requires' => ['ea'],
                 'view' => self::R_ALL, 'export' => self::R_ALL, 'group' => false,
-                'definition_en' => 'Present + late as a percentage of marked sessions this academic year; empty when nothing was marked.',
+                'definition_en' => 'Weighted attendance rate this academic year: (present + excused + 0.5 × late) ÷ marked sessions; empty when nothing was marked.',
             ],
             'edu_attendance_band' => [
                 'label_en' => 'Edu attendance band', 'label_am' => 'የትምህርት ክትትል ደረጃ', 'type' => 'derived_enum',
-                'sql' => "CASE WHEN COALESCE(ea.sessions, 0) = 0 THEN 'none' WHEN 100 * ea.attended / ea.sessions >= 90 THEN 'excellent' "
-                       . "WHEN 100 * ea.attended / ea.sessions >= 75 THEN 'good' WHEN 100 * ea.attended / ea.sessions >= 50 THEN 'fair' ELSE 'low' END",
+                'sql' => "CASE WHEN COALESCE(ea.sessions, 0) = 0 THEN 'none' WHEN 100 * ea.attended / ea.sessions >= " . self::BAND_EXCELLENT . " THEN 'excellent' "
+                       . "WHEN 100 * ea.attended / ea.sessions >= " . self::BAND_GOOD . " THEN 'good' WHEN 100 * ea.attended / ea.sessions >= " . self::BAND_FAIR . " THEN 'fair' ELSE 'low' END",
                 'requires' => ['ea'],
                 'options' => ['excellent' => 'Excellent (≥90%)', 'good' => 'Good (75–89%)', 'fair' => 'Fair (50–74%)', 'low' => 'Low (<50%)', 'none' => 'No attendance marked'],
                 'view' => self::R_ALL, 'export' => self::R_ALL, 'sort' => false,
@@ -400,8 +412,8 @@ final class ReportRegistry
             ],
             'mezmur_attendance_band' => [
                 'label_en' => 'Mezmur attendance band', 'label_am' => 'የመዝሙር ክትትል ደረጃ', 'type' => 'derived_enum',
-                'sql' => "CASE WHEN COALESCE(ma.sessions, 0) = 0 THEN 'none' WHEN 100 * ma.attended / ma.sessions >= 90 THEN 'excellent' "
-                       . "WHEN 100 * ma.attended / ma.sessions >= 75 THEN 'good' WHEN 100 * ma.attended / ma.sessions >= 50 THEN 'fair' ELSE 'low' END",
+                'sql' => "CASE WHEN COALESCE(ma.sessions, 0) = 0 THEN 'none' WHEN 100 * ma.attended / ma.sessions >= " . self::BAND_EXCELLENT . " THEN 'excellent' "
+                       . "WHEN 100 * ma.attended / ma.sessions >= " . self::BAND_GOOD . " THEN 'good' WHEN 100 * ma.attended / ma.sessions >= " . self::BAND_FAIR . " THEN 'fair' ELSE 'low' END",
                 'requires' => ['ma'],
                 'options' => ['excellent' => 'Excellent (≥90%)', 'good' => 'Good (75–89%)', 'fair' => 'Fair (50–74%)', 'low' => 'Low (<50%)', 'none' => 'No attendance marked'],
                 'view' => self::R_ALL, 'export' => self::R_ALL, 'sort' => false,
@@ -687,7 +699,7 @@ final class ReportRegistry
             ],
             'low_attendance' => [
                 'label_en' => 'Low attendance (<50%)', 'label_am' => 'ዝቅተኛ ክትትል (<50%)',
-                'sql' => 'SUM(ea.sessions > 0 AND 100 * ea.attended / ea.sessions < 50)', 'requires' => ['ea'],
+                'sql' => 'SUM(ea.sessions > 0 AND 100 * ea.attended / ea.sessions < ' . self::BAND_FAIR . ')', 'requires' => ['ea'],
                 'definition_en' => 'Members whose education attendance this academic year is below 50% (at least one marked session).',
             ],
             'with_family_link' => [

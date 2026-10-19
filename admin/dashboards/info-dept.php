@@ -156,6 +156,9 @@ require_once __DIR__ . '/../backend/services/MemberCategory.php';
 
 // Attendance alerting Phase 2: open warnings per department (server-side, cheap GROUP BY).
 require_once __DIR__ . '/../backend/services/AttendanceWarningService.php';
+require_once __DIR__ . '/../backend/services/AttendanceMonthRollupService.php';
+// Attendance alerting Phase 4: current EC month roll-up (Education + Mezmur) for the "Monthly Attendance" card.
+$attendanceMonthCard = \App\Services\AttendanceMonthRollupService::dashboardCard($conn, ['edu', 'mezmur']);
 $attendanceWarningsAvailable = false;
 $attendanceWarningCounts = ['edu' => ['total' => 0, 'critical' => 0], 'mezmur' => ['total' => 0, 'critical' => 0]];
 try {
@@ -755,6 +758,27 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                         <?php else: ?>
                         <div class="mt-2 text-2xl sm:text-3xl font-bold">—</div>
                         <div class="mt-1 text-[11px] sm:text-xs opacity-80">Not available yet (feature flag / sql/072)</div>
+                        <?php endif; ?>
+                    </a>
+                    <!-- Attendance alerting Phase 4: Monthly Attendance (current Ethiopian month; both departments, read-only). -->
+                    <a href="/admin/attendance_monthly.php" class="stat-card bg-gradient-to-tr from-teal-600 via-teal-500 to-emerald-400 p-3 sm:p-4 flex flex-col justify-between" id="am-dashboard-card" title="Monthly attendance report (Ethiopian months)" style="text-decoration:none;color:inherit">
+                        <div class="flex items-center justify-between">
+                            <div class="text-xs uppercase tracking-wide">Monthly Attendance · <?= htmlspecialchars($attendanceMonthCard['month_label_am'], ENT_QUOTES, 'UTF-8') ?></div>
+                            <div class="w-8 h-8 rounded-2xl bg-white/15 flex items-center justify-center">
+                                <i class="fa-solid fa-calendar-days text-sm"></i>
+                            </div>
+                        </div>
+                        <?php if ($attendanceMonthCard['available']): ?>
+                        <div class="mt-2 text-2xl sm:text-3xl font-bold" data-am-below><?= (int)$attendanceMonthCard['below'] ?></div>
+                        <div class="mt-1 text-[11px] sm:text-xs opacity-90 flex gap-3 flex-wrap">
+                            <span>below threshold</span>
+                            <span>Education <b><?= (int)($attendanceMonthCard['per_dept']['edu']['below'] ?? 0) ?></b></span>
+                            <span>Mezmur <b><?= (int)($attendanceMonthCard['per_dept']['mezmur']['below'] ?? 0) ?></b></span>
+                            <?php if ($attendanceMonthCard['avg_rate'] !== null): ?><span>avg <b><?= $attendanceMonthCard['avg_rate'] ?>%</b></span><?php endif; ?>
+                        </div>
+                        <?php else: ?>
+                        <div class="mt-2 text-2xl sm:text-3xl font-bold">—</div>
+                        <div class="mt-1 text-[11px] sm:text-xs opacity-80">Not available yet (feature flag / sql/074)</div>
                         <?php endif; ?>
                     </a>
                 </div>
@@ -1975,25 +1999,21 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                 <div id="attRisk" class="att-pane" style="display:none">
                     <div class="panel p-4 mb-4">
                         <div class="flex flex-col sm:flex-row sm:items-end gap-3 mb-3">
+                            <!-- Attendance alerting Phase 4: at-risk = below the department policy threshold in an Ethiopian month
+                                 (attendance_month_rollup — same numbers as the Monthly attendance report and the warnings engine). -->
                             <div>
-                                <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Period (Days)</label>
-                                <select id="attRiskDays" class="px-3 py-2 rounded-xl border border-slate-200 text-sm">
-                                    <option value="14">Last 14 days</option>
-                                    <option value="30" selected>Last 30 days</option>
-                                    <option value="60">Last 60 days</option>
-                                    <option value="90">Last 90 days</option>
+                                <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Department</label>
+                                <select id="attRiskDept" class="px-3 py-2 rounded-xl border border-slate-200 text-sm" onchange="loadAtRiskMonths().then(loadAtRisk)">
+                                    <option value="edu" selected>Education</option>
+                                    <option value="mezmur">Mezmur</option>
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Attendance Below</label>
-                                <select id="attRiskThresh" class="px-3 py-2 rounded-xl border border-slate-200 text-sm">
-                                    <option value="75">75%</option>
-                                    <option value="50" selected>50%</option>
-                                    <option value="25">25%</option>
-                                    <option value="1">Never attended</option>
-                                </select>
+                                <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Month (EC)</label>
+                                <select id="attRiskMonth" class="px-3 py-2 rounded-xl border border-slate-200 text-sm"><option value="">Current month</option></select>
                             </div>
                             <button onclick="loadAtRisk()" class="px-4 py-2 bg-red-500 text-white rounded-xl text-xs font-semibold hover:bg-red-600"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Find At-Risk</button>
+                            <a id="attRiskReportLink" href="/admin/attendance_monthly.php?below=1" class="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-200"><i class="fa-solid fa-calendar-days mr-1"></i>Full monthly report</a>
                         </div>
                         <div id="attRiskCount" class="text-xs text-slate-400 mb-2"></div>
                         <div id="attRiskList" style="max-height:450px;overflow:auto"></div>
@@ -3950,6 +3970,7 @@ function showAttTab(btn, id) {
     document.getElementById(id).style.display = 'block';
     btn.classList.add('atab-on');
     if (id === 'attOverview') loadAttOverview();
+    if (id === 'attRisk') { loadAtRiskMonths().then(loadAtRisk); }
     if (id === 'attDaily' && !document.getElementById('attDailyDate').value) {
         document.getElementById('attDailyDate').value = new Date().toISOString().split('T')[0];
     }
@@ -4092,16 +4113,40 @@ function viewMemberAtt(memberId) {
 }
 
 // --- At-Risk ---
+// Attendance alerting Phase 4: reads attendance_month_rollup through api_attendance_info.php
+// (department + Ethiopian month; threshold / min sessions come from the attendance policy).
+function loadAtRiskMonths() {
+    const dept = (document.getElementById('attRiskDept') || {}).value || 'edu';
+    const sel = document.getElementById('attRiskMonth');
+    if (!sel) return Promise.resolve();
+    return fetch('/admin/api_attendance_monthly.php?action=months&department=' + encodeURIComponent(dept), {credentials:'same-origin', headers:{'Accept':'application/json'}})
+        .then(r => r.json()).then(d => {
+            const cur = sel.value;
+            const months = (d && d.status === 'success' && d.available && Array.isArray(d.months)) ? d.months : [];
+            sel.innerHTML = months.length === 0 ? '<option value="">Current month</option>' :
+                months.map(m => '<option value="' + m.ec_year + '-' + m.ec_month + '">' + escapeHtml(m.label) + ' · ' + escapeHtml(m.label_am) + (m.is_current ? ' (current)' : '') + '</option>').join('');
+            if (cur && Array.from(sel.options).some(o => o.value === cur)) sel.value = cur;
+        }).catch(() => {});
+}
 function loadAtRisk() {
-    const days = document.getElementById('attRiskDays').value;
-    const thresh = document.getElementById('attRiskThresh').value;
-    fetch(_aa + 'at_risk_members&days='+days+'&threshold='+thresh, {credentials:'same-origin'}).then(r => r.json()).then(d => {
+    const dept = (document.getElementById('attRiskDept') || {}).value || 'edu';
+    const mv = ((document.getElementById('attRiskMonth') || {}).value || '').split('-');
+    const q = 'at_risk_members&department=' + encodeURIComponent(dept) + (mv.length === 2 ? '&ec_year=' + mv[0] + '&ec_month=' + mv[1] : '');
+    fetch(_aa + q, {credentials:'same-origin'}).then(r => r.json()).then(d => {
         if (d.status !== 'success') return;
-        const ms = d.members;
-        document.getElementById('attRiskCount').innerHTML = '<span class="font-semibold text-red-600">'+ms.length+'</span> members below '+thresh+'% attendance in last '+days+' days';
-        document.getElementById('attRiskList').innerHTML = ms.length === 0 ? '<div class="text-center py-8 text-emerald-500 text-xs"><i class="fa-solid fa-check-circle text-2xl mb-2"></i><p>All members have good attendance!</p></div>' :
-            '<table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-2 py-1.5 text-left">Name</th><th class="px-2 py-1.5">Code</th><th class="px-2 py-1.5">Present</th><th class="px-2 py-1.5">Absent</th><th class="px-2 py-1.5">Rate</th><th class="px-2 py-1.5">Status</th><th class="px-2 py-1.5">Action</th></tr></thead><tbody>' +
-            ms.map(m => '<tr class="border-t border-slate-100 hover:bg-red-50"><td class="px-2 py-1.5 font-medium">'+escapeHtml(m.student_name+' '+m.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(m.member_code||'—')+'</code></td><td class="px-2 py-1.5 text-center text-emerald-600">'+(m.present_days||0)+'</td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+(m.absent_days||0)+'</td><td class="px-2 py-1.5 text-center" style="color:'+(m.rate<50?'#dc2626':'#d97706')+'">'+(m.rate||0)+'%</td><td class="px-2 py-1.5 text-center">'+statusBadge(m.status)+'</td><td class="px-2 py-1.5 text-center"><button onclick="quickStatusChange('+m.id+',\''+escapeHtml(m.student_name)+'\',\''+m.status+'\')" class="text-[10px] px-2 py-1 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"><i class="fa-solid fa-pen"></i></button></td></tr>').join('') +
+        const link = document.getElementById('attRiskReportLink');
+        if (link && d.report_url) link.href = d.report_url;
+        const countEl = document.getElementById('attRiskCount'), listEl = document.getElementById('attRiskList');
+        if (!d.available) {
+            countEl.innerHTML = 'Monthly attendance is not available yet (feature flag / sql/074).';
+            listEl.innerHTML = '';
+            return;
+        }
+        const ms = d.members || [];
+        countEl.innerHTML = '<span class="font-semibold text-red-600">' + ms.length + '</span> ' + escapeHtml(d.department_label) + ' members below ' + d.threshold + '% in ' + escapeHtml(d.month_label_am) + ' (' + escapeHtml(d.month_label) + ') · at least ' + d.min_sessions + ' sessions · rate = (present + excused + 0.5 × late) ÷ sessions';
+        listEl.innerHTML = ms.length === 0 ? '<div class="text-center py-8 text-emerald-500 text-xs"><i class="fa-solid fa-check-circle text-2xl mb-2"></i><p>No member is below the threshold this month.</p></div>' :
+            '<table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-2 py-1.5 text-left">Name</th><th class="px-2 py-1.5">Code</th><th class="px-2 py-1.5">' + (dept === 'edu' ? 'Class' : 'Section') + '</th><th class="px-2 py-1.5">Sessions</th><th class="px-2 py-1.5">Present</th><th class="px-2 py-1.5">Absent</th><th class="px-2 py-1.5">Rate</th><th class="px-2 py-1.5">Warnings</th><th class="px-2 py-1.5">Status</th><th class="px-2 py-1.5">Action</th></tr></thead><tbody>' +
+            ms.map(m => '<tr class="border-t border-slate-100 hover:bg-red-50"><td class="px-2 py-1.5 font-medium">'+escapeHtml(m.student_name+' '+m.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(m.member_code||'—')+'</code></td><td class="px-2 py-1.5 text-center">'+escapeHtml(m.group||'—')+'</td><td class="px-2 py-1.5 text-center">'+(m.sessions||0)+'</td><td class="px-2 py-1.5 text-center text-emerald-600">'+(m.present_days||0)+'</td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+(m.absent_days||0)+'</td><td class="px-2 py-1.5 text-center" style="color:'+(m.band==='low'?'#dc2626':'#d97706')+'">'+(m.rate==null?'—':m.rate+'%')+'</td><td class="px-2 py-1.5 text-center">'+(m.open_warnings>0?'<a class="text-orange-600 hover:underline" href="/admin/attendance_warnings.php?department='+dept+'&member_id='+m.id+'">'+m.open_warnings+' open</a>':'—')+'</td><td class="px-2 py-1.5 text-center">'+statusBadge(m.status)+(m.department_status==='inactive'?' <span class="text-[10px] text-slate-400">(inactive in dept.)</span>':'')+'</td><td class="px-2 py-1.5 text-center"><button onclick="quickStatusChange('+m.id+',\''+escapeHtml(m.student_name)+'\',\''+m.status+'\')" class="text-[10px] px-2 py-1 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"><i class="fa-solid fa-pen"></i></button></td></tr>').join('') +
             '</tbody></table>';
     });
 }

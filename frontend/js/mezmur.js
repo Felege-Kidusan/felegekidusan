@@ -880,6 +880,20 @@
                 }).catch(function () {});
         } catch (e) { /* card is informational only */ }
 
+        // Attendance alerting Phase 4: current EC month roll-up (Mezmur only, server-scoped). Labels arrive in the Ethiopian calendar.
+        try {
+            fetch('/admin/api_attendance_monthly.php?action=summary&department=mezmur', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+                .then(function (r) { return r.json(); })
+                .then(function (w) {
+                    var el = $('mzOvMonthly'), sub = $('mzOvMonthlySub');
+                    if (!el) return;
+                    if (w.status !== 'success' || !w.available || !w.summary) { el.textContent = '—'; if (sub) sub.textContent = 'Not available yet'; return; }
+                    var s = w.summary;
+                    el.textContent = s.below;
+                    if (sub) sub.textContent = s.month_label_am + ' · ' + s.members + ' members' + (s.avg_rate != null ? ' · avg ' + s.avg_rate + '%' : '');
+                }).catch(function () {});
+        } catch (e) { /* card is informational only */ }
+
         apiGet('action=overview').then(function (d) {
             if (d.status !== 'success') {
                 var msg = d.message || 'Unable to load the overview.';

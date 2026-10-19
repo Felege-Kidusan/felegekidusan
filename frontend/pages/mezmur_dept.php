@@ -166,6 +166,13 @@ ob_start();
                         <div class="school-stat-label">Open Attendance Warnings</div>
                         <div class="stat-delta flat" id="mzOvWarningsSub"></div>
                     </a>
+                    <!-- Attendance alerting Phase 4: Monthly Attendance (current Ethiopian month, Mezmur only, server-scoped) -->
+                    <a class="school-stat-card" id="am-dashboard-card" href="/admin/attendance_monthly.php?department=mezmur" title="Monthly attendance report (Ethiopian months)">
+                        <div class="school-stat-icon si-primary"><i class="fa-solid fa-calendar-days"></i></div>
+                        <div class="school-stat-value" id="mzOvMonthly" data-am-below>—</div>
+                        <div class="school-stat-label">Monthly Attendance · below threshold</div>
+                        <div class="stat-delta flat" id="mzOvMonthlySub"></div>
+                    </a>
                 </div>
 
                 <!-- Recent activity -->

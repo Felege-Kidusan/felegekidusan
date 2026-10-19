@@ -9,6 +9,14 @@ require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
 require_once __DIR__ . '/../backend/services/MemberCategory.php';
 require_once __DIR__ . '/../backend/services/AttendanceWarningService.php';
+require_once __DIR__ . '/../backend/services/AttendanceMonthRollupService.php';
+require_once __DIR__ . '/../backend/services/ReportCardService.php';
+// Attendance alerting Phase 4: the analytics "attendance alert" threshold comes from the Education policy.
+$eduAttRiskThreshold = \App\Services\ReportCardService::attendanceRiskThreshold($conn);
+$eduAttRiskLabel = rtrim(rtrim(number_format($eduAttRiskThreshold, 2, '.', ''), '0'), '.');
+$eduAttRiskMax = max(0, round($eduAttRiskThreshold - 0.1, 1));
+// Attendance alerting Phase 4: current EC month roll-up for the "Monthly Attendance" card (Education only).
+$attendanceMonthCard = \App\Services\AttendanceMonthRollupService::dashboardCard($conn, ['edu']);
 // Attendance alerting Phase 2: open Education warnings for the dashboard card.
 $attendanceWarningsAvailable = false;
 $attendanceWarningCounts = ['edu' => ['total' => 0, 'critical' => 0], 'mezmur' => ['total' => 0, 'critical' => 0]];
@@ -553,6 +561,8 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div class="sc" style="background:linear-gradient(135deg,#ec4899,#d946ef)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700"><?= $totalEnrolled ?></div><div style="font-size:.75rem;opacity:.8">Enrolled</div></div><i class="fa-solid fa-user-graduate" style="font-size:1.5rem;opacity:.3"></i></div></div>
 <?php // Attendance alerting Phase 2: Open Attendance Warnings (Education only — server-scoped) ?>
 <a class="sc" id="aw-dashboard-card" href="/admin/attendance_warnings.php?department=edu" style="background:linear-gradient(135deg,#dc2626,#f97316);text-decoration:none;color:inherit" title="Open attendance warnings"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700" data-aw-total><?= $attendanceWarningsAvailable ? (int)$attendanceWarningCounts['edu']['total'] : '—' ?></div><div style="font-size:.75rem;opacity:.8">Open Attendance Warnings<?= $attendanceWarningsAvailable && (int)$attendanceWarningCounts['edu']['critical'] > 0 ? ' · ' . (int)$attendanceWarningCounts['edu']['critical'] . ' critical' : '' ?></div></div><i class="fa-solid fa-triangle-exclamation" style="font-size:1.5rem;opacity:.3"></i></div></a>
+<?php // Attendance alerting Phase 4: Monthly Attendance (current EC month, Education only — server-scoped) ?>
+<a class="sc" id="am-dashboard-card" href="/admin/attendance_monthly.php?department=edu" style="background:linear-gradient(135deg,#0f766e,#14b8a6);text-decoration:none;color:inherit" title="Monthly attendance report (Ethiopian months)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700" data-am-below><?= $attendanceMonthCard['available'] ? (int)$attendanceMonthCard['below'] : '—' ?></div><div style="font-size:.75rem;opacity:.8">Monthly Attendance · <?= e($attendanceMonthCard['month_label_am']) ?> · below threshold<?= $attendanceMonthCard['available'] && $attendanceMonthCard['avg_rate'] !== null ? ' · avg ' . $attendanceMonthCard['avg_rate'] . '%' : '' ?></div></div><i class="fa-solid fa-calendar-days" style="font-size:1.5rem;opacity:.3"></i></div></a>
 </div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
 <div class="crd" style="padding:1.25rem"><h3 style="font-size:.9rem;font-weight:600;margin-bottom:.75rem"><i class="fa-solid fa-bolt" style="color:#7c3aed"></i> Quick Actions</h3>
@@ -996,9 +1006,9 @@ Classes with low curriculum recorded percentages indicate pending exam score sub
 <span style="font-size:.75rem;font-weight:700;color:#64748b;margin-right:.25rem"><i class="fa-solid fa-bolt" style="color:#f59e0b"></i> Quick Presets:</span>
 <button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(89,100,50,100,'all')">🌟 Score ≥89% &amp; Att ≥50%</button>
 <button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(85,100,80,100,'all')">🏆 Top Achievers (≥85% &amp; Att ≥80%)</button>
-<button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(80,100,0,59.9,'all')">📈 High Grade / Low Att (&lt;60%)</button>
+<button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(80,100,0,<?= $eduAttRiskMax ?>,'all')">📈 High Grade / Low Att (&lt;<?= $eduAttRiskLabel ?>%)</button>
 <button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(0,49.9,0,100,'all')">⚠️ Academic Support (&lt;50%)</button>
-<button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(0,100,0,59.9,'all')">⏰ Attendance Alert (&lt;60%)</button>
+<button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(0,100,0,<?= $eduAttRiskMax ?>,'all')">⏰ Attendance Alert (&lt;<?= $eduAttRiskLabel ?>%)</button>
 <button type="button" class="btn btn-o btn-xs" onclick="resetPerformanceFilter()">🔄 All Students (Reset)</button>
 </div>
 
@@ -1091,7 +1101,7 @@ Classes with low curriculum recorded percentages indicate pending exam score sub
 <div class="crd" style="padding:.75rem;border-left:4px solid #dc2626">
 <div style="font-size:.7rem;color:#64748b;font-weight:600">Attendance Alert</div>
 <div id="pfStatAttAlert" style="font-size:1.4rem;font-weight:700;color:#dc2626">0</div>
-<div style="font-size:.65rem;color:#64748b">&lt;60% attendance</div>
+<div style="font-size:.65rem;color:#64748b">&lt;<?= $eduAttRiskLabel ?>% attendance</div>
 </div>
 </div>
 </div>

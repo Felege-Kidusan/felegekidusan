@@ -217,6 +217,9 @@ require_once __DIR__ . '/../backend/services/MemberCategory.php';
 
 // Attendance alerting Phase 2: open warnings per department (server-side, cheap GROUP BY).
 require_once __DIR__ . '/../backend/services/AttendanceWarningService.php';
+require_once __DIR__ . '/../backend/services/AttendanceMonthRollupService.php';
+// Attendance alerting Phase 4: current EC month roll-up (Education + Mezmur) for the "Monthly Attendance" card.
+$attendanceMonthCard = \App\Services\AttendanceMonthRollupService::dashboardCard($conn, ['edu', 'mezmur']);
 $attendanceWarningsAvailable = false;
 $attendanceWarningCounts = ['edu' => ['total' => 0, 'critical' => 0], 'mezmur' => ['total' => 0, 'critical' => 0]];
 try {
@@ -981,6 +984,27 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                         <?php else: ?>
                         <div class="mt-2 text-2xl sm:text-3xl font-bold">—</div>
                         <div class="mt-1 text-[11px] sm:text-xs opacity-80">Not available yet (feature flag / sql/072)</div>
+                        <?php endif; ?>
+                    </a>
+                    <!-- Attendance alerting Phase 4: Monthly Attendance (current Ethiopian month; both departments, read-only). -->
+                    <a href="/admin/attendance_monthly.php" class="stat-card bg-gradient-to-tr from-teal-600 via-teal-500 to-emerald-400 p-3 sm:p-4 flex flex-col justify-between" id="am-dashboard-card" title="Monthly attendance report (Ethiopian months)" style="text-decoration:none;color:inherit">
+                        <div class="flex items-center justify-between">
+                            <div class="text-xs uppercase tracking-wide">Monthly Attendance · <?= htmlspecialchars($attendanceMonthCard['month_label_am'], ENT_QUOTES, 'UTF-8') ?></div>
+                            <div class="w-8 h-8 rounded-2xl bg-white/15 flex items-center justify-center">
+                                <i class="fa-solid fa-calendar-days text-sm"></i>
+                            </div>
+                        </div>
+                        <?php if ($attendanceMonthCard['available']): ?>
+                        <div class="mt-2 text-2xl sm:text-3xl font-bold" data-am-below><?= (int)$attendanceMonthCard['below'] ?></div>
+                        <div class="mt-1 text-[11px] sm:text-xs opacity-90 flex gap-3 flex-wrap">
+                            <span>below threshold</span>
+                            <span>Education <b><?= (int)($attendanceMonthCard['per_dept']['edu']['below'] ?? 0) ?></b></span>
+                            <span>Mezmur <b><?= (int)($attendanceMonthCard['per_dept']['mezmur']['below'] ?? 0) ?></b></span>
+                            <?php if ($attendanceMonthCard['avg_rate'] !== null): ?><span>avg <b><?= $attendanceMonthCard['avg_rate'] ?>%</b></span><?php endif; ?>
+                        </div>
+                        <?php else: ?>
+                        <div class="mt-2 text-2xl sm:text-3xl font-bold">—</div>
+                        <div class="mt-1 text-[11px] sm:text-xs opacity-80">Not available yet (feature flag / sql/074)</div>
                         <?php endif; ?>
                     </a>
                 </div>

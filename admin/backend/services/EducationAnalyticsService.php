@@ -30,7 +30,8 @@ class EducationAnalyticsService
     public const MASTERY_SCORE = 85.0;
     public const MASTERY_ATT = 80.0;
     public const AT_RISK_SCORE = 50.0;
-    public const AT_RISK_ATT = 60.0;
+    /** Legacy fallback only — the live threshold is ReportCardService::attendanceRiskThreshold() (policy low_rate_threshold). */
+    public const AT_RISK_ATT = ReportCardService::LEGACY_AT_RISK_ATT;
 
     /**
      * Build the complete unified analytics hub payload for the Education Department.
@@ -61,6 +62,7 @@ class EducationAnalyticsService
             'high_achievers' => 0,
             'at_risk_grade' => 0,
             'at_risk_att' => 0,
+            'attendance_threshold' => self::AT_RISK_ATT,
             'grade_distribution' => ['A' => 0, 'B' => 0, 'C' => 0, 'D' => 0, 'F' => 0],
             'grade_bins' => ['<50' => 0, '50-59' => 0, '60-69' => 0, '70-79' => 0, '80-89' => 0, '90-100' => 0],
             'att_bins' => ['<50' => 0, '50-59' => 0, '60-69' => 0, '70-79' => 0, '80-89' => 0, '90-100' => 0],
@@ -113,7 +115,7 @@ class EducationAnalyticsService
 
         // 4. Build Triage Action Roster
         try {
-            $triageRoster = self::buildTriageRoster($students);
+            $triageRoster = self::buildTriageRoster($students, (float)($macroStats['attendance_threshold'] ?? self::AT_RISK_ATT));
         } catch (\Throwable $e) {
             error_log('EducationAnalyticsService::buildTriageRoster error: ' . $e->getMessage());
         }
@@ -481,8 +483,12 @@ class EducationAnalyticsService
      * @param list<array<string,mixed>> $students
      * @return list<array<string,mixed>>
      */
-    public static function buildTriageRoster(array $students): array
+    public static function buildTriageRoster(array $students, ?float $attThreshold = null): array
     {
+        // Attendance alerting Phase 4: threshold comes from the Education attendance policy
+        // (ReportCardService::attendanceRiskThreshold) — never a literal here.
+        $attRisk = $attThreshold !== null && $attThreshold > 0 ? $attThreshold : self::AT_RISK_ATT;
+        $attLabel = rtrim(rtrim(number_format($attRisk, 2, '.', ''), '0'), '.') . '%';
         $roster = [];
         foreach ($students as $s) {
             $g = $s['overall_average'] !== null ? (float)$s['overall_average'] : null;
@@ -492,14 +498,14 @@ class EducationAnalyticsService
             $reasons = [];
             $severity = 'low';
 
-            if ($g !== null && $g < self::AT_RISK_SCORE && $tDays > 0 && $att < self::AT_RISK_ATT) {
-                $reasons[] = '🚨 Dual Critical: Score < 50% & Attendance < 60%';
+            if ($g !== null && $g < self::AT_RISK_SCORE && $tDays > 0 && $att < $attRisk) {
+                $reasons[] = '🚨 Dual Critical: Score < 50% & Attendance < ' . $attLabel;
                 $severity = 'critical';
             } elseif ($g !== null && $g < self::AT_RISK_SCORE) {
                 $reasons[] = '⚠️ Academic Risk: Score < 50%';
                 $severity = 'high';
-            } elseif ($tDays > 0 && $att < self::AT_RISK_ATT) {
-                $reasons[] = '⏰ Attendance Intervention: Attendance < 60%';
+            } elseif ($tDays > 0 && $att < $attRisk) {
+                $reasons[] = '⏰ Attendance Intervention: Attendance < ' . $attLabel;
                 $severity = 'medium';
             }
 

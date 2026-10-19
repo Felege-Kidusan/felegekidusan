@@ -39,6 +39,7 @@ require_once __DIR__ . '/SecurityAuditService.php';
 require_once __DIR__ . '/DepartmentStatusService.php';
 require_once __DIR__ . '/AttendancePolicyService.php';
 require_once __DIR__ . '/AttendanceRiskService.php';
+require_once __DIR__ . '/AttendanceMonthRollupService.php';
 
 final class AttendanceWarningService
 {
@@ -184,6 +185,9 @@ final class AttendanceWarningService
             $out['evaluated']++;
             $out['actions'] += count(array_filter($r['actions'], static fn($a) => $a !== 'error'));
         }
+        // Phase 4: keep the monthly roll-up (shared "Monthly attendance" report)
+        // in step with the sheet that was just written / reviewed.
+        AttendanceMonthRollupService::safeRefreshForDate($conn, $dept, $ids, $date);
         return $out;
     }
 

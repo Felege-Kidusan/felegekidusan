@@ -303,22 +303,62 @@ case 'bulk_status':
 // ============================================================
 case 'at_risk_members':
 // ============================================================
-    // Members with warning or low attendance
-    $days = (int)($_GET['days'] ?? 30);
-    $threshold = (int)($_GET['threshold'] ?? 50); // attendance rate below this %
-    $dateFrom = date('Y-m-d', strtotime("-$days days"));
-
-    $r = $conn->query("SELECT m.id, m.member_code, m.student_name, m.father_name, m.gender, m.age_group, m.status, m.phone_number,
-        COUNT(a.id) as total_days, COALESCE(SUM(a.status='present'),0) as present_days, COALESCE(SUM(a.status='absent'),0) as absent_days,
-        ROUND(COALESCE(SUM(a.status='present'),0) / GREATEST(COUNT(a.id),1) * 100, 1) as rate
-        FROM members m LEFT JOIN attendance a ON m.id = a.member_id AND a.attendance_date >= '$dateFrom'
-        WHERE m.status IN ('active','warning')
-        GROUP BY m.id
-        HAVING rate < $threshold OR total_days = 0
-        ORDER BY rate ASC, absent_days DESC LIMIT 100");
-    $members = [];
-    if ($r) while ($row = $r->fetch_assoc()) $members[] = $row;
-    echo json_encode(['status'=>'success', 'members'=>$members, 'period_days'=>$days, 'threshold'=>$threshold]);
+    // Attendance alerting Phase 4: the SAME source as the Monthly attendance
+    // report / warnings engine — attendance_month_rollup (shared formula
+    // present + excused + 0.5·late, policy low_rate_threshold + min_sessions,
+    // Ethiopian month, per department). No local rate/threshold maths here.
+    require_once __DIR__ . '/backend/services/AttendanceMonthRollupService.php';
+    $riskDept = (string)($_GET['department'] ?? 'edu');
+    if (!in_array($riskDept, \App\Services\AttendanceRiskService::DEPARTMENTS, true)) {
+        $riskDept = 'edu';
+    }
+    $nowEc = \App\Services\AttendanceRiskService::ecOf(date('Y-m-d'));
+    $riskYear = isset($_GET['ec_year']) && $_GET['ec_year'] !== '' ? (int)$_GET['ec_year'] : (int)$nowEc['year'];
+    $riskMonth = isset($_GET['ec_month']) && $_GET['ec_month'] !== '' ? (int)$_GET['ec_month'] : (int)$nowEc['month'];
+    if ($riskYear < 1990 || $riskYear > (int)$nowEc['year'] + 1 || $riskMonth < 1 || $riskMonth > 13) {
+        $riskYear = (int)$nowEc['year'];
+        $riskMonth = (int)$nowEc['month'];
+    }
+    $riskOut = [
+        'status' => 'success',
+        'available' => \App\Services\AttendanceMonthRollupService::available($conn),
+        'department' => $riskDept,
+        'department_label' => \App\Services\AttendanceRiskService::LABELS[$riskDept],
+        'ec_year' => $riskYear, 'ec_month' => $riskMonth,
+        'month_label' => ethio_month_name($riskMonth) . ' ' . $riskYear,
+        'month_label_am' => \App\Services\AttendanceRiskService::monthLabelAm($riskYear, $riskMonth),
+        'report_url' => '/admin/attendance_monthly.php?department=' . $riskDept . '&ec_year=' . $riskYear . '&ec_month=' . $riskMonth . '&below=1',
+        'members' => [], 'threshold' => null, 'min_sessions' => null, 'total' => 0,
+    ];
+    if ($riskOut['available']) {
+        \App\Services\AttendanceMonthRollupService::ensureFresh($conn, $riskDept, $riskYear, $riskMonth);
+        $riskSummary = \App\Services\AttendanceMonthRollupService::summary($conn, $riskDept, $riskYear, $riskMonth);
+        $riskPage = \App\Services\AttendanceMonthRollupService::listMonth($conn, $riskDept, $riskYear, $riskMonth, ['below' => true, 'limit' => 500]);
+        $riskOut['threshold'] = $riskSummary['threshold'];
+        $riskOut['min_sessions'] = $riskSummary['min_sessions'];
+        $riskOut['total'] = $riskPage['total'];
+        foreach ($riskPage['items'] as $it) {
+            $riskOut['members'][] = [
+                'id' => $it['member_id'],
+                'student_name' => $it['student_name'],
+                'father_name' => $it['father_name'],
+                'member_code' => $it['member_code'],
+                'gender' => $it['gender'],
+                'group' => $it['group'],
+                'status' => $it['member_status'],
+                'department_status' => $it['department_status'],
+                'sessions' => $it['sessions'],
+                'present_days' => $it['present'],
+                'absent_days' => $it['absent'],
+                'late' => $it['late'],
+                'excused' => $it['excused'],
+                'rate' => $it['rate'],
+                'band' => $it['band'],
+                'open_warnings' => $it['open_warnings'],
+            ];
+        }
+    }
+    echo json_encode($riskOut, JSON_UNESCAPED_UNICODE);
     break;
 
 // ============================================================

@@ -13,6 +13,8 @@ namespace App\Services;
 require_once __DIR__ . '/EnrollmentService.php';
 require_once __DIR__ . '/../ethiopian_date.php';
 require_once __DIR__ . '/SubjectDurationPolicy.php';
+require_once __DIR__ . '/FeatureGate.php';
+require_once __DIR__ . '/AttendancePolicyService.php';
 
 class ReportCardService
 {
@@ -1628,6 +1630,31 @@ class ReportCardService
      * @param array<string,mixed> $filters
      * @return array<string,mixed>
      */
+    /** Legacy Education analytics attendance-alert threshold (used only while attendance_v2 is off). */
+    public const LEGACY_AT_RISK_ATT = 60.0;
+
+    /**
+     * Attendance alerting Phase 4 — ONE at-risk attendance threshold for the
+     * Education analytics (hub KPIs, triage tiers, triage roster): the
+     * Education `attendance_policies.low_rate_threshold` once attendance_v2 is
+     * on; the historical 60 % until then (no behaviour change before rollout).
+     */
+    public static function attendanceRiskThreshold(\mysqli $conn): float
+    {
+        try {
+            if (FeatureGate::isEnabled('attendance_v2')) {
+                $policy = AttendancePolicyService::for($conn, 'edu');
+                $t = (float)($policy['low_rate_threshold'] ?? 0);
+                if ($t > 0) {
+                    return $t;
+                }
+            }
+        } catch (\Throwable $e) {
+            // fall through to the legacy value
+        }
+        return self::LEGACY_AT_RISK_ATT;
+    }
+
     public static function filterStudentsPerformance(\mysqli $conn, array $filters = []): array
     {
         $classFilter = $filters['class_id'] ?? 'all';
@@ -1689,6 +1716,7 @@ class ReportCardService
         $highAchievers = 0;
         $atRiskGrade = 0;
         $atRiskAtt = 0;
+        $attRisk = self::attendanceRiskThreshold($conn);
 
         foreach ($classesToQuery as $cls) {
             $cid = (int)$cls['id'];
@@ -1762,7 +1790,7 @@ class ReportCardService
                 }
                 if ($stTotDays > 0) {
                     $attRates[] = $stAtt;
-                    if ($stAtt < 60.0) {
+                    if ($stAtt < $attRisk) {
                         $atRiskAtt++;
                     }
                 }
@@ -1900,9 +1928,9 @@ class ReportCardService
         $triage = [
             'mastery' => 0,          // Score >= 85 & Att >= 80
             'proficient' => 0,       // Score 70-84.9 & Att >= 70
-            'academic_risk' => 0,    // Score < 50 & Att >= 60
-            'attendance_risk' => 0,  // Att < 60 & Score >= 50
-            'dual_critical' => 0,    // Score < 50 & Att < 60
+            'academic_risk' => 0,    // Score < 50 & Att >= threshold
+            'attendance_risk' => 0,  // Att < threshold & Score >= 50
+            'dual_critical' => 0,    // Score < 50 & Att < threshold   (threshold = attendanceRiskThreshold())
             'untracked' => 0,        // total_days === 0
             'steady' => 0,           // other passing students
         ];
@@ -1925,11 +1953,11 @@ class ReportCardService
             $g = (float)$stAvg;
             if ($g >= 85.0 && $stAtt >= 80.0) {
                 $triage['mastery']++;
-            } elseif ($g < 50.0 && $stAtt < 60.0) {
+            } elseif ($g < 50.0 && $stAtt < $attRisk) {
                 $triage['dual_critical']++;
-            } elseif ($g < 50.0 && $stAtt >= 60.0) {
+            } elseif ($g < 50.0 && $stAtt >= $attRisk) {
                 $triage['academic_risk']++;
-            } elseif ($stAtt < 60.0 && $g >= 50.0) {
+            } elseif ($stAtt < $attRisk && $g >= 50.0) {
                 $triage['attendance_risk']++;
             } elseif ($g >= 70.0 && $stAtt >= 70.0) {
                 $triage['proficient']++;
@@ -1978,6 +2006,7 @@ class ReportCardService
                 'high_achievers' => $highAchievers,
                 'at_risk_grade' => $atRiskGrade,
                 'at_risk_att' => $atRiskAtt,
+                'attendance_threshold' => $attRisk,
                 'grade_distribution' => $gradeDist,
                 'grade_bins' => $gradeBins,
                 'att_bins' => $attBins,
