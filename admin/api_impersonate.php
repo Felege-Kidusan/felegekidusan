@@ -35,6 +35,26 @@ if ($action !== 'status' && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// Audit 2026-10-20: every role switch / restore is written to activity_logs
+// (who, from which role, to which role) — the switch grants department
+// powers without a password, so it must be traceable.
+$impersonationAudit = static function (string $what, string $from, string $to) use ($conn): void {
+    try {
+        $stmt = $conn->prepare('INSERT INTO activity_logs (user_id, username, action, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
+        if ($stmt) {
+            $uid = (int)($_SESSION['admin_id'] ?? 0);
+            $usr = (string)($_SESSION['admin_username'] ?? '');
+            $details = $from . ' -> ' . $to;
+            $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+            $stmt->bind_param('issss', $uid, $usr, $what, $details, $ip);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {
+        // auditing never blocks the action, but it is attempted every time
+    }
+};
+
 switch ($action) {
     case 'switch':
         $targetRole = $_POST['role'] ?? '';
@@ -52,7 +72,9 @@ switch ($action) {
         }
         
         // Switch role
+        $fromRole = (string)($_SESSION['admin_role'] ?? '');
         $_SESSION['admin_role'] = $targetRole;
+        $impersonationAudit('Role Switched', $fromRole, $targetRole);
         
         echo json_encode([
             'status' => 'success',
@@ -64,6 +86,7 @@ switch ($action) {
 
     case 'restore':
         if (!empty($_SESSION['original_admin_role'])) {
+            $impersonationAudit('Role Restored', (string)($_SESSION['admin_role'] ?? ''), (string)$_SESSION['original_admin_role']);
             $_SESSION['admin_role'] = $_SESSION['original_admin_role'];
             if (!empty($_SESSION['original_admin_full_name'])) {
                 $_SESSION['admin_full_name'] = $_SESSION['original_admin_full_name'];

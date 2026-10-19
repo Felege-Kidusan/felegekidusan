@@ -35,6 +35,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $action = $_REQUEST['action'] ?? '';
 $userId = $_SESSION['admin_id'];
+$role = (string)($_SESSION['admin_role'] ?? '');
+
+// Audit 2026-10-20: a teacher may only read/write the classes they are
+// assigned to (the dashboard already lists only those; the API must agree).
+// Takers, Education and admins keep the whole school.
+$requireClassScope = static function (int $classId) use ($conn, $role, $userId): void {
+    if ($role !== 'teacher' || $classId <= 0) {
+        return;
+    }
+    $stmt = $conn->prepare('SELECT 1 FROM teacher_assignments WHERE teacher_id = ? AND class_id = ? AND (is_active = 1 OR status = \'active\') LIMIT 1');
+    if (!$stmt) {
+        return;
+    }
+    $stmt->bind_param('ii', $userId, $classId);
+    $stmt->execute();
+    $allowed = (bool)$stmt->get_result()->fetch_row();
+    $stmt->close();
+    if (!$allowed) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'You are not assigned to this class.']);
+        exit;
+    }
+};
+// Attendance is a record of what happened — never of what has not happened yet.
+$refuseFutureDate = static function (string $date): void {
+    if ($date > date('Y-m-d')) {
+        http_response_code(422);
+        echo json_encode(['status' => 'error', 'message' => 'Attendance cannot be recorded for a future date.']);
+        exit;
+    }
+};
+$scopedClassId = (int)($_REQUEST['class_id'] ?? 0);
+if ($scopedClassId > 0) {
+    $requireClassScope($scopedClassId);
+}
 
 // Effective academic year — single source of truth (resolver, time-travel aware)
 $currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
@@ -142,6 +177,7 @@ switch ($action) {
         }
         
         $academicYearId = $currentYear ? (int)$currentYear['id'] : null;
+        $refuseFutureDate($date);
         // Phase 6: a day with lesson sheets is derived → class/day sheet read-only.
         if (\App\Services\LessonAttendanceService::dayHasLessons($conn, $classId, $date)) {
             http_response_code(409);
@@ -266,6 +302,7 @@ switch ($action) {
         $memberId = $memberResult['id'];
         $memberName = $memberResult['student_name'] . ' ' . $memberResult['father_name'];
         $academicYearId = $currentYear ? $currentYear['id'] : null;
+        $refuseFutureDate($date);
         if (\App\Services\LessonAttendanceService::dayHasLessons($conn, $classId, $date)) {
             http_response_code(409);
             echo json_encode(['status' => 'error', 'code' => 'LESSON_DAY', 'message' => \App\Services\LessonAttendanceService::DAY_LOCKED_MESSAGE]);
@@ -387,7 +424,8 @@ switch ($action) {
     case 'export_history':
         $classId = (int)($_GET['class_id'] ?? 0);
         if (!$classId) {
-            die("Class ID required.");
+            echo json_encode(['status' => 'error', 'message' => 'Class ID required']);
+            exit;
         }
         
         // Fetch class info
@@ -493,8 +531,11 @@ switch ($action) {
     default:
         echo json_encode(['status' => 'error', 'message' => 'Unknown action']);
 }
-} catch (Exception $e) {
+} catch (Throwable $e) {
     error_log("api_attendance error: " . $e->getMessage());
+    if (!headers_sent()) {
+        http_response_code(500);
+    }
     echo json_encode(['status' => 'error', 'message' => 'Server error. Please try again.']);
 }
 

@@ -80,96 +80,129 @@ switch ($action) {
         if ($userRole !== 'teacher' && !in_array($userRole, ['edu_dept','school_admin','super_admin'])) {
             echo json_encode(['status' => 'error', 'message' => 'Access denied']); exit;
         }
-        
-        $classId = (int)($_POST['class_id'] ?? 0);
-        $subjectId = (int)($_POST['subject_id'] ?? 0);
+
         $assessmentId = (int)($_POST['assessment_id'] ?? 0);
         $grades = $_POST['grades'] ?? '';
-        
-        if (!$classId || !$subjectId || !$assessmentId) {
-            echo json_encode(['status' => 'error', 'message' => 'Class, subject, and assessment required']); exit;
+        if (!$assessmentId) {
+            echo json_encode(['status' => 'error', 'message' => 'Assessment required']); exit;
         }
-        
         if (!is_array($grades)) $grades = json_decode($grades, true) ?: [];
-        
-        $yearId = $currentYear ? $currentYear['id'] : null;
-        $termId = $currentTerm ? $currentTerm['id'] : null;
-        
-        // Get assessment info
+
+        // Audit 2026-10-20: this path used to trust class_id / subject_id from
+        // the form, skip the teacher-assignment check, ignore the submitted /
+        // approved lock and INSERT a brand-new packet on every click. It now
+        // shares the single canonical write path with api_subjects.php
+        // save_grades and the mobile API: the assessment is the authority for
+        // class/subject, teachers must be assigned, locked packets refuse,
+        // scores upsert, and the packet is upserted as SUBMITTED.
         $stmt = $conn->prepare("SELECT * FROM assessments WHERE id = ?");
         $stmt->bind_param("i", $assessmentId);
         $stmt->execute();
         $assessment = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
         if (!$assessment) { echo json_encode(['status' => 'error', 'message' => 'Assessment not found']); exit; }
-        
+        $classId = (int)$assessment['class_id'];
+        $subjectId = (int)$assessment['subject_id'];
+        $yearId = (int)($assessment['academic_year_id'] ?: ($currentYear['id'] ?? 0)) ?: null;
+        $termId = !empty($assessment['term_id']) ? (int)$assessment['term_id'] : ($currentTerm ? (int)$currentTerm['id'] : null);
+
+        if ($userRole === 'teacher') {
+            $as = $conn->prepare(
+                "SELECT 1 FROM teacher_assignments
+                 WHERE teacher_id = ? AND class_id = ? AND subject_id = ? AND is_active = 1
+                   AND (academic_year_id IS NULL OR academic_year_id = ?) LIMIT 1"
+            );
+            $as->bind_param('iiii', $userId, $classId, $subjectId, $yearId);
+            $as->execute();
+            $assigned = (bool)$as->get_result()->fetch_row();
+            $as->close();
+            if (!$assigned) {
+                http_response_code(403);
+                echo json_encode(['status' => 'error', 'message' => 'You are not assigned to teach this subject in this class']); exit;
+            }
+        }
+        $auth = ['uid' => (int)$userId, 'usr' => (string)($_SESSION['admin_username'] ?? ''), 'rol' => (string)$userRole];
+        $refusal = \App\Services\SubmissionService::teacherWriteRefusal($conn, $auth, $assessmentId);
+        if ($refusal !== null) {
+            http_response_code(409);
+            echo json_encode(['status' => 'error', 'message' => $refusal]); exit;
+        }
+
+        $maxScore = (float)$assessment['max_score'];
         $conn->begin_transaction();
         try {
-            // Create submission record
-            $stmt = $conn->prepare("INSERT INTO grade_submissions 
-                (teacher_id, class_id, subject_id, academic_year_id, term_id, assessment_id, submission_type, status, submitted_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'marklist', 'submitted', NOW())");
-            $stmt->bind_param("iiiiii", $userId, $classId, $subjectId, $yearId, $termId, $assessmentId);
-            $stmt->execute();
-            $submissionId = $conn->insert_id;
-            
-            $saved = 0; $totalScore = 0; $scoreCount = 0;
-            
+            $saved = 0; $totalScore = 0.0; $scoreCount = 0; $skipped = [];
             foreach ($grades as $g) {
+                if (!is_array($g)) continue;
                 $memberId = (int)($g['member_id'] ?? 0);
                 $score = isset($g['score']) && $g['score'] !== '' ? (float)$g['score'] : null;
-                $remark = trim($g['remark'] ?? $g['remarks'] ?? '');
-                
+                $remark = trim((string)($g['remark'] ?? $g['remarks'] ?? ''));
                 if (!$memberId) continue;
-                if ($score !== null && ($score < 0 || $score > $assessment['max_score'])) continue;
-                
-                // Upsert: check if record exists for this student+assessment
-                $stmt = $conn->prepare("SELECT id FROM academic_records 
-                    WHERE member_id = ? AND assessment_id = ? LIMIT 1");
-                $stmt->bind_param("ii", $memberId, $assessmentId);
-                $stmt->execute();
-                $existing = $stmt->get_result()->fetch_assoc();
-                
-                if ($existing) {
-                    $stmt = $conn->prepare("UPDATE academic_records 
-                        SET score = ?, remarks = ?, recorded_by = ?, submission_id = ?, updated_at = NOW() 
-                        WHERE id = ?");
-                    $stmt->bind_param("dsiii", $score, $remark, $userId, $submissionId, $existing['id']);
-                    $stmt->execute();
-                } else if ($score !== null) {
-                    $maxScore = $assessment['max_score'];
-                    if ($yearId) {
-                        $stmt = $conn->prepare("INSERT INTO academic_records 
-                            (member_id, class_id, subject_id, academic_year_id, term_id, assessment_id, submission_id, score, max_score, remarks, recorded_by)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                        $stmt->bind_param("iiiiiiiddsi", $memberId, $classId, $subjectId, $yearId, $termId, $assessmentId, $submissionId, $score, $maxScore, $remark, $userId);
-                    } else {
-                        $stmt = $conn->prepare("INSERT INTO academic_records 
-                            (member_id, class_id, subject_id, term_id, assessment_id, submission_id, score, max_score, remarks, recorded_by)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                        $stmt->bind_param("iiiiiiddsi", $memberId, $classId, $subjectId, $termId, $assessmentId, $submissionId, $score, $maxScore, $remark, $userId);
-                    }
-                    $stmt->execute();
-                }
-                
+                if ($score !== null && ($score < 0 || $score > $maxScore)) { $skipped[] = "Invalid score for member $memberId (max: $maxScore)"; continue; }
+                if ($score === null && $remark === '') continue;
+                $rid = \App\Services\SubmissionService::upsertScore($conn, [
+                    'assessment_id' => $assessmentId,
+                    'member_id' => $memberId,
+                    'score' => $score,
+                    'remarks' => $remark,
+                    'recorded_by' => (int)$userId,
+                    'class_id' => $classId,
+                    'subject_id' => $subjectId,
+                    'year_id' => $yearId,
+                    'term_id' => $termId,
+                    'max_score' => $maxScore,
+                ]);
+                if ($rid <= 0) { $skipped[] = "Member $memberId is not enrolled in this class — mark not saved."; continue; }
                 $saved++;
                 if ($score !== null) { $totalScore += $score; $scoreCount++; }
             }
-            
-            // Update submission stats
+            if ($saved === 0) {
+                throw new DomainException('No valid scores to submit.');
+            }
             $avg = $scoreCount > 0 ? $totalScore / $scoreCount : null;
-            $stmt = $conn->prepare("UPDATE grade_submissions SET student_count = ?, average_score = ? WHERE id = ?");
-            $stmt->bind_param("idi", $saved, $avg, $submissionId);
-            $stmt->execute();
-            
-            $conn->commit();
-            echo json_encode([
-                'status' => 'success', 
-                'message' => "Marklist submitted! $saved grades recorded. Average: " . ($avg ? number_format($avg, 1) : 'N/A'),
-                'submission_id' => $submissionId,
-                'saved' => $saved,
-                'average' => $avg
+            $packet = \App\Services\SubmissionService::upsertMarklist($conn, [
+                'teacher_id' => (int)$userId,
+                'class_id' => $classId,
+                'subject_id' => $subjectId,
+                'assessment_id' => $assessmentId,
+                'status' => \App\Services\SubmissionService::STATUS_SUBMITTED,
+                'student_count' => $saved,
+                'average' => $avg,
+                'year_id' => $yearId,
+                'term_id' => $termId,
+                'force' => \App\Services\SubmissionService::staffCanOverride($auth),
             ]);
-        } catch (Exception $e) {
+            if (empty($packet['ok'])) {
+                throw new DomainException((string)($packet['message'] ?? 'Could not submit the mark list.'));
+            }
+            $conn->commit();
+            try {
+                $lstmt = $conn->prepare(
+                    "INSERT INTO activity_logs (user_id, username, action, details, entity_type, entity_id, ip_address)
+                     VALUES (?, ?, 'submit_marklist', ?, 'assessment', ?, ?)"
+                );
+                if ($lstmt) {
+                    $ld = "Submitted {$saved} grade(s) for assessment #{$assessmentId}" . ($termId !== null ? " (term #{$termId})" : '');
+                    $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+                    $lstmt->bind_param('issis', $auth['uid'], $auth['usr'], $ld, $assessmentId, $ip);
+                    $lstmt->execute();
+                    $lstmt->close();
+                }
+            } catch (Throwable $eLog) { /* auditing never blocks a legitimate submit */ }
+            echo json_encode([
+                'status' => 'success',
+                'message' => "Marklist submitted! $saved grades recorded. Average: " . ($avg !== null ? number_format($avg, 1) : 'N/A'),
+                'submission_id' => (int)($packet['id'] ?? 0),
+                'saved' => $saved,
+                'average' => $avg,
+                'errors' => $skipped,
+            ]);
+        } catch (DomainException $e) {
+            $conn->rollback();
+            http_response_code(409);
+            $safeMessage = $e->getMessage();
+            echo json_encode(['status' => 'error', 'message' => $safeMessage]);
+        } catch (Throwable $e) {
             $conn->rollback();
             reportInternalError('Mark-list submission failed', $e);
             echo json_encode(['status' => 'error', 'message' => 'Unable to submit the mark list.']);

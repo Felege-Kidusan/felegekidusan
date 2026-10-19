@@ -98,3 +98,79 @@ and download controllers, `SubmissionService::detail`, the review path in
 syntax gates, the 2277‑test suite, repo‑wide pattern scans (§3) and the live
 role journeys (§4) — not by a human‑style reading of every line. The Flutter app
 was not re‑audited (SDK unavailable; no mobile change in Phase 6).
+
+---
+
+# PASS 2 — file‑by‑file continuation (same day)
+
+Scope of this pass: the Education / attendance / grading API surface, the
+mobile `/api/v1` routes, settings, impersonation, user management, login,
+Mezmur, AI, notifications, groups, workflow library. Every finding below is
+PATCHED and pinned by `tests/security/test_production_audit_pass2.py`
+(12 static + 8 live). Suite after pass 2: **2289 passed, 0 failed**.
+
+## 7. Findings and patches (A1–A13)
+
+| # | Severity | File | Problem | Fix |
+|---|----------|------|---------|-----|
+| A1 | High | `admin/api_attendance.php` | Teachers could read/write class/day attendance for **any** class (`class_id` unchecked). | `$requireClassScope` closure: teacher must hold an active `teacher_assignments` row → else 403. Takers keep all classes (by design). |
+| A3 | Medium | `admin/api_attendance.php` | `export_history` used `die()`; unhandled exceptions leaked as HTML. | JSON errors; outer `catch (Throwable)` → JSON 500 (no message disclosure). |
+| A4 | High | `admin/api_education.php` | Legacy `record_attendance` / `batch_attendance` / `record_grade` were callable by teachers/takers, bypassed lesson‑day lock and packet pipeline. | TIER 2b: Education‑only (403), future date 422, lesson day → 409 `LESSON_DAY`. |
+| A5 | Medium | `admin/api_education.php` | School‑wide enumeration (`get_unassigned_members/teachers`, `enrollment_overview`, `roster`, `search_members`, `list_teachers`) open to teachers/takers. | TIER 2c: Education‑only (403). Teacher/taker dashboards only use `get_enrolled_students` (unchanged). |
+| A6 | Medium | web + mobile + legacy | Class/day attendance accepted **future dates** (pass‑1 item §5.1). | 422 everywhere (`FUTURE_DATE` code on mobile). Mezmur already refused. |
+| A7 | Low | `api_education.php`, `api_subjects.php` | Write actions missing from `requirePostActions` (GET‑triggerable). | Added `toggle_class`, assessment‑type save/toggle/delete, `save_class_subject_duration`. |
+| A8 | High (functional) | `api_subjects.php`, `api_education.php` | Assessment‑type save/toggle/delete read undefined `$userRole` → **always 403**, feature was dead for Education. | Read `$_SESSION['admin_role']`. Live round‑trip verified. |
+| A9 | High (integrity) | `SubmissionService::upsertScore` | New `academic_records` were created for members **not enrolled** in the assessment's class (web `save_grades`, mobile `/grades/save`, `submit_marklist`). | `memberBelongsToClass()` guard on new rows only; callers report "Member N is not enrolled in this class — mark not saved." |
+| A10 | High | `api_communication.php` `submit_marklist` | Trusted POST `class_id/subject_id`, no assignment check, bypassed the submitted/approved lock, blind `INSERT` duplicated packets. | Rewritten on the canonical path: class/subject from the assessment, active `teacher_assignments` (403), `teacherWriteRefusal` (409), scores via `upsertScore` in a transaction, packet via `upsertMarklist`, audit row. |
+| A11 | Medium | `admin/api_settings.php` | `dept_save` (member‑code format, registration defaults), `system_info`, `clear_cache` had **no role check** — any logged‑in teacher/taker could change them. | 403 unless super/school/info/hr. Profile actions untouched. |
+| A12 | Low (data) | `api/v1/routes/members.php` PUT | Partial name update (e.g. only `father_name`) rebuilt `full_name_am` from the payload alone → other name parts wiped. | Falls back to stored parts. Web `info_manage_member.php` already correct. |
+| A13 | Medium (audit) | `admin/api_impersonate.php` | Role switch / restore (password‑less department powers) left **no audit trail**. | `activity_logs` rows `Role Switched` / `Role Restored` (from → to). |
+
+A2 (`scan_member` writes no packet) left as pass‑1 noted: QR scans are
+single‑member updates feeding the same class/day row; packet is created by
+the sheet save.
+
+## 8. Reviewed in pass 2 with no finding
+
+`api_teachers.php` (all 14 cases scoped; create forces role=teacher),
+`api_communication.php` other cases, `api_mezmur.php` (role + feature gate +
+POST list + future‑date refusal in service), `api_ai.php` (aggregates only,
+super‑admin config), `api_notifications.php`, `api_test_seed.php` (flag +
+super admin), `backend/user-save.php` (ROLE_MAP super‑admin; role matrix;
+self‑lockout guard), `backend/login.php` (rate limits, `password_verify`,
+`session_regenerate_id`, session reset), `backend/groups_api.php` (login +
+CSRF + ROLE_MAP HR), `backend/workflow.php` (library only),
+`info_manage_member.php` (status rule, `$cur` fallbacks), `api/v1` routes:
+`users` (self‑service only), `members` (PII tiers, teacher scoping),
+`grades` (teacher class+subject checks, Edu‑only assessments/reviews),
+`enrollment`/`teachers` (Education roles), `hr` (410 retired), `mezmur`,
+`telemetry`/`app` (rate‑limited, bounded inputs), `auth`.
+
+## 9. Pass‑2 items NOT changed (owner decision)
+
+1. Mobile `/api/v1/mezmur`: legacy generic `attendance_taker` accounts may
+   still save Mezmur sheets (documented migration allowance). Removing it
+   would lock out any remaining legacy taker — decide when migration is done.
+2. Teachers/takers can still read any class roster via `get_enrolled_students`
+   (phones masked) — needed by the taker UI.
+3. `api_teachers.php` CSRF failure returns HTTP 200 JSON (functionally safe).
+4. `delete_assessment` only checks `academic_records`, not an (unlikely)
+   empty `grade_submissions` packet.
+
+## 10. Coverage statement after pass 2 (honest)
+
+Read line‑by‑line in pass 2: `api_attendance.php`, `api_education.php`
+(header + all gated cases), `api_subjects.php` (gates, assessment‑type,
+grading, assessment CRUD headers), `api_communication.php` (`submit_marklist`,
+review path), `api_impersonate.php`, `api_settings.php` (gates + dept/system
+cases), `api_test_seed.php` header, `backend/login.php`, `user-save.php`
+(authorisation section), `api/v1/routes/{users,members,grades,enrollment,hr,
+auth,mezmur header,telemetry/app limits}`, `SubmissionService::upsertScore`.
+ANALYSIS INCOMPLETE remains for: the large dashboard pages
+(`edu_dept.php`, `hr-dept.php`, `info-dept.php`, `super-admin.php`, teacher /
+taker JS beyond the Phase‑6 parts), `api_finance.php`, `api_identity.php`,
+`api_cms.php`, `api_branding.php`, `api_guardians.php`,
+`api_import_members.php`, `api_reports*.php`, `backend/academic_year.php`,
+`calendar_system.php`, the services not named above, and the Flutter app.
+These are covered by syntax gates, the 2289‑test suite, repo‑wide pattern
+scans and the live role journeys — not by a human‑style reading of every line.

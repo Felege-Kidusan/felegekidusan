@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
-requirePostActions($action, ['enroll', 'assign_teacher', 'record_grade', 'record_attendance', 'batch_attendance', 'promote', 'unenroll_student', 'save_class', 'delete_class', 'save_academic_year', 'set_current_year', 'delete_year', 'save_term', 'set_current_term', 'reopen_term', 'close_term_reopen', 'delete_term', 'bulk_enroll', 'transfer_student', 'sync_member_types']);
+requirePostActions($action, ['enroll', 'assign_teacher', 'record_grade', 'record_attendance', 'batch_attendance', 'promote', 'unenroll_student', 'save_class', 'delete_class', 'save_academic_year', 'set_current_year', 'delete_year', 'save_term', 'set_current_term', 'reopen_term', 'close_term_reopen', 'delete_term', 'bulk_enroll', 'transfer_student', 'sync_member_types', 'toggle_class', 'save_assessment_type', 'toggle_assessment_type', 'delete_assessment_type']);
 $__featureActions = [
     'grades' => ['record_grade'],
     'attendance' => ['record_attendance', 'batch_attendance'],
@@ -97,6 +97,37 @@ if (in_array($action, $__manageActions, true)) {
         echo json_encode(['status' => 'error', 'message' => 'Only the Education department can manage classes and enrolments.']);
         exit;
     }
+}
+
+// TIER 2b — Legacy direct-write adapters (audit 2026-10-20). `record_attendance`,
+// `batch_attendance` and `record_grade` have NO caller in the web UI, the JS or
+// the mobile app: every real attendance write goes through api_attendance.php /
+// api_lesson_attendance.php / the mobile routes (which own the submission
+// packet), and every real mark goes through api_subjects.php. They are kept
+// for compatibility but are no longer reachable by teachers or takers, who
+// would otherwise be able to write any class without the workflow.
+$__legacyWriteActions = ['record_attendance', 'batch_attendance', 'record_grade'];
+if (in_array($action, $__legacyWriteActions, true)
+        && !in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Use the attendance or mark sheet of your class to record this.']);
+    exit;
+}
+
+// TIER 2c — Enrolment-management READS (audit 2026-10-20). The "unassigned"
+// lists return every active member / teacher of the school with date of
+// birth, education level and staff flags; they exist only for the Education
+// enrolment screen (dashboards/edu_dept.php). Teachers and takers never call
+// them and must not be able to list the whole school through them. The
+// school-wide roster / member search / teacher directory belong to the same
+// screen (teacher + taker dashboards only ever call get_enrolled_students).
+$__manageReadActions = ['get_unassigned_members', 'get_unassigned_teachers', 'enrollment_overview',
+    'roster', 'search_members', 'list_teachers'];
+if (in_array($action, $__manageReadActions, true)
+        && !in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Enrolment management is available to the Education department only.']);
+    exit;
 }
 
 // TIER 3 — School-wide academic ANALYTICS: Education dept + admins.
@@ -393,6 +424,17 @@ switch ($action) {
             exit;
         }
 
+        if ($attendanceDate > date('Y-m-d')) {
+            http_response_code(422);
+            echo json_encode(['status' => 'error', 'message' => 'Attendance cannot be recorded for a future date.']);
+            exit;
+        }
+        // Phase 6: a day with lesson sheets is derived → class/day rows read-only.
+        if (\App\Services\LessonAttendanceService::dayHasLessons($conn, $classId, $attendanceDate)) {
+            http_response_code(409);
+            echo json_encode(['status' => 'error', 'code' => 'LESSON_DAY', 'message' => \App\Services\LessonAttendanceService::DAY_LOCKED_MESSAGE]);
+            exit;
+        }
         $yearId = $currentYear ? (int)$currentYear['id'] : null;
         $recordedBy = (int)$_SESSION['admin_id'];
         $enrollment = $conn->prepare(
@@ -454,6 +496,11 @@ switch ($action) {
         
         $yearId = $currentYear ? (int)$currentYear['id'] : null;
         $recordedBy = (int)$_SESSION['admin_id'];
+        if ($attendanceDate > date('Y-m-d')) {
+            http_response_code(422);
+            echo json_encode(['status' => 'error', 'message' => 'Attendance cannot be recorded for a future date.']);
+            exit;
+        }
         // Phase 6: a day with lesson sheets is derived → class/day sheet read-only.
         if (\App\Services\LessonAttendanceService::dayHasLessons($conn, $classId, $attendanceDate)) {
             http_response_code(409);
@@ -2022,16 +2069,16 @@ switch ($action) {
         break;
 
     case 'save_assessment_type':
-        if (!in_array($userRole, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+        if (!in_array((string)($_SESSION['admin_role'] ?? ''), ['super_admin', 'school_admin', 'edu_dept'], true)) {
             respondApiError('Only Education Department and administrators can manage assessment types.', 403);
         }
         require_once __DIR__ . '/backend/services/AssessmentTypeService.php';
-        $res = \App\Services\AssessmentTypeService::save($conn, $_POST, $userId);
+        $res = \App\Services\AssessmentTypeService::save($conn, $_POST, (int)($_SESSION['admin_id'] ?? 0));
         echo json_encode($res, JSON_UNESCAPED_UNICODE);
         break;
 
     case 'toggle_assessment_type':
-        if (!in_array($userRole, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+        if (!in_array((string)($_SESSION['admin_role'] ?? ''), ['super_admin', 'school_admin', 'edu_dept'], true)) {
             respondApiError('Only Education Department and administrators can manage assessment types.', 403);
         }
         require_once __DIR__ . '/backend/services/AssessmentTypeService.php';
@@ -2044,7 +2091,7 @@ switch ($action) {
         break;
 
     case 'delete_assessment_type':
-        if (!in_array($userRole, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+        if (!in_array((string)($_SESSION['admin_role'] ?? ''), ['super_admin', 'school_admin', 'edu_dept'], true)) {
             respondApiError('Only Education Department and administrators can manage assessment types.', 403);
         }
         require_once __DIR__ . '/backend/services/AssessmentTypeService.php';

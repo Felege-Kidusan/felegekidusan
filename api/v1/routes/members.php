@@ -206,7 +206,7 @@ if ($method === 'GET' && is_int($id) && $sub === 'attendance') {
 if ($method === 'PUT' && is_int($id)) {
     apiRequireRole($auth, apiRolesPii());
 
-    $stmt = $conn->prepare("SELECT id, status, guardian_name, guardian_phone1, guardian_phone2 FROM members WHERE id = ?");
+    $stmt = $conn->prepare("SELECT id, status, guardian_name, guardian_phone1, guardian_phone2, student_name, father_name, grandfather_name FROM members WHERE id = ?");
     $stmt->bind_param('i', $id);
     $stmt->execute();
     $__memberBefore = $stmt->get_result()->fetch_assoc();
@@ -267,9 +267,12 @@ if ($method === 'PUT' && is_int($id)) {
     }
 
     if (isset($input['student_name']) || isset($input['father_name']) || isset($input['grandfather_name'])) {
-        $sn = trim($input['student_name'] ?? '');
-        $fn = trim($input['father_name'] ?? '');
-        $gn = trim($input['grandfather_name'] ?? '');
+        // Audit 2026-10-20 (A12): a partial update (e.g. only father_name)
+        // must not wipe the other name parts out of full_name_am — fall back
+        // to the stored values for every part the payload did not send.
+        $sn = trim((string)($input['student_name'] ?? ($__memberBefore['student_name'] ?? '')));
+        $fn = trim((string)($input['father_name'] ?? ($__memberBefore['father_name'] ?? '')));
+        $gn = trim((string)($input['grandfather_name'] ?? ($__memberBefore['grandfather_name'] ?? '')));
         if ($sn || $fn) {
             $sets[] = "full_name_am = ?";
             $params[] = trim("{$sn} {$fn} {$gn}");

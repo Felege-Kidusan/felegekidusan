@@ -260,6 +260,7 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
 
     if (!$classId || empty($records)) err('class_id and records array are required');
     if (!is_array($records)) err('records must be an array');
+    if ($date > date('Y-m-d')) err('Attendance cannot be recorded for a future date.', 422, ['code' => 'FUTURE_DATE']);
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
     $userId = (int)$auth['uid'];
@@ -347,6 +348,7 @@ if ($method === 'POST' && $action === 'submit') {
 
     if (!$classId || empty($records)) err('class_id and records array are required');
     if (!is_array($records)) err('records must be an array');
+    if ($date > date('Y-m-d')) err('Attendance cannot be recorded for a future date.', 422, ['code' => 'FUTURE_DATE']);
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
     $yearIdOrNull = $year ? (int)$year['id'] : null;

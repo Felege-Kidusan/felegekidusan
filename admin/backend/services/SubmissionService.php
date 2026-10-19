@@ -637,6 +637,20 @@ class SubmissionService
         return ReviewTransitionPolicy::error($current, $target, 'list', 'teacher');
     }
 
+    /** True when the member has any enrolment row (active or historical) in the class. */
+    public static function memberBelongsToClass(\mysqli $conn, int $memberId, int $classId): bool
+    {
+        $stmt = $conn->prepare('SELECT 1 FROM class_enrollments WHERE member_id = ? AND class_id = ? LIMIT 1');
+        if (!$stmt) {
+            return true; // never block grading on a lookup failure; the sheet itself is roster-built
+        }
+        $stmt->bind_param('ii', $memberId, $classId);
+        $stmt->execute();
+        $ok = (bool)$stmt->get_result()->fetch_row();
+        $stmt->close();
+        return $ok;
+    }
+
     /** One score per student per test. Always update the existing row. */
     public static function upsertScore(\mysqli $conn, array $row): int
     {
@@ -666,6 +680,14 @@ class SubmissionService
             $got = $find->get_result()->fetch_assoc();
             $find->close();
             $existing = (int)($got['id'] ?? 0);
+        }
+        // Audit 2026-10-20: a NEW mark may only be created for a member who is
+        // (or was) enrolled in the assessment's class. Neither the web nor the
+        // mobile sheet checked this, so a stray member_id would have created an
+        // academic_records row for a student who never sat in the class.
+        // Re-saves of an existing row are untouched (history stays editable).
+        if ($existing <= 0 && $classId > 0 && !self::memberBelongsToClass($conn, $memberId, $classId)) {
+            return 0;
         }
         if ($existing > 0) {
             $up = $conn->prepare(

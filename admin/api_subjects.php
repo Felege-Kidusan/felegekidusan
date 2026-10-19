@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
-requirePostActions($action, ['create_subject', 'update_subject', 'delete_subject', 'restore_subject', 'assign_subject_to_classes', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template', 'save_grades']);
+requirePostActions($action, ['create_subject', 'update_subject', 'delete_subject', 'restore_subject', 'assign_subject_to_classes', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template', 'save_grades', 'save_class_subject_duration', 'save_assessment_type', 'toggle_assessment_type', 'delete_assessment_type']);
 $__gradeActions = [
     'get_assessments', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template',
     'get_students_for_grading', 'save_grades', 'get_grade_summary',
@@ -826,16 +826,16 @@ switch ($action) {
         break;
 
     case 'save_assessment_type':
-        if (!in_array($userRole, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+        if (!in_array((string)($_SESSION['admin_role'] ?? ''), ['super_admin', 'school_admin', 'edu_dept'], true)) {
             respondApiError('Only Education Department and administrators can manage assessment types.', 403);
         }
         require_once __DIR__ . '/backend/services/AssessmentTypeService.php';
-        $res = \App\Services\AssessmentTypeService::save($conn, $_POST, $userId);
+        $res = \App\Services\AssessmentTypeService::save($conn, $_POST, (int)($_SESSION['admin_id'] ?? 0));
         echo json_encode($res, JSON_UNESCAPED_UNICODE);
         break;
 
     case 'toggle_assessment_type':
-        if (!in_array($userRole, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+        if (!in_array((string)($_SESSION['admin_role'] ?? ''), ['super_admin', 'school_admin', 'edu_dept'], true)) {
             respondApiError('Only Education Department and administrators can manage assessment types.', 403);
         }
         require_once __DIR__ . '/backend/services/AssessmentTypeService.php';
@@ -848,7 +848,7 @@ switch ($action) {
         break;
 
     case 'delete_assessment_type':
-        if (!in_array($userRole, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+        if (!in_array((string)($_SESSION['admin_role'] ?? ''), ['super_admin', 'school_admin', 'edu_dept'], true)) {
             respondApiError('Only Education Department and administrators can manage assessment types.', 403);
         }
         require_once __DIR__ . '/backend/services/AssessmentTypeService.php';
@@ -1900,7 +1900,9 @@ switch ($action) {
                 if ($rid > 0) {
                     $successCount++;
                 } else {
-                    $errors[] = "Could not save the grade for member $memberId.";
+                    $errors[] = \App\Services\SubmissionService::memberBelongsToClass($conn, $memberId, (int)$assessment['class_id'])
+                        ? "Could not save the grade for member $memberId."
+                        : "Member $memberId is not enrolled in this class — mark not saved.";
                 }
             } catch (Throwable $e) {
                 reportInternalError('Web grade save failed for member ' . $memberId, $e);

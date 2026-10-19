@@ -64,6 +64,17 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
 // CSRF protection for all POST requests
 requireCsrfForPost();
 
+// Audit 2026-10-20 (A11): department-level settings and server maintenance
+// are not profile actions. Only the roles whose dashboards expose them may
+// change registration defaults / member-code format or read server details.
+$settingsPrivilegedActions = ['dept_save', 'system_info', 'clear_cache'];
+if (in_array($action, $settingsPrivilegedActions, true)
+    && !in_array($adminRole, ['super_admin', 'school_admin', 'info_dept', 'hr_dept'], true)) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'You do not have permission to change department settings.']);
+    exit;
+}
+
 $settingsIdentity = \App\Services\AuthenticatedProfileIdentity::fromTrustedUserId($adminId);
 $settingsImageSchemaReady = \App\Services\MysqliProfileRepository::profileImageColumnAvailable($conn);
 $settingsProfileService = new \App\Services\ProfileService(
