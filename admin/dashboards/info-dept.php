@@ -153,6 +153,19 @@ if (isset($conn)) {
 // For display labels mapping — delegates to the ministry category model
 // so the A/B/C letters and Amharic labels have one source of truth.
 require_once __DIR__ . '/../backend/services/MemberCategory.php';
+
+// Attendance alerting Phase 2: open warnings per department (server-side, cheap GROUP BY).
+require_once __DIR__ . '/../backend/services/AttendanceWarningService.php';
+$attendanceWarningsAvailable = false;
+$attendanceWarningCounts = ['edu' => ['total' => 0, 'critical' => 0], 'mezmur' => ['total' => 0, 'critical' => 0]];
+try {
+    $attendanceWarningsAvailable = \App\Services\AttendanceWarningService::available($conn);
+    if ($attendanceWarningsAvailable) {
+        $attendanceWarningCounts = \App\Services\AttendanceWarningService::openCounts($conn);
+    }
+} catch (\Throwable $e) {
+    error_log('Dashboard attendance warning counts failed: ' . $e->getMessage());
+}
 function sectionLabelFromGroup(?string $ageGroup): string
 {
     $letter = \App\Services\MemberCategory::letterFor($ageGroup);
@@ -722,20 +735,28 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                         </div>
                     </div>
 
-                    <div class="stat-card bg-gradient-to-tr from-red-500 via-rose-500 to-orange-400 p-3 sm:p-4 flex flex-col justify-between">
+                    <!-- Attendance alerting Phase 2: "Open Attendance Warnings" replaces the
+                         members.status-based "At-risk" heuristic (requirements §4–§6, §9). -->
+                    <a href="/admin/attendance_warnings.php" class="stat-card bg-gradient-to-tr from-red-500 via-rose-500 to-orange-400 p-3 sm:p-4 flex flex-col justify-between" id="aw-dashboard-card" title="Open the attendance warnings list" style="text-decoration:none;color:inherit">
                         <div class="flex items-center justify-between">
-                            <div class="text-xs uppercase tracking-wide">At-risk Students</div>
+                            <div class="text-xs uppercase tracking-wide">Open Attendance Warnings</div>
                             <div class="w-8 h-8 rounded-2xl bg-white/15 flex items-center justify-center">
                                 <i class="fa-solid fa-triangle-exclamation text-sm"></i>
                             </div>
                         </div>
-                        <div class="mt-2 text-2xl sm:text-3xl font-bold">
-                            <?= $atRiskStudents ?>
+                        <?php if ($attendanceWarningsAvailable): ?>
+                        <div class="mt-2 text-2xl sm:text-3xl font-bold" data-aw-total>
+                            <?= (int)$attendanceWarningCounts['edu']['total'] + (int)$attendanceWarningCounts['mezmur']['total'] ?>
                         </div>
-                        <div class="mt-1 text-[11px] sm:text-xs opacity-80">
-                            Warning + inactive (non-archived)
+                        <div class="mt-1 text-[11px] sm:text-xs opacity-90 flex gap-3 flex-wrap">
+                            <span>Education <b data-aw-edu><?= (int)$attendanceWarningCounts['edu']['total'] ?></b><?php if ((int)$attendanceWarningCounts['edu']['critical'] > 0): ?> <span class="opacity-80">(<?= (int)$attendanceWarningCounts['edu']['critical'] ?> critical)</span><?php endif; ?></span>
+                            <span>Mezmur <b data-aw-mezmur><?= (int)$attendanceWarningCounts['mezmur']['total'] ?></b><?php if ((int)$attendanceWarningCounts['mezmur']['critical'] > 0): ?> <span class="opacity-80">(<?= (int)$attendanceWarningCounts['mezmur']['critical'] ?> critical)</span><?php endif; ?></span>
                         </div>
-                    </div>
+                        <?php else: ?>
+                        <div class="mt-2 text-2xl sm:text-3xl font-bold">—</div>
+                        <div class="mt-1 text-[11px] sm:text-xs opacity-80">Not available yet (feature flag / sql/072)</div>
+                        <?php endif; ?>
+                    </a>
                 </div>
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">

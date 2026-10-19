@@ -9,6 +9,8 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
 require_once __DIR__ . '/backend/services/AttendanceRecordService.php';
 require_once __DIR__ . '/backend/services/AttendanceSummaryService.php';
+require_once __DIR__ . '/backend/services/SubmissionService.php';
+require_once __DIR__ . '/backend/services/AttendanceWarningService.php';
 
 use App\Services\AttendanceRecordService;
 use App\Services\EnrollmentService;
@@ -143,6 +145,7 @@ switch ($action) {
         // Replace the whole class/day and commit only if every row succeeds.
         $successCount = 0;
         $errors = [];
+        $packetUpsertOk = false;
         $conn->begin_transaction();
         try {
             $successCount = AttendanceRecordService::replaceSheet(
@@ -153,6 +156,29 @@ switch ($action) {
                 (int)$userId,
                 $records
             );
+            // Owner decision T-2 (attendance alerting): a web sheet save is an
+            // official submission — write/refresh the `submitted` packet in the
+            // same transaction so the risk engine can count the day. Staff and
+            // takers on the web may re-save a reviewed day (force), exactly as
+            // the rows themselves have always been replaceable here.
+            $packetCounts = \App\Services\SubmissionService::countsFromRecords($records);
+            $packet = \App\Services\SubmissionService::upsertAttendance($conn, [
+                'teacher_id' => (int)$userId,
+                'class_id' => $classId,
+                'date' => $date,
+                'status' => \App\Services\SubmissionService::STATUS_SUBMITTED,
+                'student_count' => $successCount,
+                'year_id' => $academicYearId,
+                'present' => $packetCounts['present'],
+                'absent' => $packetCounts['absent'],
+                'late' => $packetCounts['late'],
+                'excused' => $packetCounts['excused'],
+                'force' => true,
+            ]);
+            $packetUpsertOk = !empty($packet['ok']);
+            if (!$packetUpsertOk) {
+                error_log("save_attendance: packet upsert skipped (class $classId, $date): " . (string)($packet['message'] ?? ''));
+            }
             $conn->commit();
         } catch (Throwable $error) {
             $conn->rollback();
@@ -167,64 +193,19 @@ switch ($action) {
 
         // Summary is a derived cache — safe to update after the commit.
         updateAttendanceSummary($conn, $classId, $date, $academicYearId, null);
-        
-        // AI Logic for 3 Consecutive Absences
-        $absentMembers = [];
-        foreach ($records as $record) {
-            if (($record['status'] ?? '') === 'absent') {
-                $absentMembers[] = (int)($record['member_id'] ?? 0);
-            }
-        }
-        
-        if (!empty($absentMembers)) {
-            $checkStmt = $conn->prepare("
-                SELECT member_id, COUNT(*) as absent_count
-                FROM (
-                    SELECT member_id, status
-                    FROM attendance
-                    WHERE member_id = ? AND class_id = ?
-                    ORDER BY attendance_date DESC
-                    LIMIT 3
-                ) as last_three
-                WHERE status = 'absent'
-            ");
-            
-            $alertStmt = $conn->prepare("
-                INSERT INTO notifications (type, title, message, data, priority, target_roles, source_dept)
-                VALUES ('attendance_alert', ?, ?, ?, 'high', 'hr_dept,info_dept', 'attendance_taker')
-            ");
-            
-            foreach ($absentMembers as $mId) {
-                if (!$mId) continue;
-                $checkStmt->bind_param("ii", $mId, $classId);
-                $checkStmt->execute();
-                $res = $checkStmt->get_result()->fetch_assoc();
-                
-                if ($res && $res['absent_count'] == 3) {
-                    // Prevent duplicate notifications in the last 7 days.
-                    // Exact JSON match (a LIKE prefix would also match member 12 for member 1).
-                    $recentCheck = $conn->prepare("SELECT id FROM notifications WHERE type = 'attendance_alert' AND JSON_EXTRACT(data, '$.member_id') = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
-                    $recentCheck->bind_param("i", $mId);
-                    $recentCheck->execute();
-                    if ($recentCheck->get_result()->num_rows === 0) {
-                        $mDetails = $conn->query("SELECT student_name, father_name FROM members WHERE id = $mId")->fetch_assoc();
-                        $mName = $mDetails['student_name'] . ' ' . $mDetails['father_name'];
-                        
-                        $title = "Consecutive Absence Alert";
-                        $msg = "$mName has been absent for 3 consecutive classes.";
-                        $dataJson = json_encode(['member_id' => $mId, 'class_id' => $classId]);
-                        
-                        $alertStmt->bind_param("sss", $title, $msg, $dataJson);
-                        $alertStmt->execute();
 
-                        // Phase 0 guardrail (attendance alerting requirements §4):
-                        // automation never writes members.status. The former
-                        // `UPDATE members SET status='warning'` was removed here;
-                        // the alert is informational until Phase 2 replaces it
-                        // with department-scoped attendance warnings.
-                    }
-                }
-            }
+        // Attendance alerting Phase 2: one calculation for every consumer.
+        // The legacy "3 consecutive classes" bell (attendance_alert) was
+        // replaced by department-scoped warnings evaluated from the policy
+        // thresholds (requirements §4–§6). Never fails the save.
+        if ($packetUpsertOk) {
+            \App\Services\AttendanceWarningService::safeEvaluateMany(
+                $conn,
+                'edu',
+                \App\Services\AttendanceWarningService::memberIdsFromRecords($records),
+                $date,
+                (int)$userId
+            );
         }
 
         echo json_encode([
@@ -281,6 +262,9 @@ switch ($action) {
         
         if ($stmt->execute()) {
             updateAttendanceSummary($conn, $classId, $date, $academicYearId, null);
+            // Phase 2: a scan marks presence, which may end a streak — re-evaluate
+            // this member (flag-gated, never fails the scan).
+            \App\Services\AttendanceWarningService::safeEvaluateMany($conn, 'edu', [(int)$memberId], $date, (int)$userId);
             echo json_encode([
                 'status' => 'success', 
                 'message' => "Scan successful!",

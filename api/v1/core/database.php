@@ -26,6 +26,9 @@ $__attendanceRecordService = __DIR__ . '/../../../admin/backend/services/Attenda
 if (is_file($__attendanceRecordService)) {
     require_once $__attendanceRecordService;
 }
+if (is_file(__DIR__ . '/../../../admin/backend/services/AttendanceWarningService.php')) {
+    require_once __DIR__ . '/../../../admin/backend/services/AttendanceWarningService.php';
+}
 
 // Verify connection
 if (!isset($conn) || !$conn || $conn->connect_error) {

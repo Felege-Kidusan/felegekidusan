@@ -8,6 +8,18 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
 require_once __DIR__ . '/../backend/services/MemberCategory.php';
+require_once __DIR__ . '/../backend/services/AttendanceWarningService.php';
+// Attendance alerting Phase 2: open Education warnings for the dashboard card.
+$attendanceWarningsAvailable = false;
+$attendanceWarningCounts = ['edu' => ['total' => 0, 'critical' => 0], 'mezmur' => ['total' => 0, 'critical' => 0]];
+try {
+    $attendanceWarningsAvailable = \App\Services\AttendanceWarningService::available($conn);
+    if ($attendanceWarningsAvailable) {
+        $attendanceWarningCounts = \App\Services\AttendanceWarningService::openCounts($conn, ['edu']) + $attendanceWarningCounts;
+    }
+} catch (\Throwable $e) {
+    error_log('Dashboard attendance warning counts failed: ' . $e->getMessage());
+}
 
 // Practice members are loaded only from Super Admin → Load button.
 // Never write on a GET. That used to hold the only PHP worker and
@@ -537,6 +549,8 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div class="sc" style="background:linear-gradient(135deg,#0ea5e9,#3b82f6)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700"><?= $totalClasses ?></div><div style="font-size:.75rem;opacity:.8">Classes</div></div><i class="fa-solid fa-school" style="font-size:1.5rem;opacity:.3"></i></div></div>
 <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700"><?= $totalSubjects ?></div><div style="font-size:.75rem;opacity:.8">Subjects</div></div><i class="fa-solid fa-book" style="font-size:1.5rem;opacity:.3"></i></div></div>
 <div class="sc" style="background:linear-gradient(135deg,#ec4899,#d946ef)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700"><?= $totalEnrolled ?></div><div style="font-size:.75rem;opacity:.8">Enrolled</div></div><i class="fa-solid fa-user-graduate" style="font-size:1.5rem;opacity:.3"></i></div></div>
+<?php // Attendance alerting Phase 2: Open Attendance Warnings (Education only — server-scoped) ?>
+<a class="sc" id="aw-dashboard-card" href="/admin/attendance_warnings.php?department=edu" style="background:linear-gradient(135deg,#dc2626,#f97316);text-decoration:none;color:inherit" title="Open attendance warnings"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700" data-aw-total><?= $attendanceWarningsAvailable ? (int)$attendanceWarningCounts['edu']['total'] : '—' ?></div><div style="font-size:.75rem;opacity:.8">Open Attendance Warnings<?= $attendanceWarningsAvailable && (int)$attendanceWarningCounts['edu']['critical'] > 0 ? ' · ' . (int)$attendanceWarningCounts['edu']['critical'] . ' critical' : '' ?></div></div><i class="fa-solid fa-triangle-exclamation" style="font-size:1.5rem;opacity:.3"></i></div></a>
 </div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
 <div class="crd" style="padding:1.25rem"><h3 style="font-size:.9rem;font-weight:600;margin-bottom:.75rem"><i class="fa-solid fa-bolt" style="color:#7c3aed"></i> Quick Actions</h3>

@@ -102,6 +102,7 @@ if (in_array($action, $__postActions, true) && $_SERVER['REQUEST_METHOD'] !== 'P
 
 require_once __DIR__ . '/backend/services/MezmurAttendanceService.php';
 require_once __DIR__ . '/backend/services/MezmurSubmissionService.php';
+require_once __DIR__ . '/backend/services/AttendanceWarningService.php';
 require_once __DIR__ . '/backend/services/MezmurSchemaReconciler.php';
 // NOTE: the rate limiter class is NOT loaded by the admin bootstrap
 // (only by api/v1 middleware) — without this require every request
@@ -999,6 +1000,13 @@ try {
                     $conn->rollback();
                     throw $e;
                 }
+                // Attendance alerting Phase 2: only SUBMITTED sheets feed the
+                // risk engine (drafts are not official). Never fails the save.
+                if ($packetStatus === MezmurSubmissionService::STATUS_SUBMITTED) {
+                    \App\Services\AttendanceWarningService::safeEvaluateMany(
+                        $conn, 'mezmur', \App\Services\AttendanceWarningService::memberIdsFromRecords($records), $date, $adminId
+                    );
+                }
                 mezmur_respond([
                     'status' => 'success',
                     'message' => $packet['message'] ?? 'Attendance saved.',
@@ -1009,6 +1017,11 @@ try {
             }
 
             $result = MezmurAttendanceService::saveSheet($conn, $date, $records, $adminId);
+            // Legacy whole-day save has no packet: the system already treats such
+            // rows as submitted (resolvedStatus), so the engine does too.
+            \App\Services\AttendanceWarningService::safeEvaluateMany(
+                $conn, 'mezmur', \App\Services\AttendanceWarningService::memberIdsFromRecords($records), $date, $adminId
+            );
             mezmur_respond(['status' => 'success', 'message' => 'Attendance saved.', 'summary' => $result]);
         }
 

@@ -75,11 +75,14 @@ class Phase0StaticGuards(unittest.TestCase):
                 src, r"UPDATE\s+members\s+SET\s+status\s*=\s*'warning'", f"{rel} still auto-flags members"
             )
 
-    def test_alert_dedupe_uses_exact_json_match(self):
+    def test_legacy_alert_producers_removed(self):
+        # Phase 2 replaced the ad-hoc attendance_alert / attendance_issue producers
+        # with AttendanceWarningService; the LIKE-prefix dedupe must never return.
         for rel in ["admin/api_attendance.php", "admin/backend/services/AttendanceSummaryService.php"]:
-            src = read(rel)
+            src = code_lines(read(rel))
             self.assertNotIn('\'%"member_id":\'', src, f"{rel} still uses the LIKE prefix dedupe")
-            self.assertIn("JSON_EXTRACT(data, '$.member_id') = ?", src, rel)
+            self.assertNotIn("'attendance_alert'", src, rel)
+            self.assertNotIn("'attendance_issue'", src, rel)
 
     def test_web_status_api_is_hr_info_only(self):
         src = read("admin/api_attendance_info.php")

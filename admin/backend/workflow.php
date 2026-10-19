@@ -46,7 +46,11 @@ $NOTIFICATION_MATRIX = [
     'teacher_assigned' => ['super_admin', 'school_admin', 'info_dept'],
     'class_enrolled' => ['super_admin', 'school_admin', 'info_dept'],
     'grade_recorded' => ['super_admin', 'school_admin'],
-    'attendance_issue' => ['super_admin', 'school_admin', 'info_dept'],
+    // Attendance alerting Phase 2 (requirements §8): department + HR + Info
+    // only — never School Admin / Super Admin. Produced by
+    // AttendanceWarningService (direct insert, same table); listed here so the
+    // matrix stays the single reference of who may receive which type.
+    'attendance_warning' => ['edu_dept', 'mezmur_dept', 'hr_dept', 'info_dept'],
     'document_shared' => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'finance_dept', 'material_dept', 'mezmur_dept'],
     'task_assigned' => [], // Specific to target
 ];

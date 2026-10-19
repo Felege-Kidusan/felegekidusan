@@ -866,6 +866,20 @@
         var name = ((window.APP || {}).user || {}).name || '';
         $('mzGreeting').textContent = greet + (name ? ', ' + name.split(' ')[0] : '') + ' 🎵';
 
+        // Attendance alerting Phase 2: open Mezmur warnings (department-scoped on the server).
+        try {
+            fetch('/admin/api_attendance_warnings.php?action=counts', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+                .then(function (r) { return r.json(); })
+                .then(function (w) {
+                    var el = $('mzOvWarnings'), sub = $('mzOvWarningsSub');
+                    if (!el) return;
+                    if (w.status !== 'success' || !w.available || !w.counts || !w.counts.mezmur) { el.textContent = '—'; if (sub) sub.textContent = 'Not available yet'; return; }
+                    var c = w.counts.mezmur;
+                    el.textContent = c.total;
+                    if (sub) sub.textContent = (c.critical ? c.critical + ' critical · ' : '') + c.consecutive + ' consecutive · ' + c.low_month + ' low month';
+                }).catch(function () {});
+        } catch (e) { /* card is informational only */ }
+
         apiGet('action=overview').then(function (d) {
             if (d.status !== 'success') {
                 var msg = d.message || 'Unable to load the overview.';

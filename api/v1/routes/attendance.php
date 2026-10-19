@@ -8,6 +8,15 @@
  */
 
 $auth = apiRequireAuth();
+
+// /attendance/warnings[/{id}[/close]] — department attendance warnings
+// (Phase 2). Its own role set (HR / Info / Edu / Mezmur / admins read;
+// department + HR + Info close) — handled before the taker/teacher gate.
+if (($ROUTE['id'] ?? '') === 'warnings') {
+    require __DIR__ . '/attendance_warnings.php';
+    exit;
+}
+
 if (!apiRoleIs($auth, apiRolesAttendance())) {
     err('You cannot take or view attendance.', 403);
 }
@@ -374,6 +383,18 @@ if ($method === 'POST' && $action === 'submit') {
     }
 
     logApiAction($auth['uid'], $auth['usr'], 'Attendance Submitted', "Class: {$classId}, Date: {$date}, Records: {$saved}");
+
+    // Attendance alerting Phase 2: submitted sheets feed the risk engine
+    // (drafts via POST /attendance do not). Flag-gated, never fails the submit.
+    if (class_exists('\\App\\Services\\AttendanceWarningService')) {
+        \App\Services\AttendanceWarningService::safeEvaluateMany(
+            $conn,
+            'edu',
+            \App\Services\AttendanceWarningService::memberIdsFromRecords($records),
+            $date,
+            $userId
+        );
+    }
 
     ok([
         'message' => $packet['message'] ?? "{$saved} attendance records marked complete for Education",

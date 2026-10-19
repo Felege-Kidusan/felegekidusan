@@ -21,6 +21,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 require_once __DIR__ . '/backend/services/DepartmentStatusService.php';
+require_once __DIR__ . '/backend/services/AttendanceWarningService.php';
 
 use App\Services\DepartmentStatusService;
 
@@ -157,6 +158,11 @@ switch ($action) {
         } catch (\Throwable $e) {
             error_log('Department status change failed: ' . $e->getMessage());
             $fail(500, 'Unable to change the department status right now.');
+        }
+        if (!empty($result['changed']) && $status === 'active') {
+            // Phase 2: reactivation starts a fresh period — re-evaluate so stale
+            // streak data is cleared (flag-gated, never fails the change).
+            \App\Services\AttendanceWarningService::safeEvaluate($conn, $dept, $memberId, ['actor' => $adminId]);
         }
         $ok([
             'available' => true,

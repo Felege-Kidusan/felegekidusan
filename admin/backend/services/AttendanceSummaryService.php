@@ -257,73 +257,15 @@ final class AttendanceSummaryService
     }
 
     /**
-     * Raise (at most) one low-attendance alert per member per suppression
-     * window. Mirrors the dedupe pattern used by the consecutive-absence
-     * alert so repeated saves never spam the bell.
+     * Legacy `attendance_issue` bell REMOVED (attendance alerting Phase 2,
+     * 2026-10-19). Low-attendance and consecutive-absence warnings are now
+     * raised exclusively by App\Services\AttendanceWarningService from the
+     * per-department policy thresholds (requirements §4–§6, §8). Kept as a
+     * no-op so any external caller keeps working.
      */
     public static function maybeAlertLowAttendance(\mysqli $conn, int $memberId, ?float $rate): void
     {
-        if ($memberId <= 0 || $rate === null || $rate >= self::LOW_ATTENDANCE_THRESHOLD) {
-            return;
-        }
-        try {
-            // Exact JSON match: a LIKE prefix would also match member 12 for member 1.
-            $recent = $conn->prepare(
-                "SELECT id FROM notifications
-                 WHERE type = 'attendance_issue'
-                   AND JSON_EXTRACT(data, '$.member_id') = ?
-                   AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-                 LIMIT 1"
-            );
-            if (!$recent) {
-                return;
-            }
-            $days = self::ALERT_SUPPRESSION_DAYS;
-            $recent->bind_param('ii', $memberId, $days);
-            $recent->execute();
-            $alreadySent = $recent->get_result()->num_rows > 0;
-            $recent->close();
-            if ($alreadySent) {
-                return;
-            }
-
-            $memberStatement = $conn->prepare(
-                'SELECT student_name, father_name FROM members WHERE id = ? LIMIT 1'
-            );
-            if (!$memberStatement) {
-                return;
-            }
-            $memberStatement->bind_param('i', $memberId);
-            $memberStatement->execute();
-            $member = $memberStatement->get_result()->fetch_assoc();
-            $memberStatement->close();
-            if (!$member) {
-                return;
-            }
-
-            if (function_exists('sendNotification')) {
-                sendNotification(
-                    $conn,
-                    'attendance_issue',
-                    'Low Attendance Alert',
-                    sprintf(
-                        '%s %s has %.1f%% attendance this month',
-                        (string)$member['student_name'],
-                        (string)$member['father_name'],
-                        $rate
-                    ),
-                    [
-                        'priority' => 'high',
-                        'data' => [
-                            'member_id' => $memberId,
-                            'attendance_rate' => $rate,
-                        ],
-                    ]
-                );
-            }
-        } catch (\Throwable $error) {
-            error_log('Low attendance alert failed: ' . $error->getMessage());
-        }
+        // intentionally empty — see AttendanceWarningService::evaluate()
     }
 
     /**
@@ -344,7 +286,6 @@ final class AttendanceSummaryService
             return null;
         }
         self::refreshMemberTotals($conn, $memberId);
-        self::maybeAlertLowAttendance($conn, $memberId, $stats['rate']);
         return $stats;
     }
 }

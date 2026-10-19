@@ -15,6 +15,7 @@
     'use strict';
 
     var API = '/admin/api_department_status.php';
+    var WARN_API = '/admin/api_attendance_warnings.php';
     var LABELS = { edu: 'Education', mezmur: 'Mezmur' };
     var stylesInjected = false;
 
@@ -115,6 +116,7 @@
         } else {
             html += '<div class="ds-note">No department status changes recorded yet.</div>';
         }
+        html += '<div class="ds-aw" data-ds-aw></div>';
         html += '</div>';
         box.innerHTML = html;
         box.querySelectorAll('[data-ds-change]').forEach(function (btn) {
@@ -122,6 +124,51 @@
                 openModal(box, memberId, btn.getAttribute('data-ds-change'), btn.getAttribute('data-ds-to'));
             });
         });
+        loadWarnings(box.querySelector('[data-ds-aw]'), memberId);
+    }
+
+    // Attendance alerting Phase 2: shared risk + warnings per department
+    // (api_attendance_warnings.php scopes departments by role; 403 = not for this role).
+    function loadWarnings(el, memberId) {
+        if (!el) return;
+        fetchJson(WARN_API + '?action=member_summary&member_id=' + encodeURIComponent(memberId)).then(function (d) {
+            if (d.status !== 'success' || !d.summary || !d.summary.departments) { el.innerHTML = ''; return; }
+            var depts = d.summary.departments;
+            var html = '<div class="ds-dept-name" style="margin-top:10px">Attendance risk &amp; warnings <span class="ds-since">(Ethiopian calendar)</span></div>';
+            if (!d.available) {
+                html += '<div class="ds-note">Attendance warnings are not enabled yet (feature flag / sql 072).</div>';
+                el.innerHTML = html;
+                return;
+            }
+            html += '<div class="ds-row">';
+            Object.keys(depts).forEach(function (k) {
+                var e = depts[k], r = e.risk || {}, st = r.streak || {}, m = r.month || {}, y = r.year || {};
+                var open = (e.warnings || []).filter(function (w) { return w.status === 'open'; });
+                html += '<div class="ds-dept"><div><div class="ds-dept-name">' + esc(e.label) + '</div>' +
+                    '<div class="ds-since">Streak: <b>' + esc(st.length || 0) + '</b> day(s)' + (st.start_ec ? ' (' + esc(st.start_ec) + ' – ' + esc(st.last_ec) + ')' : '') + '</div>' +
+                    '<div class="ds-since">' + esc(m.label || 'This month') + ': <b>' + (m.rate == null ? 'No data' : esc(m.rate) + '%') + '</b> · ' + esc(m.sessions || 0) + ' sessions</div>' +
+                    '<div class="ds-since">Year ' + esc(y.ec_year || '') + ': <b>' + (y.rate == null ? 'No data' : esc(y.rate) + '%') + '</b> · ' + esc(y.sessions || 0) + ' sessions</div>' +
+                    '<div class="ds-since">Open warnings: <b>' + open.length + '</b>' + (open.length ? ' · <a href="/admin/attendance_warnings.php?member_id=' + encodeURIComponent(memberId) + '&department=' + encodeURIComponent(k) + '">open list</a>' : '') + '</div>' +
+                    '</div></div>';
+            });
+            html += '</div>';
+            var all = [];
+            Object.keys(depts).forEach(function (k) { (depts[k].warnings || []).forEach(function (w) { all.push(w); }); });
+            if (all.length) {
+                html += '<table class="ds-hist"><thead><tr><th>Department</th><th>Warning</th><th>Stage</th><th>Opened</th><th>Status</th><th>Outcome</th></tr></thead><tbody>';
+                all.slice(0, 30).forEach(function (w) {
+                    html += '<tr><td>' + esc(w.department_label) + '</td><td>' + esc(w.reason) + (w.source === 'rollout' ? ' <em>(rollout)</em>' : '') + '</td>' +
+                        '<td>' + esc(w.kind === 'low_month' ? 'low month' : (w.stage || '')) + '</td>' +
+                        '<td>' + esc(w.opened_ec) + '</td>' +
+                        '<td><span class="ds-badge ' + (w.status === 'open' ? 'inactive' : 'active') + '">' + esc(w.status) + '</span>' + (w.status === 'open' && !w.below_threshold ? ' <em>no longer meets threshold</em>' : '') + '</td>' +
+                        '<td>' + esc(w.outcome_label || '') + (w.closure_note ? ' — ' + esc(w.closure_note) : '') + '</td></tr>';
+                });
+                html += '</tbody></table>';
+            } else {
+                html += '<div class="ds-note">No attendance warnings for this member.</div>';
+            }
+            el.innerHTML = html;
+        }).catch(function () { el.innerHTML = ''; });
     }
 
     function openModal(box, memberId, dept, to) {

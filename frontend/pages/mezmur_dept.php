@@ -159,6 +159,13 @@ ob_start();
                         <div class="school-stat-value" id="mzOvTakers">—</div>
                         <div class="school-stat-label">Attendance takers</div>
                     </div>
+                    <!-- Attendance alerting Phase 2: Open Attendance Warnings (Mezmur only, server-scoped) -->
+                    <a class="school-stat-card" id="aw-dashboard-card" href="/admin/attendance_warnings.php?department=mezmur" title="Open attendance warnings">
+                        <div class="school-stat-icon si-warn"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                        <div class="school-stat-value" id="mzOvWarnings" data-aw-total>—</div>
+                        <div class="school-stat-label">Open Attendance Warnings</div>
+                        <div class="stat-delta flat" id="mzOvWarningsSub"></div>
+                    </a>
                 </div>
 
                 <!-- Recent activity -->

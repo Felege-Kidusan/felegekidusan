@@ -79,9 +79,12 @@ class AttendanceSummarySingleWriterTests(unittest.TestCase):
     def test_null_year_rows_replaced_not_duplicated(self):
         self.assertIn("academic_year_id IS NULL", self.service)
 
-    def test_low_attendance_alert_is_deduped(self):
-        self.assertIn("ALERT_SUPPRESSION_DAYS", self.service)
-        self.assertIn("DATE_SUB(NOW(), INTERVAL ? DAY)", self.service)
+    def test_legacy_low_attendance_bell_removed(self):
+        # Attendance alerting Phase 2: the only producer of attendance bells is
+        # AttendanceWarningService (policy thresholds, department scoped).
+        self.assertNotIn("'attendance_issue'", self.service)
+        self.assertNotIn("maybeAlertLowAttendance($conn, $memberId, $stats", self.service)
+        self.assertNotIn("'attendance_alert'", self.api_attendance)
 
     def test_php_syntax(self):
         php = shutil.which("php")

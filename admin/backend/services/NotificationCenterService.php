@@ -234,7 +234,15 @@ final class NotificationCenterService
         $data = is_array($row['data'] ?? null) ? $row['data'] : [];
         $memberId = isset($data['member_id']) ? (int)$data['member_id'] : 0;
         if ($memberId > 0) {
-            return ['kind' => 'member', 'id' => $memberId];
+            $target = ['kind' => 'member', 'id' => $memberId];
+            // Attendance alerting Phase 2: additive deep-link to the warning.
+            // Kind stays 'member' so older apps keep routing to the profile.
+            $warningId = isset($data['warning_id']) ? (int)$data['warning_id'] : 0;
+            if ($warningId > 0) {
+                $target['warning_id'] = $warningId;
+                $target['department'] = (string)($data['department'] ?? '');
+            }
+            return $target;
         }
         $relatedId = isset($data['related_member_id']) ? (int)$data['related_member_id'] : 0;
         if ($relatedId > 0) {

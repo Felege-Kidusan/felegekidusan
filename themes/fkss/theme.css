@@ -376,6 +376,7 @@ body.light-mode .school-card { box-shadow: var(--school-shadow-sm); }
     transition: all 0.2s;
 }
 body.light-mode .school-stat-card { box-shadow: var(--school-shadow-sm); }
+a.school-stat-card { text-decoration: none; color: inherit; }
 .school-stat-card:hover { transform: translateY(-2px); border-color: var(--school-border-hover); box-shadow: var(--school-shadow-md); }
 .school-stat-icon {
     width: 42px; height: 42px; border-radius: 12px;

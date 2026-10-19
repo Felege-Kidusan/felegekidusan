@@ -11,6 +11,7 @@ require_once __DIR__ . '/backend/member_sync.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
 require_once __DIR__ . '/backend/services/AssignmentService.php';
 require_once __DIR__ . '/backend/services/AttendanceRecordService.php';
+require_once __DIR__ . '/backend/services/AttendanceWarningService.php';
 
 use App\Services\AssignmentService;
 use App\Services\AttendanceRecordService;
@@ -427,6 +428,8 @@ switch ($action) {
         if ($stmt->execute()) {
             // Update attendance summary for the RECORDED date's month.
             updateAttendanceSummary($conn, $memberId, $yearId, $attendanceDate);
+            // Attendance alerting Phase 2: Education edits re-evaluate the member.
+            \App\Services\AttendanceWarningService::safeEvaluateMany($conn, 'edu', [$memberId], $attendanceDate, $recordedBy);
             
             echo json_encode(['status' => 'success', 'message' => 'Attendance recorded!']);
         } else {
@@ -486,6 +489,14 @@ switch ($action) {
         foreach ($records as $record) {
             updateAttendanceSummary($conn, (int)$record['member_id'], $yearId, $attendanceDate);
         }
+        // Attendance alerting Phase 2 (flag-gated, never fails the save).
+        \App\Services\AttendanceWarningService::safeEvaluateMany(
+            $conn,
+            'edu',
+            \App\Services\AttendanceWarningService::memberIdsFromRecords($records),
+            $attendanceDate,
+            $recordedBy
+        );
         
         echo json_encode([
             'status' => 'success',

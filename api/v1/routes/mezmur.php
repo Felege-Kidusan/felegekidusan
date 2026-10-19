@@ -226,6 +226,13 @@ try {
                 error_log('API mezmur sheet save failed: ' . $error->getMessage());
                 err('Could not save attendance. Nothing was changed. Please try again.', 500);
             }
+            // Attendance alerting Phase 2: submitted sheets feed the risk engine.
+            if ($packetStatus === MezmurSubmissionService::STATUS_SUBMITTED
+                && class_exists('\\App\\Services\\AttendanceWarningService')) {
+                \App\Services\AttendanceWarningService::safeEvaluateMany(
+                    $conn, 'mezmur', \App\Services\AttendanceWarningService::memberIdsFromRecords($records), $date, (int)$auth['uid']
+                );
+            }
             ok([
                 'saved' => true,
                 'summary' => $summary,
@@ -236,6 +243,11 @@ try {
 
         // Legacy date-only save (older clients).
         $summary = MezmurAttendanceService::saveSheet($conn, $date, $records, (int)$auth['uid']);
+        if (class_exists('\\App\\Services\\AttendanceWarningService')) {
+            \App\Services\AttendanceWarningService::safeEvaluateMany(
+                $conn, 'mezmur', \App\Services\AttendanceWarningService::memberIdsFromRecords($records), $date, (int)$auth['uid']
+            );
+        }
         ok(['saved' => true, 'summary' => $summary]);
     }
 

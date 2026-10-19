@@ -422,11 +422,63 @@ if (is_int($id) && $sub === 'department-status' && ($method === 'GET' || $method
         err('Unable to change the department status right now.', 500);
     }
     logApiAction($auth['uid'], $auth['usr'], 'Department Status Changed', "ID: {$id} {$dept} {$result['previous']} -> {$result['status']}");
+    if (!empty($result['changed']) && $status === 'active' && class_exists('\\App\\Services\\AttendanceWarningService')) {
+        // Phase 2: reactivation re-evaluates (fresh period, stale data cleared).
+        \App\Services\AttendanceWarningService::safeEvaluate($conn, $dept, $id, ['actor' => (int)$auth['uid']]);
+    }
     ok([
         'available' => true,
         'changed' => $result['changed'],
         'message' => $result['changed'] ? ucfirst($dept === 'edu' ? 'Education' : 'Mezmur') . " status set to {$status}." : ($result['message'] ?? 'No change.'),
         'statuses' => \App\Services\DepartmentStatusService::statuses($conn, $id),
+    ]);
+}
+
+// ============================================================
+// GET /members/{id}/attendance-risk — the shared risk object per department
+// (Attendance alerting Phase 2). Replaces client-side colouring. Roles:
+// HR / Info / Edu / Mezmur / admins (department-scoped), teachers and
+// attendance takers for their own rosters are served through the sheet.
+// ============================================================
+if ($method === 'GET' && is_int($id) && $sub === 'attendance-risk') {
+    require_once dirname(__DIR__, 3) . '/admin/backend/services/AttendanceWarningService.php';
+    require_once dirname(__DIR__, 3) . '/admin/backend/services/AttendanceRiskService.php';
+    if (!class_exists('\\App\\Services\\AttendanceWarningService')) {
+        err('Attendance risk is temporarily unavailable.', 503);
+    }
+    $arRole = apiRoleOf($auth);
+    $arDepartments = \App\Services\AttendanceWarningService::departmentsForRole($arRole);
+    if ($arDepartments === []) {
+        err('You cannot view attendance risk.', 403);
+    }
+    $__exists = $conn->prepare('SELECT id FROM members WHERE id = ? LIMIT 1');
+    $__exists->bind_param('i', $id);
+    $__exists->execute();
+    $__found = $__exists->get_result()->fetch_assoc();
+    $__exists->close();
+    if (!$__found) err('Member not found', 404);
+    $req = trim((string)($_GET['department'] ?? ''));
+    if ($req !== '' && $req !== 'all') {
+        if (!in_array($req, $arDepartments, true)) err('You cannot view that department.', 403);
+        $arDepartments = [$req];
+    }
+    $risk = [];
+    foreach ($arDepartments as $d) {
+        try {
+            $risk[$d] = \App\Services\AttendanceWarningService::decorate(
+                $conn,
+                \App\Services\AttendanceRiskService::riskFor($conn, $d, $id)
+            );
+        } catch (\Throwable $e) {
+            reportInternalError('Attendance risk failed', $e->getMessage());
+            $risk[$d] = null;
+        }
+    }
+    ok([
+        'available' => \App\Services\AttendanceWarningService::available($conn),
+        'member_id' => $id,
+        'departments' => $arDepartments,
+        'risk' => $risk,
     ]);
 }
 

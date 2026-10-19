@@ -96,6 +96,8 @@ final class FeatureGate
             'attendance_taker.php' => 'attendance',
             'api_department_status.php' => 'attendance',
             'api_attendance_policy.php' => 'attendance',
+            'api_attendance_warnings.php' => 'attendance',
+            'attendance_warnings.php' => 'attendance',
             'api_reports.php' => 'reports',
             'api_reports_v2.php' => 'reports',
             'reports_v2.php' => 'reports',
