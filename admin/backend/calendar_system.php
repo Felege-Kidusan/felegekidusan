@@ -23,29 +23,14 @@ require_once __DIR__ . '/ethiopian_date.php';
  * Caches in session to avoid repeated DB queries
  */
 function wbws_get_calendar_mode($conn = null) {
-    // Check session cache first
-    if (!empty($_SESSION['wbws_calendar_mode'])) {
-        return $_SESSION['wbws_calendar_mode'];
+    // Ethiopian calendar is mandatory system-wide (attendance alerting
+    // requirements §10, 2026-10-19). The former dept_settings.calendar_mode
+    // / session override is intentionally ignored so a stale 'gregorian'
+    // row or session value can never switch user-facing dates back.
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        $_SESSION['wbws_calendar_mode'] = 'ethiopian';
     }
-    
-    $mode = 'ethiopian'; // Default to Ethiopian
-    
-    if ($conn) {
-        try {
-            // Schema/default row are deployment-managed by migration 013.
-            $r = $conn->query("SELECT setting_value FROM dept_settings WHERE setting_key = 'calendar_mode' LIMIT 1");
-            if ($r && $row = $r->fetch_assoc()) {
-                $mode = $row['setting_value'] ?: 'ethiopian';
-            } else {
-                $mode = 'ethiopian';
-            }
-        } catch (Exception $e) {
-            // Table might not exist yet
-        }
-    }
-    
-    $_SESSION['wbws_calendar_mode'] = $mode;
-    return $mode;
+    return 'ethiopian';
 }
 
 /**

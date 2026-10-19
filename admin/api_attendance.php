@@ -201,10 +201,10 @@ switch ($action) {
                 $res = $checkStmt->get_result()->fetch_assoc();
                 
                 if ($res && $res['absent_count'] == 3) {
-                    // Prevent duplicate notifications in the last 7 days
-                    $likeData = '%"member_id":' . $mId . '%';
-                    $recentCheck = $conn->prepare("SELECT id FROM notifications WHERE type = 'attendance_alert' AND data LIKE ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
-                    $recentCheck->bind_param("s", $likeData);
+                    // Prevent duplicate notifications in the last 7 days.
+                    // Exact JSON match (a LIKE prefix would also match member 12 for member 1).
+                    $recentCheck = $conn->prepare("SELECT id FROM notifications WHERE type = 'attendance_alert' AND JSON_EXTRACT(data, '$.member_id') = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
+                    $recentCheck->bind_param("i", $mId);
                     $recentCheck->execute();
                     if ($recentCheck->get_result()->num_rows === 0) {
                         $mDetails = $conn->query("SELECT student_name, father_name FROM members WHERE id = $mId")->fetch_assoc();
@@ -216,9 +216,12 @@ switch ($action) {
                         
                         $alertStmt->bind_param("sss", $title, $msg, $dataJson);
                         $alertStmt->execute();
-                        
-                        // Automatically flag as warning
-                        $conn->query("UPDATE members SET status = 'warning' WHERE id = $mId AND status = 'active'");
+
+                        // Phase 0 guardrail (attendance alerting requirements §4):
+                        // automation never writes members.status. The former
+                        // `UPDATE members SET status='warning'` was removed here;
+                        // the alert is informational until Phase 2 replaces it
+                        // with department-scoped attendance warnings.
                     }
                 }
             }

@@ -210,6 +210,10 @@ if (!defined('FEATURE_GRADES')) define('FEATURE_GRADES', true);
 if (!defined('FEATURE_REPORTS')) define('FEATURE_REPORTS', true);
 if (!defined('FEATURE_EXPORT_PDF')) define('FEATURE_EXPORT_PDF', true);
 if (!defined('FEATURE_MONITOR')) define('FEATURE_MONITOR', true);
+// Attendance alerting v2 (department status periods, attendance policies,
+// department-scoped warnings). Ships OFF; enable per deployment once the
+// Phase 1+ schema (sql/071+) has been applied.
+if (!defined('FEATURE_ATTENDANCE_V2')) define('FEATURE_ATTENDANCE_V2', false);
 
 // Destructive synthetic-data tooling is off in production unless a deployment
 // explicitly enables it in the out-of-web-root environment file.

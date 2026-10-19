@@ -99,6 +99,8 @@ define('TELEMETRY_HASH_SECRET', 'REPLACE_WITH_A_LONG_RANDOM_STRING_5'); // HMAC 
 // define('FEATURE_REPORTS', false);
 // define('FEATURE_EXPORT_PDF', false);
 // define('FEATURE_MONITOR', false);
+// Attendance alerting v2 is OFF by default; enable only after sql/071+ are applied.
+// define('FEATURE_ATTENDANCE_V2', true);
 
 // Test-data loading/deletion is disabled by default. Enable only in a controlled
 // staging environment, never on a live member database.

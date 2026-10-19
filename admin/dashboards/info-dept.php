@@ -3976,7 +3976,7 @@ function loadAttOverview() {
             const wt = data.week_trend;
             if (_attCharts.week) _attCharts.week.destroy();
             _attCharts.week = new Chart(document.getElementById('attWeekChart').getContext('2d'), {
-                type:'bar', data:{labels:wt.map(w=>w.day.slice(5)), datasets:[
+                type:'bar', data:{labels:wt.map(w=>(window.WBWSCalendar && WBWSCalendar.formatDate) ? WBWSCalendar.formatDate(w.day,'short') : w.day.slice(5)), datasets:[
                     {label:'Present',data:wt.map(w=>w.present_cnt),backgroundColor:'#16a34a',borderRadius:4},
                     {label:'Absent',data:wt.map(w=>w.absent_cnt),backgroundColor:'#ef4444',borderRadius:4}
                 ]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:10,font:{size:10}}}},scales:{y:{beginAtZero:true,stacked:true},x:{stacked:true,ticks:{font:{size:9}}}}}
@@ -4064,7 +4064,7 @@ function viewMemberAtt(memberId) {
             '<button onclick="document.getElementById(\'attMemDetail\').style.display=\'none\';document.getElementById(\'attMemResults\').style.display=\'block\'" class="text-xs text-orange-600 mb-3 hover:underline"><i class="fa-solid fa-arrow-left mr-1"></i>Back to results</button></div>' +
             (recs.length === 0 ? '<div class="panel p-4 text-center text-slate-400 text-xs">No attendance records in the last 90 days</div>' :
             '<div class="panel" style="max-height:350px;overflow:auto"><table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-3 py-2 text-left font-semibold text-slate-500">Date</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Status</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Check-in</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Notes</th></tr></thead><tbody>' +
-            recs.map(r => '<tr class="border-t border-slate-100"><td class="px-3 py-2">'+r.attendance_date+'</td><td class="px-3 py-2">'+attBadge(r.status)+'</td><td class="px-3 py-2 text-slate-400">'+(r.check_in_time||'—')+'</td><td class="px-3 py-2 text-slate-400">'+(r.notes||'—')+'</td></tr>').join('') +
+            recs.map(r => '<tr class="border-t border-slate-100"><td class="px-3 py-2">'+((typeof fmtDate === 'function') ? fmtDate(r.attendance_date) : r.attendance_date)+'</td><td class="px-3 py-2">'+attBadge(r.status)+'</td><td class="px-3 py-2 text-slate-400">'+(r.check_in_time||'—')+'</td><td class="px-3 py-2 text-slate-400">'+(r.notes||'—')+'</td></tr>').join('') +
             '</tbody></table></div>');
     });
 }
@@ -4101,13 +4101,16 @@ function searchForStatus() {
 }
 
 function quickStatusChange(memberId, name, currentStatus) {
-    const opts = ['active','warning','inactive'].filter(s => s !== currentStatus);
+    // Manual status changes: active <-> inactive only (HR / Information). The
+    // server enforces the same rule; 'warning' is no longer set by hand.
+    const opts = ['active','inactive'].filter(s => s !== currentStatus);
     const newStatus = prompt('Change status for ' + name + '\\nCurrent: ' + currentStatus + '\\n\\nType new status: ' + opts.join(', '));
-    if (!newStatus || !['active','warning','inactive'].includes(newStatus)) { if (newStatus !== null) attToast('Invalid status', false); return; }
-    const reason = prompt('Reason for change (optional):') || '';
+    if (!newStatus || !['active','inactive'].includes(newStatus)) { if (newStatus !== null) attToast('Invalid status', false); return; }
+    const reason = (prompt(newStatus === 'inactive' ? 'Reason for deactivation (required):' : 'Reason for change (optional):') || '').trim();
+    if (newStatus === 'inactive' && reason.length < 3) { attToast('A reason is required to deactivate a member', false); return; }
     fetch('/admin/api_attendance_info.php?action=update_status', {
         method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({member_id: memberId, new_status: newStatus, reason: reason})
+        body: JSON.stringify({member_id: memberId, new_status: newStatus, reason: reason, csrf_token: (typeof CSRF_TOKEN !== 'undefined' ? CSRF_TOKEN : '')})
     }).then(r => r.json()).then(d => {
         attToast(d.message, d.status === 'success');
         if (d.status === 'success') { searchForStatus(); _attOvLoaded = false; }

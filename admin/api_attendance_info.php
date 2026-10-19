@@ -25,6 +25,25 @@ $adminId = (int)($_SESSION['admin_id'] ?? 0);
 requireCsrfForPost();
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
+// ── Member-status writes: HR and Information ONLY (owner decision 2026-10-19,
+// ATTENDANCE_DEPT_STATUS_ALERTS_REQUIREMENTS §2 / §7). Education, teachers and
+// attendance takers keep the read-only monitoring actions of this API; admins
+// do not change member status through the attendance workflow. Enforced here,
+// server-side, independent of which dashboard rendered the button.
+const ATTENDANCE_STATUS_WRITER_ROLES = ['hr_dept', 'info_dept'];
+// Manual values allowed through this workflow. 'warning' is no longer set by
+// hand or by automation here; 'archived' has its own archive/restore flow.
+const ATTENDANCE_MANUAL_STATUSES = ['active', 'inactive'];
+if (in_array($action, ['update_status', 'bulk_status'], true)) {
+    $actorRole = (string)($_SESSION['admin_role'] ?? '');
+    if (!in_array($actorRole, ATTENDANCE_STATUS_WRITER_ROLES, true)) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'Only HR and Information may change member status.']);
+        exit;
+    }
+    require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+}
+
 // Ensure attendance table exists (safe check)
 try { $conn->query("SELECT 1 FROM attendance LIMIT 0"); } catch (Exception $e) {
     // Table doesn't exist - return empty data gracefully
@@ -174,8 +193,12 @@ case 'update_status':
     $newStatus = $input['new_status'] ?? '';
     $reason = trim($input['reason'] ?? '');
 
-    if (!$memberId || !in_array($newStatus, ['active','warning','inactive'])) {
-        echo json_encode(['status'=>'error','message'=>'Valid member_id and status required']);
+    if (!$memberId || !is_string($newStatus) || !in_array($newStatus, ATTENDANCE_MANUAL_STATUSES, true)) {
+        echo json_encode(['status'=>'error','message'=>'Valid member_id and status (active or inactive) required']);
+        break;
+    }
+    if ($newStatus === 'inactive' && mb_strlen($reason) < 3) {
+        echo json_encode(['status'=>'error','message'=>'A reason is required to deactivate a member.']);
         break;
     }
 
@@ -187,12 +210,24 @@ case 'update_status':
     $stmt->close();
     if (!$old) { echo json_encode(['status'=>'error','message'=>'Member not found']); break; }
 
-    $stmt = $conn->prepare("UPDATE members SET status = ? WHERE id = ?");
+    if ($old['status'] === 'archived') {
+        echo json_encode(['status'=>'error','message'=>'Archived members are restored through the archive workflow.']);
+        break;
+    }
+
+    $stmt = $conn->prepare("UPDATE members SET status = ? WHERE id = ? AND status != 'archived'");
     $stmt->bind_param('si', $newStatus, $memberId);
     if ($stmt->execute()) {
         // Log the change
         $details = "Status changed from '{$old['status']}' to '$newStatus'" . ($reason ? " — Reason: $reason" : '');
         $memberName = $old['student_name'] . ' ' . $old['father_name'];
+        \App\Services\SecurityAuditService::record($conn, 'Member Status Changed', [
+            'member_id' => $memberId,
+            'from' => (string)$old['status'],
+            'to' => $newStatus,
+            'reason' => mb_substr($reason, 0, 200),
+            'via' => 'attendance_info',
+        ], 'member', $memberId);
         try {
             $log = $conn->prepare("INSERT INTO activity_logs (user_id, username, action, details, entity_type, entity_id, ip_address) VALUES (?, ?, 'Status Change', ?, 'member', ?, ?)");
             $un = $_SESSION['admin_username'] ?? '';
@@ -217,20 +252,37 @@ case 'bulk_status':
     $newStatus = $input['new_status'] ?? '';
     $reason = trim($input['reason'] ?? '');
 
-    if (empty($memberIds) || !in_array($newStatus, ['active','warning','inactive'])) {
-        echo json_encode(['status'=>'error','message'=>'member_ids array and valid status required']);
+    if (!is_array($memberIds) || empty($memberIds) || !is_string($newStatus) || !in_array($newStatus, ATTENDANCE_MANUAL_STATUSES, true)) {
+        echo json_encode(['status'=>'error','message'=>'member_ids array and valid status (active or inactive) required']);
+        break;
+    }
+    if (count($memberIds) > 200) {
+        echo json_encode(['status'=>'error','message'=>'At most 200 members per bulk change.']);
+        break;
+    }
+    if ($newStatus === 'inactive' && mb_strlen($reason) < 3) {
+        echo json_encode(['status'=>'error','message'=>'A reason is required to deactivate members.']);
         break;
     }
 
     $updated = 0;
+    $changedIds = [];
     $stmt = $conn->prepare("UPDATE members SET status = ? WHERE id = ? AND status != 'archived'");
     foreach ($memberIds as $mid) {
         $mid = (int)$mid;
+        if ($mid <= 0) continue;
         $stmt->bind_param('si', $newStatus, $mid);
         $stmt->execute();
-        if ($stmt->affected_rows > 0) $updated++;
+        if ($stmt->affected_rows > 0) { $updated++; $changedIds[] = $mid; }
     }
     $stmt->close();
+    \App\Services\SecurityAuditService::record($conn, 'Member Status Bulk Changed', [
+        'to' => $newStatus,
+        'count' => $updated,
+        'member_ids' => array_slice($changedIds, 0, 50),
+        'reason' => mb_substr($reason, 0, 200),
+        'via' => 'attendance_info',
+    ], 'member', null);
 
     // Log bulk change
     try {

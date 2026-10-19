@@ -111,7 +111,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Get form values
     $registration_type = field('registration_type', $cur['registration_type'] ?? 'waiting');
     $member_type       = field('member_type', $cur['member_type'] ?? 'regular');
-    $status            = field('status', $cur['status'] ?? 'active');
+    // Member status (members.status) is a manual HR / Information decision
+    // (Attendance alerting requirements §4): only those roles may change it,
+    // only between active and inactive, and archived members are left alone.
+    // Every other role keeps the stored value regardless of what was posted.
+    $status            = (string)($cur['status'] ?? 'active');
+    $statusChanged     = false;
+    if (hasRole(['hr_dept', 'info_dept']) && $status !== 'archived') {
+        $postedStatus = field('status', $status);
+        if (in_array($postedStatus, ['active', 'inactive'], true) && $postedStatus !== $status) {
+            $statusChanged = true;
+            $status = $postedStatus;
+        }
+    }
     $student_name      = field('student_name', $cur['student_name'] ?? '');
     $baptismal_name    = field('baptismal_name', $cur['baptismal_name'] ?? '');
     $father_name       = field('father_name', $cur['father_name'] ?? '');
@@ -284,6 +296,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'member',
                 $id
             );
+            if ($statusChanged) {
+                \App\Services\SecurityAuditService::record(
+                    $conn,
+                    'Member Status Changed',
+                    ['member_id' => (int)$id, 'from' => (string)($cur['status'] ?? ''), 'to' => $status, 'via' => 'edit_form'],
+                    'member',
+                    $id
+                );
+            }
         }
         $conn->commit();
         // Identity v2: apply submitted positions, re-code if needed and
@@ -974,12 +995,20 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                     <div class="mm-card-body">
                         <div class="mm-form-group">
                             <label class="mm-label">Status</label>
+                            <?php $canEditStatus = hasRole(['hr_dept', 'info_dept']) && ($m['status'] ?? '') !== 'archived'; ?>
+                            <?php if ($canEditStatus): ?>
                             <select name="status" class="mm-input">
                                 <option value="active" <?= sel($m['status'], 'active') ?>>Active</option>
-                                <option value="warning" <?= sel($m['status'], 'warning') ?>>Warning</option>
                                 <option value="inactive" <?= sel($m['status'], 'inactive') ?>>Inactive</option>
-                                <option value="archived" <?= sel($m['status'], 'archived') ?>>Archived</option>
+                                <?php if (!in_array($m['status'] ?? '', ['active', 'inactive'], true)): ?>
+                                <option value="<?= htmlspecialchars((string)$m['status']) ?>" selected><?= htmlspecialchars(ucfirst((string)$m['status'])) ?> (current)</option>
+                                <?php endif; ?>
                             </select>
+                            <small style="color:#6b7280;display:block;margin-top:4px">Manual status is an HR / Information decision (active or inactive). Attendance warnings never change it automatically.</small>
+                            <?php else: ?>
+                            <input type="text" class="mm-input" value="<?= htmlspecialchars(ucfirst((string)($m['status'] ?? 'active'))) ?>" readonly disabled>
+                            <small style="color:#6b7280;display:block;margin-top:4px">Only HR or the Information department can change a member's status.</small>
+                            <?php endif; ?>
                         </div>
                         <div class="mm-row">
                             <div class="mm-form-group">

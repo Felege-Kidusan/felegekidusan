@@ -204,7 +204,7 @@ if ($method === 'GET' && is_int($id) && $sub === 'attendance') {
 if ($method === 'PUT' && is_int($id)) {
     apiRequireRole($auth, apiRolesPii());
 
-    $stmt = $conn->prepare("SELECT id, guardian_name, guardian_phone1, guardian_phone2 FROM members WHERE id = ?");
+    $stmt = $conn->prepare("SELECT id, status, guardian_name, guardian_phone1, guardian_phone2 FROM members WHERE id = ?");
     $stmt->bind_param('i', $id);
     $stmt->execute();
     $__memberBefore = $stmt->get_result()->fetch_assoc();
@@ -212,6 +212,27 @@ if ($method === 'PUT' && is_int($id)) {
     $stmt->close();
 
     $input = getBody();
+
+    // members.status is a manual HR / Information decision (attendance
+    // alerting requirements §4): only those roles may change it, only to
+    // active or inactive, never on an archived member. Anyone else sending
+    // "status" has the field silently ignored (other fields still apply).
+    $__statusChange = null;
+    $__statusStripped = false;
+    if (array_key_exists('status', $input)) {
+        $__requested = is_string($input['status']) ? strtolower(trim($input['status'])) : '';
+        $__current = (string)($__memberBefore['status'] ?? 'active');
+        $__mayChange = apiRoleIs($auth, ['hr_dept', 'info_dept'])
+            && in_array($__requested, ['active', 'inactive'], true)
+            && $__current !== 'archived';
+        if ($__mayChange && $__requested !== $__current) {
+            $input['status'] = $__requested;
+            $__statusChange = ['from' => $__current, 'to' => $__requested];
+        } else {
+            unset($input['status']);
+            $__statusStripped = true;
+        }
+    }
     if (array_key_exists('christian_name', $input) && !array_key_exists('baptismal_name', $input)) {
         $input['baptismal_name'] = $input['christian_name'];
     }
@@ -255,6 +276,9 @@ if ($method === 'PUT' && is_int($id)) {
     }
 
     if (empty($sets)) {
+        if ($__statusStripped) {
+            err('Member status can only be set to active or inactive by HR or the Information department.', 403);
+        }
         err('No fields to update. Send at least one field.');
     }
 
@@ -276,6 +300,9 @@ if ($method === 'PUT' && is_int($id)) {
     $stmt->close();
 
     logApiAction($auth['uid'], $auth['usr'], 'Member Updated', "ID: {$id}");
+    if ($__statusChange !== null) {
+        logApiAction($auth['uid'], $auth['usr'], 'Member Status Changed', "ID: {$id} {$__statusChange['from']} -> {$__statusChange['to']} (mobile)");
+    }
 
     // Family Link reverse-sync: guardian contact edits from the mobile app
     // flow into the linked primary guardian so every sibling follows

@@ -267,11 +267,11 @@ final class AttendanceSummaryService
             return;
         }
         try {
-            $marker = '%"member_id":' . $memberId . '%';
+            // Exact JSON match: a LIKE prefix would also match member 12 for member 1.
             $recent = $conn->prepare(
                 "SELECT id FROM notifications
                  WHERE type = 'attendance_issue'
-                   AND data LIKE ?
+                   AND JSON_EXTRACT(data, '$.member_id') = ?
                    AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
                  LIMIT 1"
             );
@@ -279,7 +279,7 @@ final class AttendanceSummaryService
                 return;
             }
             $days = self::ALERT_SUPPRESSION_DAYS;
-            $recent->bind_param('si', $marker, $days);
+            $recent->bind_param('ii', $memberId, $days);
             $recent->execute();
             $alreadySent = $recent->get_result()->num_rows > 0;
             $recent->close();

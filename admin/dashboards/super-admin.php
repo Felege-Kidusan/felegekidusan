@@ -1094,31 +1094,20 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
             <section id="section-settings" class="section <?= $activeSection === 'settings' ? 'active' : '' ?>"<?= $activeSection === 'settings' ? '' : ' hidden' ?>>
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-gear"></i> Settings</h2><p class="sec-desc">System configuration</p></div>
                 <div class="grid-2">
-                    <!-- CALENDAR SYSTEM -->
-                    <div class="card" style="border:2px solid <?= $calendarMode === 'ethiopian' ? '#7c3aed' : '#3b82f6' ?>">
+                    <!-- CALENDAR SYSTEM (fixed: Ethiopian only) -->
+                    <div class="card" style="border:2px solid #7c3aed">
                         <h3 class="card-title"><i class="fa-solid fa-calendar-days" style="color:#7c3aed"></i> Calendar System</h3>
-                        <p style="font-size:.75rem;color:#94a3b8;margin-bottom:.85rem">Choose the date system used across the entire application — all dashboards, date pickers, reports, and exports will use this calendar.</p>
-                        <div id="calendarSettingArea" style="display:flex;flex-direction:column;gap:.6rem">
-                            <label class="cal-option" style="display:flex;align-items:center;gap:.75rem;padding:.85rem 1rem;border-radius:12px;cursor:pointer;border:2px solid <?= $calendarMode === 'ethiopian' ? '#7c3aed' : '#334155' ?>;background:<?= $calendarMode === 'ethiopian' ? 'rgba(124,58,237,.1)' : 'transparent' ?>">
-                                <input type="radio" name="calMode" value="ethiopian" <?= $calendarMode === 'ethiopian' ? 'checked' : '' ?> style="accent-color:#7c3aed" onchange="saveCalendarMode('ethiopian')">
-                                <div>
-                                    <div style="font-weight:700;color:#e2e8f0;font-size:.85rem">🇪🇹 Ethiopian Calendar <span style="font-family:'Noto Sans Ethiopic';font-size:.75rem">(ዓ.ም.)</span></div>
-                                    <div style="font-size:.7rem;color:#94a3b8">መስከረም to ጳጉሜ • 13 months • Based on Ge'ez calendar</div>
-                                </div>
-                            </label>
-                            <label class="cal-option" style="display:flex;align-items:center;gap:.75rem;padding:.85rem 1rem;border-radius:12px;cursor:pointer;border:2px solid <?= $calendarMode === 'gregorian' ? '#3b82f6' : '#334155' ?>;background:<?= $calendarMode === 'gregorian' ? 'rgba(59,130,246,.1)' : 'transparent' ?>">
-                                <input type="radio" name="calMode" value="gregorian" <?= $calendarMode === 'gregorian' ? 'checked' : '' ?> style="accent-color:#3b82f6" onchange="saveCalendarMode('gregorian')">
-                                <div>
-                                    <div style="font-weight:700;color:#e2e8f0;font-size:.85rem">🌍 Gregorian Calendar (A.D.)</div>
-                                    <div style="font-size:.7rem;color:#94a3b8">January to December • 12 months • International standard</div>
-                                </div>
-                            </label>
+                        <p style="font-size:.75rem;color:#94a3b8;margin-bottom:.85rem">The Ethiopian calendar is used system-wide — every dashboard, date picker, report and export. This is a fixed policy and is not configurable.</p>
+                        <div style="display:flex;align-items:center;gap:.75rem;padding:.85rem 1rem;border-radius:12px;border:2px solid #7c3aed;background:rgba(124,58,237,.1)">
+                            <i class="fa-solid fa-lock" style="color:#a78bfa"></i>
+                            <div>
+                                <div style="font-weight:700;color:#e2e8f0;font-size:.85rem">🇪🇹 Ethiopian Calendar <span style="font-family:'Noto Sans Ethiopic';font-size:.75rem">(ዓ.ም.)</span></div>
+                                <div style="font-size:.7rem;color:#94a3b8">መስከረም to ጳጉሜ • 13 months • Based on Ge'ez calendar • system-wide, not configurable</div>
+                            </div>
                         </div>
                         <div style="margin-top:.75rem;padding:.6rem .85rem;background:rgba(124,58,237,.08);border-radius:10px;border:1px solid rgba(124,58,237,.15)">
-                            <div style="font-size:.7rem;color:#a78bfa;font-weight:600;margin-bottom:.2rem"><i class="fa-solid fa-info-circle"></i> Current Setting</div>
-                            <div style="font-size:.8rem;color:#e2e8f0" id="calCurrentDisplay">
-                                <?= $calendarMode === 'ethiopian' ? 'Ethiopian Calendar (ዓ.ም.) — Today: ' . wbws_format_date($today, 'long', $conn) : 'Gregorian Calendar — Today: ' . $today->format('F j, Y') ?>
-                            </div>
+                            <div style="font-size:.7rem;color:#a78bfa;font-weight:600;margin-bottom:.2rem"><i class="fa-solid fa-info-circle"></i> Today</div>
+                            <div style="font-size:.8rem;color:#e2e8f0" id="calCurrentDisplay"><?= wbws_format_date($today, 'long', $conn) ?></div>
                         </div>
                     </div>
                     <!-- GENERAL -->
@@ -1501,30 +1490,7 @@ require __DIR__ . '/../components/bottom_nav.php';
     <script src="/admin/js/failure_intelligence.js?v=20261006b"></script>
     <script src="/admin/js/super_admin.js?v=20261006a"></script>
     <script>
-        // Calendar mode save
-        async function saveCalendarMode(mode){
-            try{
-                const fd=new FormData();
-                fd.append('action','save_calendar_mode');
-                fd.append('mode',mode);
-                fd.append('csrf_token','<?= $csrfToken ?>');
-                const r=await fetch('/admin/api_settings.php',{method:'POST',body:fd,credentials:'same-origin'});
-                const d=await r.json();
-                if(d.status==='success'){
-                    // Update UI
-                    document.querySelectorAll('.cal-option').forEach(l=>{
-                        const v=l.querySelector('input[type=radio]').value;
-                        l.style.border='2px solid '+(v===mode?(mode==='ethiopian'?'#7c3aed':'#3b82f6'):'#334155');
-                        l.style.background=v===mode?(mode==='ethiopian'?'rgba(124,58,237,.1)':'rgba(59,130,246,.1)'):'transparent';
-                    });
-                    document.getElementById('calCurrentDisplay').innerHTML=d.display||'Setting saved';
-                    // Reload after 1s to apply globally
-                    setTimeout(()=>location.reload(),1000);
-                }else{
-                    alert(d.message||'Error saving');
-                }
-            }catch(e){alert('Network error');}
-        }
+        // Calendar mode is fixed to Ethiopian system-wide (no save handler).
 
         // ═══ BRANDING MANAGEMENT — COMPLETE SYSTEM ═══
         const CSRF='<?= $csrfToken ?? '' ?>';

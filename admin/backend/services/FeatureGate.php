@@ -19,6 +19,8 @@ final class FeatureGate
         'attendance' => 'FEATURE_ATTENDANCE',
         'grades' => 'FEATURE_GRADES',
         'reports' => 'FEATURE_REPORTS',
+        // Attendance alerting v2 (department status, policies, warnings). Default OFF.
+        'attendance_v2' => 'FEATURE_ATTENDANCE_V2',
         'export_pdf' => 'FEATURE_EXPORT_PDF',
         'monitor' => 'FEATURE_MONITOR',
     ];

@@ -627,7 +627,7 @@ $csrfToken = generateCsrfToken();
                     if (data.status === 'success' && data.history.length > 0) {
                         tbody.innerHTML = data.history.map(h => `
                             <tr>
-                                <td class="font-medium">${h.attendance_date}</td>
+                                <td class="font-medium">${(typeof fmtDate === 'function') ? fmtDate(h.attendance_date) : h.attendance_date}</td>
                                 <td>${h.total_recorded}</td>
                                 <td class="text-emerald-600 font-semibold">${h.present_count}</td>
                                 <td class="text-red-600 font-semibold">${h.absent_count}</td>
