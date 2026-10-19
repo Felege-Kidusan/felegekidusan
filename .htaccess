@@ -42,6 +42,12 @@ Options -Indexes
     RewriteRule ^admin/id_cards/qr_diagnostic\.php$ - [F,L]
     RewriteRule (^|/)leak_detector\.php$ - [F,L]
     RewriteRule (^|/)composer\.(json|lock)$ - [F,L]
+    # Repository artefacts are not web content: schema/migration SQL, documentation,
+    # test suites, operator scripts, CLI tools, vendored libraries, CI config and the
+    # Flutter source tree. Serving them discloses internals (schema, audit evidence).
+    RewriteRule ^(sql|docs|tests|scripts|tools|vendor|Mobile|\.github)(/|$) - [F,L]
+    RewriteRule (^|/)(database_schema\.sql|README\.md|ENTERPRISE_SECURITY_AUDIT_REPORT\.md|env\.example\.php|\.editorconfig|\.gitignore)$ - [F,L]
+    RewriteRule \.(sql|md|sh|py|lock|ya?ml|dist)$ - [F,L]
 </IfModule>
 
 # php -- BEGIN cPanel-generated handler, do not edit

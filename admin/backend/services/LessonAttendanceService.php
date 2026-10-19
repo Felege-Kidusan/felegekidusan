@@ -40,7 +40,7 @@ final class LessonAttendanceService
     public const SESSIONS = 'attendance_sessions';
     public const RECORDS = 'attendance_session_records';
     public const MAX_LESSON_NO = 6;
-    /** Roles that may read lesson history (HR / Info read‑only; School Admin reports only; Super Admin none — §8). */
+    /** Roles that may read lesson history (same read matrix as Phases 2–5: admins + Edu + teacher (own classes) + HR / Info read‑only). */
     public const READ_ROLES = ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'hr_dept', 'info_dept'];
     /** Roles that may save lesson sheets (teachers only inside their class + subject assignment). */
     public const WRITE_ROLES = ['teacher', 'edu_dept'];
@@ -186,6 +186,16 @@ final class LessonAttendanceService
             }
             $stmt->close();
         }
+        $memberIds = [];
+        foreach ($roster as $row) {
+            $memberIds[] = (int)($row['member_id'] ?? $row['id'] ?? 0);
+        }
+        $openWarnings = [];
+        try {
+            $openWarnings = AttendanceWarningService::openByMembers($conn, 'edu', $memberIds);
+        } catch (\Throwable $e) {
+            $openWarnings = [];
+        }
         $students = [];
         foreach ($roster as $row) {
             $mid = (int)($row['member_id'] ?? $row['id'] ?? 0);
@@ -200,6 +210,7 @@ final class LessonAttendanceService
                 'member_code' => (string)($row['member_code'] ?? ''),
                 'status' => $rec['status'] ?? null,
                 'note' => (string)($rec['note'] ?? ''),
+                'warning' => $openWarnings[$mid] ?? null,
             ];
         }
         return [
@@ -304,6 +315,9 @@ final class LessonAttendanceService
         if ($records === []) {
             throw new \DomainException('There are no attendance records to save.');
         }
+        if (!self::subjectIsActive($conn, $subjectId)) {
+            throw new \DomainException('Unknown or inactive subject.');
+        }
         $counts = SubmissionService::countsFromRecords($records);
 
         $conn->begin_transaction();
@@ -406,7 +420,9 @@ final class LessonAttendanceService
             $u->bind_param('isi', $actorId, $reason, $sessionId);
             $u->execute();
             $u->close();
-            $derived = self::deriveDay($conn, (int)$s['class_id'], (string)$s['session_date'], $s['academic_year_id'] !== null ? (int)$s['academic_year_id'] : null, $actorId, $memberIds);
+            // Re-derive as the lesson's teacher so the day rows / packet keep a
+            // teacher owner (the cancellation itself is attributed to $actorId).
+            $derived = self::deriveDay($conn, (int)$s['class_id'], (string)$s['session_date'], $s['academic_year_id'] !== null ? (int)$s['academic_year_id'] : null, (int)$s['teacher_id'], $memberIds);
             $conn->commit();
         } catch (\Throwable $e) {
             $conn->rollback();
@@ -424,8 +440,11 @@ final class LessonAttendanceService
      * Re‑derive the class/day rows of $memberIds from every submitted lesson
      * of (class, date) and write them through AttendanceRecordService::mergeSheet
      * (so the Phase 2/4 machinery and the sync triggers see a normal save).
-     * Members with no submitted lesson left keep whatever day row they had
-     * (nothing is deleted — §13); the day packet is refreshed as `submitted`.
+     * A member whose last submitted lesson was cancelled loses the DERIVED day
+     * row again (only rows this service wrote — note "derived from …" — are
+     * removed; a manually entered row is never touched; the lesson rows stay
+     * for history — §13). When no day row is left the packet goes back to
+     * `incomplete` so the class/day sheet is open again.
      * @param list<int> $memberIds
      */
     private static function deriveDay(\mysqli $conn, int $classId, string $date, ?int $yearId, int $actorId, array $memberIds): int
@@ -448,17 +467,27 @@ final class LessonAttendanceService
         $stmt->close();
 
         $records = [];
-        foreach ($byMember as $mid => $statuses) {
-            $day = self::deriveDayStatus($statuses);
+        $orphans = [];
+        foreach ($memberIds as $mid) {
+            $day = self::deriveDayStatus($byMember[$mid] ?? []);
             if ($day === null) {
+                $orphans[] = $mid;
                 continue;
             }
-            $records[] = ['member_id' => $mid, 'status' => $day, 'note' => 'derived from ' . count($statuses) . ' lesson(s)'];
+            $records[] = ['member_id' => $mid, 'status' => $day, 'note' => 'derived from ' . count($byMember[$mid]) . ' lesson(s)'];
         }
-        if ($records === []) {
-            return 0;
+        if ($orphans !== []) {
+            $rm = $conn->prepare(
+                'DELETE FROM attendance WHERE class_id = ? AND attendance_date = ? AND notes LIKE \'derived from %\' AND member_id IN (' . implode(',', $orphans) . ')'
+            );
+            $rm->bind_param('is', $classId, $date);
+            $rm->execute();
+            $rm->close();
         }
-        $saved = AttendanceRecordService::mergeSheet($conn, $classId, $date, $yearId, $actorId, $records);
+        $saved = 0;
+        if ($records !== []) {
+            $saved = AttendanceRecordService::mergeSheet($conn, $classId, $date, $yearId, $actorId, $records);
+        }
         // Day packet (T‑2: a saved sheet is a submission). Counts = all day rows of the class/date.
         $cnt = $conn->prepare("SELECT status, COUNT(*) AS c FROM attendance WHERE class_id = ? AND attendance_date = ? GROUP BY status");
         $cnt->bind_param('is', $classId, $date);
@@ -471,11 +500,15 @@ final class LessonAttendanceService
             $c['total'] += (int)$row['c'];
         }
         $cnt->close();
-        SubmissionService::upsertAttendance($conn, [
+        $packet = SubmissionService::upsertAttendance($conn, [
             'teacher_id' => $actorId, 'class_id' => $classId, 'date' => $date,
-            'status' => SubmissionService::STATUS_SUBMITTED, 'student_count' => $c['total'], 'year_id' => $yearId,
+            'status' => $c['total'] > 0 ? SubmissionService::STATUS_SUBMITTED : SubmissionService::STATUS_INCOMPLETE,
+            'student_count' => $c['total'], 'year_id' => $yearId,
             'present' => $c['present'], 'absent' => $c['absent'], 'late' => $c['late'], 'excused' => $c['excused'], 'force' => true,
         ]);
+        if (empty($packet['ok'])) {
+            throw new \RuntimeException('Attendance packet could not be updated.');
+        }
         return $saved;
     }
 
@@ -515,6 +548,23 @@ final class LessonAttendanceService
             return false;
         }
         $stmt->bind_param('iii', $teacherId, $classId, $subjectId);
+        $stmt->execute();
+        $ok = $stmt->get_result()->num_rows > 0;
+        $stmt->close();
+        return $ok;
+    }
+
+    /** True when the subject exists and is active. */
+    public static function subjectIsActive(\mysqli $conn, int $subjectId): bool
+    {
+        if ($subjectId <= 0) {
+            return false;
+        }
+        $stmt = $conn->prepare('SELECT 1 FROM subjects WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1');
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('i', $subjectId);
         $stmt->execute();
         $ok = $stmt->get_result()->num_rows > 0;
         $stmt->close();

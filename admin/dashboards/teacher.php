@@ -933,6 +933,13 @@ $csrfToken = generateCsrfToken();
         // subject opens a LESSON sheet; the day result is then calculated by
         // the server from all lessons and the day sheet becomes read-only.
         const attSubjectsCache = {};
+        let attReqSeq = 0; // ignore out-of-order responses when class/date/sheet change quickly
+        function attShowLoadError(message) {
+            attendanceData = [];
+            renderAttendanceTable([]);
+            attSetLocked(true, '');
+            showToast(message, 'error');
+        }
         function attSelectedLesson() {
             const sel = document.getElementById('attLessonSelect');
             const subjectId = sel ? sel.value : '';
@@ -988,12 +995,14 @@ $csrfToken = generateCsrfToken();
             const lesson = attSelectedLesson();
             document.getElementById('attLessonNo').style.display = lesson ? 'block' : 'none';
             const dateLabel = (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(date,'long'):date;
+            const seq = ++attReqSeq;
 
             if (lesson) {
                 fetch(`/admin/api_lesson_attendance.php?action=sheet&class_id=${classId}&subject_id=${lesson.subjectId}&date=${date}&lesson_no=${lesson.lessonNo}`, {credentials:'same-origin'})
                     .then(r => r.json())
                     .then(data => {
-                        if (data.status !== 'success') { showToast(data.message || 'Could not load the lesson sheet.', 'error'); return; }
+                        if (seq !== attReqSeq) return;
+                        if (data.status !== 'success' || !data.available) { attShowLoadError(data.message || 'Could not load the lesson sheet.'); return; }
                         const subjName = document.getElementById('attLessonSelect').selectedOptions[0].textContent;
                         document.getElementById('attTitle').textContent = `${subjName} — Lesson ${lesson.lessonNo}`;
                         document.getElementById('attSubtitle').textContent = `Date: ${dateLabel} | ${data.students.length} students` + (data.session ? ` | saved by ${data.session.teacher_name || 'teacher'} (${data.session.updated_at_ec})` : ' | not saved yet');
@@ -1003,14 +1012,16 @@ $csrfToken = generateCsrfToken();
                             (data.session && data.session.status === 'cancelled' ? '<span class="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">Cancelled by Education</span> ' + escapeHtml(data.session.cancel_reason || '') + ' — saving again re-opens this lesson. ' : '')
                             + attLessonSummary(data.other_lessons, 'Other lessons this day: '));
                     })
-                    .catch(() => showToast('Could not load the lesson sheet.', 'error'));
+                    .catch(() => { if (seq === attReqSeq) attShowLoadError('Could not load the lesson sheet.'); });
                 return;
             }
 
-            fetch(`/admin/api_attendance.php?action=get_class_attendance&class_id=${classId}&date=${date}`)
+            fetch(`/admin/api_attendance.php?action=get_class_attendance&class_id=${classId}&date=${date}`, {credentials:'same-origin'})
                 .then(r => r.json())
                 .then(data => {
-                    if (data.status === 'success') {
+                    if (seq !== attReqSeq) return;
+                    if (data.status !== 'success') { attShowLoadError(data.message || 'Could not load the class sheet.'); return; }
+                    {
                         document.getElementById('attTitle').textContent = data.class_name || 'Attendance';
                         document.getElementById('attSubtitle').textContent = `Date: ${dateLabel} | ${data.students.length} students`;
                         attendanceData = data.students;
@@ -1020,7 +1031,8 @@ $csrfToken = generateCsrfToken();
                             ? '<b>Day result is calculated from ' + lessons.length + ' lesson sheet(s)</b> — read-only here; pick the lesson above to change it. ' + attLessonSummary(lessons, '')
                             : '');
                     }
-                });
+                })
+                .catch(() => { if (seq === attReqSeq) attShowLoadError('Could not load the class sheet.'); });
         }
         
         function renderAttendanceTable(students) {
@@ -1088,13 +1100,18 @@ $csrfToken = generateCsrfToken();
             formData.append('records', JSON.stringify(sheet.records));
             formData.append('csrf_token', CSRF_TOKEN);
             
+            const saveBtn = document.getElementById('attSaveBtn');
+            if (saveBtn && saveBtn.disabled) return; // locked (derived day) or a save is already running
+            if (saveBtn) saveBtn.disabled = true;
             fetch(lesson ? '/admin/api_lesson_attendance.php' : '/admin/api_attendance.php', { method: 'POST', body: formData, credentials: 'same-origin' })
                 .then(r => r.json())
                 .then(data => {
-                    showToast(data.message, data.status === 'success' ? 'success' : 'error');
-                    if (data.status === 'success' && lesson) loadStudentsForAttendance();
+                    showToast(data.message || (data.status === 'success' ? 'Saved.' : 'Could not save attendance.'), data.status === 'success' ? 'success' : 'error');
+                    if (saveBtn) saveBtn.disabled = false;
+                    // reload after a successful save, or when another teacher's lesson sheet locked this day meanwhile
+                    if (data.status === 'success' || data.code === 'LESSON_DAY') loadStudentsForAttendance();
                 })
-                .catch(() => showToast('Attendance could not be saved. Check your connection and retry.', 'error'));
+                .catch(() => { if (saveBtn) saveBtn.disabled = false; showToast('Attendance could not be saved. Check your connection and retry.', 'error'); });
         }
         
         // ============================================================

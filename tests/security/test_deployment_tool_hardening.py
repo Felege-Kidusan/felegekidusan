@@ -50,6 +50,13 @@ class DeploymentToolHardeningTests(unittest.TestCase):
         ):
             self.assertIn(rule, self.apache)
 
+    def test_apache_denies_repository_artefacts(self):
+        """Audit 2026-10-20: schema SQL, docs (incl. audit evidence), tests, scripts, tools,
+        vendor, CI config and the Flutter tree are repository artefacts, never web content."""
+        self.assertIn(r"RewriteRule ^(sql|docs|tests|scripts|tools|vendor|Mobile|\.github)(/|$) - [F,L]", self.apache)
+        self.assertIn(r"RewriteRule \.(sql|md|sh|py|lock|ya?ml|dist)$ - [F,L]", self.apache)
+        self.assertIn("database_schema\\.sql", self.apache)
+
     def test_diagnostics_enforce_direct_non_http_contracts(self):
         for relative in ("leak_detector.php", "admin/leak_detector.php"):
             source = (ROOT / relative).read_text(encoding="utf-8")

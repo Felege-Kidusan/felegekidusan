@@ -1669,6 +1669,17 @@ class SubmissionService
             // reopened / rejected, with actor, reason, EC timestamp).
             $packet['events'] = AttendanceSubmissionEventService::forPacket($conn, 'edu', $id);
             $packet['can_reopen'] = ReviewTransitionPolicy::isReopenable((string)($packet['status'] ?? ''));
+            // Phase 6: when the day was derived from teacher lesson sheets the
+            // reviewer sees which lessons (subject, lesson no., teacher, counts).
+            $packet['lessons'] = [];
+            try {
+                if (!class_exists('\\App\\Services\\LessonAttendanceService')) {
+                    require_once __DIR__ . '/LessonAttendanceService.php';
+                }
+                $packet['lessons'] = LessonAttendanceService::sessionsForDay($conn, (int)$packet['class_id'], (string)($packet['attendance_date'] ?? ''), true);
+            } catch (\Throwable $e) {
+                $packet['lessons'] = [];
+            }
         } elseif (($packet['submission_type'] ?? '') === self::TYPE_MARKLIST && !empty($packet['assessment_id'])) {
             $packet['rows'] = self::marklistRows($conn, (int)$packet['assessment_id']);
         }

@@ -74,10 +74,14 @@ class Phase6StaticGuards(unittest.TestCase):
         self.assertIn("if ($statuses === []) {\n            return null;", body)  # no submitted lesson → no day row
         # day rows only through the shared service; nothing deleted from attendance
         self.assertIn("AttendanceRecordService::mergeSheet($conn, $classId, $date, $yearId, $actorId, $records)", body)
-        self.assertNotRegex(body, r"(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+attendance\b(?!_session)", "the service never writes `attendance` directly")
+        self.assertNotRegex(body, r"(INSERT\s+INTO|UPDATE)\s+attendance\b(?!_session)", "the service never writes `attendance` rows directly")
+        # the only DELETE on `attendance` removes rows THIS service derived (guarded by the derived note)
+        self.assertEqual(len(re.findall(r"DELETE\s+FROM\s+attendance\b(?!_session)", body)), 1)
+        self.assertIn("notes LIKE \\'derived from %\\' AND member_id IN", body)
+        self.assertIn("SubmissionService::STATUS_INCOMPLETE", body)  # no lesson left → day open again
         self.assertNotRegex(body, r"DELETE\s+FROM\s+' \. self::SESSIONS", "lessons are cancelled, never deleted")
         # packet stays the single review surface; warnings re-evaluated after commit
-        self.assertIn("'status' => SubmissionService::STATUS_SUBMITTED", body)
+        self.assertIn("'status' => $c['total'] > 0 ? SubmissionService::STATUS_SUBMITTED : SubmissionService::STATUS_INCOMPLETE", body)
         self.assertIn("AttendanceWarningService::safeEvaluateMany($conn, 'edu', $memberIds, $date, $teacherId)", body)
         # gating: existing flag + table presence (no new flag — simplicity)
         self.assertIn("FeatureGate::isEnabled('attendance_v2')", body)
@@ -91,6 +95,8 @@ class Phase6StaticGuards(unittest.TestCase):
         self.assertNotIn("'session_id' => $sessionId, 'class_id'", body)
         self.assertIn("'Lesson Attendance Saved'", body)
         self.assertIn("'Lesson Attendance Cancelled'", body)
+        self.assertIn("if (!self::subjectIsActive($conn, $subjectId)) {", body)
+        self.assertIn("AttendanceWarningService::openByMembers($conn, 'edu', $memberIds)", body)  # warning badges on lesson sheets too
         # Ethiopian labels only
         self.assertIn("ethio_date_format($date, 'F j, Y')", body)
         self.assertNotIn("date('Y-m-d'", body)
@@ -120,6 +126,8 @@ class Phase6StaticGuards(unittest.TestCase):
         self.assertIn("AttendanceRecordService::normalizeCompleteSheet($records, $roster)", api)  # complete roster, same as class/day
         self.assertIn("if ($role !== 'edu_dept') {\n            $fail(403, 'Only the Education department can cancel a lesson.');", api)
         self.assertIn("$scopeIds = $role === 'teacher' ? $teacherClassIds() : null;", api)
+        self.assertIn("$fail(403, 'This member is not in one of your classes.');", api)  # no member enumeration by teachers
+        self.assertIn("$fail(422, 'A lesson sheet cannot be saved for a future date.');", api)
         self.assertIn("SecurityRateLimiter", api)
         self.assertIn("SecurityAuditActor::fromAuthenticatedContext", api)
         # error disclosure discipline: only DomainException (user-safe) messages reach the client
@@ -142,6 +150,12 @@ class Phase6StaticGuards(unittest.TestCase):
         self.assertIn("api_lesson_attendance.php?action=subjects", t)
         self.assertIn("formData.append('action', lesson ? 'save' : 'save_attendance')", t)
         self.assertIn("attSetLocked(lessons.length > 0", t)
+        self.assertIn("const seq = ++attReqSeq;", t)  # out-of-order responses ignored
+        self.assertIn("if (saveBtn && saveBtn.disabled) return;", t)  # no double submit / locked day
+        taker = read("admin/dashboards/attendance_taker.php")
+        self.assertIn("attSetDerivedLock(data.lessons || [])", taker)
+        self.assertIn("$packet['lessons'] = LessonAttendanceService::sessionsForDay(", read("admin/backend/services/SubmissionService.php"))
+        self.assertIn("Derived from lesson sheets:", read("admin/dashboards/edu_dept.php"))
         page = read(self.PAGE)
         self.assertIn("LessonAttendanceService::READ_ROLES", page)
         self.assertNotIn("$conn", page)
@@ -287,6 +301,16 @@ class Phase6LiveGuards(unittest.TestCase):
         # teacher sees own classes only
         st, r = t.get_json("/admin/api_lesson_attendance.php?action=member&member_id=900001")
         self.assertEqual(r["total"], 2)
+        outside = db("SELECT member_id FROM class_enrollments WHERE class_id NOT IN (SELECT class_id FROM teacher_assignments WHERE teacher_id=3) LIMIT 1").lstrip("\t")
+        if outside:
+            self.assertEqual(t.get_json(f"/admin/api_lesson_attendance.php?action=member&member_id={outside}")[0], 403)
+        # future date refused; unknown subject refused
+        st, r = t.post_json("/admin/api_lesson_attendance.php", {"action": "save", "class_id": self.CLASS_ID, "subject_id": self.SUBJECT_ID,
+                                                                  "date": "2099-01-01", "lesson_no": 1, "records": self._records({})})
+        self.assertEqual(st, 422, r)
+        st, r = self.s("edu_dept").post_json("/admin/api_lesson_attendance.php", {"action": "save", "class_id": self.CLASS_ID, "subject_id": 999999,
+                                                                                   "date": self.DATE, "lesson_no": 1, "records": self._records({})})
+        self.assertEqual(st, 422, r)
         try:
             taker = self.s("attendance_taker")
         except AssertionError:
@@ -313,6 +337,30 @@ class Phase6LiveGuards(unittest.TestCase):
         st, r = self._save("teacher", 2, {})
         self.assertEqual(st, 200, r)
         self.assertEqual(db(f"SELECT status FROM attendance_sessions WHERE id={l2['id']}").lstrip("\t"), "submitted")
+        self.assertEqual(self._day_rows(), {m: "present" for m in self.MEMBERS})
+        # packet owner stays a teacher even after an Education cancel
+        self.assertEqual(db(f"SELECT teacher_id FROM grade_submissions WHERE class_id={self.CLASS_ID} AND attendance_date='{self.DATE}' AND submission_type='attendance'").lstrip("\t"), "3")
+
+    def test_05_cancelling_every_lesson_reopens_the_day(self):
+        edu = self.s("edu_dept")
+        st, day = edu.get_json(f"/admin/api_lesson_attendance.php?action=day&class_id={self.CLASS_ID}&date={self.DATE}")
+        for l in day["sessions"]:
+            if l["status"] != "cancelled":
+                st, r = edu.post_json("/admin/api_lesson_attendance.php", {"action": "cancel", "session_id": l["id"], "reason": "No lessons took place"})
+                self.assertEqual(st, 200, r)
+        self.assertEqual(self._day_rows(), {}, "derived rows removed when no submitted lesson is left")
+        self.assertEqual(db(f"SELECT COUNT(*) FROM attendance_session_records r JOIN attendance_sessions s ON s.id=r.session_id WHERE s.class_id={self.CLASS_ID} AND s.session_date='{self.DATE}'").lstrip("\t"), "8", "lesson rows kept for history")
+        self.assertEqual(db(f"SELECT status FROM grade_submissions WHERE class_id={self.CLASS_ID} AND attendance_date='{self.DATE}' AND submission_type='attendance'").lstrip("\t"), "incomplete")
+        # the class/day sheet is open again
+        t = self.s("teacher")
+        data = urllib.parse.urlencode({"action": "save_attendance", "class_id": self.CLASS_ID, "date": self.DATE,
+                                       "records": json.dumps(self._records({900002: "absent"})), "csrf_token": t.csrf}).encode()
+        st, body = t._open(BASE + "/admin/api_attendance.php", data=data)
+        self.assertEqual(st, 200, body[:200])
+        self.assertEqual(self._day_rows()[900002], "absent")
+        # … and a new lesson sheet overrides the manual row again (derived, not deleted)
+        st, r = self._save("teacher", 1, {})
+        self.assertEqual(st, 200, r)
         self.assertEqual(self._day_rows(), {m: "present" for m in self.MEMBERS})
 
 

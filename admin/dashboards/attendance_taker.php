@@ -274,10 +274,12 @@ $csrfToken = generateCsrfToken();
                                 <h3 class="font-semibold" id="attTitle">Attendance</h3>
                                 <p class="text-sm text-slate-500" id="attSubtitle"></p>
                             </div>
-                            <button onclick="saveAttendance()" class="btn btn-success">
+                            <button onclick="saveAttendance()" class="btn btn-success" id="attSaveBtn">
                                 <i class="fa-solid fa-save"></i> Save Attendance
                             </button>
                         </div>
+                        <!-- Phase 6: a day that already has teacher lesson sheets is derived and read-only here -->
+                        <div id="attLessonInfo" class="px-4 py-2 text-sm text-amber-800 bg-amber-50 border-b" style="display:none;"></div>
                         
                         <!-- Summary -->
                         <div class="p-4 bg-slate-50 border-b flex flex-wrap gap-4" id="attSummary">
@@ -447,6 +449,7 @@ $csrfToken = generateCsrfToken();
                         attendanceData = data.students;
                         renderAttendanceTable(data.students);
                         updateSummary();
+                        attSetDerivedLock(data.lessons || []);
                     } else {
                         loadEnrolledStudents(classId, date);
                     }
@@ -520,10 +523,26 @@ $csrfToken = generateCsrfToken();
             document.getElementById('countExcused').textContent = summary.excused;
         }
         
+        // Phase 6: when teachers saved lesson sheets for this class/day the day
+        // result is calculated from them; the class/day sheet is read-only.
+        function attSetDerivedLock(lessons) {
+            const locked = lessons.length > 0;
+            const btn = document.getElementById('attSaveBtn');
+            if (btn) { btn.disabled = locked; btn.style.opacity = locked ? '0.5' : ''; }
+            document.getElementById('attQuickActions').style.display = locked ? 'none' : 'flex';
+            document.querySelectorAll('#attendanceBody .att-btn, #attendanceBody .att-note').forEach(el => { el.disabled = locked; });
+            const info = document.getElementById('attLessonInfo');
+            if (info) {
+                info.textContent = locked ? 'Read-only: this day is calculated from ' + lessons.length + ' lesson sheet(s) saved by the teacher(s). Changes are made on the lesson sheets.' : '';
+                info.style.display = locked ? 'block' : 'none';
+            }
+        }
         function saveAttendance() {
             const classId = document.getElementById('attClassSelect').value;
             const date = document.getElementById('attDateInput').value;
             if (!classId) return;
+            const saveBtn = document.getElementById('attSaveBtn');
+            if (saveBtn && saveBtn.disabled) return;
 
             const sheet = AttendanceSheet.collect(document.getElementById('attendanceBody'));
             // Default-absent: the sheet is complete by construction (every
@@ -541,12 +560,15 @@ $csrfToken = generateCsrfToken();
             formData.append('records', JSON.stringify(sheet.records));
             formData.append('csrf_token', CSRF_TOKEN);
             
-            fetch('/admin/api_attendance.php', { method: 'POST', body: formData })
+            if (saveBtn) saveBtn.disabled = true;
+            fetch('/admin/api_attendance.php', { method: 'POST', body: formData, credentials: 'same-origin' })
                 .then(r => r.json())
                 .then(data => {
-                    showToast(data.message, data.status === 'success' ? 'success' : 'error');
+                    if (saveBtn) saveBtn.disabled = false;
+                    showToast(data.message || (data.status === 'success' ? 'Saved.' : 'Could not save attendance.'), data.status === 'success' ? 'success' : 'error');
+                    if (data.code === 'LESSON_DAY') loadStudentsForAttendance();
                 })
-                .catch(() => showToast('Attendance could not be saved. Check your connection and retry.', 'error'));
+                .catch(() => { if (saveBtn) saveBtn.disabled = false; showToast('Attendance could not be saved. Check your connection and retry.', 'error'); });
         }
         
         function handleBarcodeScan(code) {

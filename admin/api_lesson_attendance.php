@@ -148,7 +148,7 @@ switch ($action) {
         }
         $classId = (int)($_GET['class_id'] ?? 0);
         $subjectId = (int)($_GET['subject_id'] ?? 0);
-        $lessonNo = max(1, (int)($_GET['lesson_no'] ?? 1));
+        $lessonNo = min(LessonAttendanceService::MAX_LESSON_NO, max(1, (int)($_GET['lesson_no'] ?? 1)));
         $date = $dateParam((string)($_GET['date'] ?? ''));
         if ($subjectId <= 0) {
             $fail(400, 'Subject is required.');
@@ -176,6 +176,22 @@ switch ($action) {
             $ok($meta + ['items' => [], 'total' => 0]);
         }
         $scopeIds = $role === 'teacher' ? $teacherClassIds() : null;
+        if ($scopeIds !== null) {
+            // Teachers may only look up members enrolled in one of their classes
+            // (no member-name enumeration by id).
+            $ids = array_values(array_filter(array_map('intval', $scopeIds), static fn($i) => $i > 0));
+            $inScope = false;
+            if ($ids !== []) {
+                $chk = $conn->prepare('SELECT 1 FROM class_enrollments WHERE member_id = ? AND class_id IN (' . implode(',', $ids) . ') LIMIT 1');
+                $chk->bind_param('i', $memberId);
+                $chk->execute();
+                $inScope = $chk->get_result()->num_rows > 0;
+                $chk->close();
+            }
+            if (!$inScope) {
+                $fail(403, 'This member is not in one of your classes.');
+            }
+        }
         $ms = $conn->prepare('SELECT id, student_name, father_name, member_code FROM members WHERE id = ? LIMIT 1');
         $ms->bind_param('i', $memberId);
         $ms->execute();
@@ -198,6 +214,9 @@ switch ($action) {
         $subjectId = (int)($input['subject_id'] ?? 0);
         $lessonNo = (int)($input['lesson_no'] ?? 1);
         $date = $dateParam((string)($input['date'] ?? ''));
+        if ($date > (new DateTime('now', new DateTimeZone('Africa/Addis_Ababa')))->format('Y-m-d')) {
+            $fail(422, 'A lesson sheet cannot be saved for a future date.');
+        }
         if ($subjectId <= 0) {
             $fail(400, 'Subject is required.');
         }

@@ -3601,6 +3601,7 @@ function paintReviewShell(s){
             <div><strong style="color:#64748b">Updated:</strong> ${s.updated_at?fD(s.updated_at):(s.submitted_at?fD(s.submitted_at):'—')}</div>
             ${s.reviewer_name?`<div><strong style="color:#64748b">Reviewed by:</strong> ${esc(s.reviewer_name)}</div>`:''}
             ${s.review_notes?`<div style="grid-column:1/-1"><strong style="color:#64748b">Notes:</strong> ${esc(s.review_notes)}</div>`:''}
+            ${isAtt&&(s.lessons||[]).length?`<div style="grid-column:1/-1"><strong style="color:#64748b">Derived from lesson sheets:</strong> ${s.lessons.map(l=>`<span class="ch ${l.status==='cancelled'?'ch-p':'ch-i'}" title="${esc(l.teacher_name||'')}">${esc((l.subject_name||('Subject #'+l.subject_id))+' L'+l.lesson_no)}${l.status==='cancelled'?' (cancelled)':` · ${l.present}P/${l.absent}A/${l.late}L/${l.excused}E`}</span>`).join(' ')}</div>`:''}
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
             <h4 style="font-weight:700;font-size:.85rem;margin:0"><i class="fa-solid fa-list-ol" style="color:#7c3aed"></i> ${isAtt?'Attendance sheet':'Student scores'}</h4>
