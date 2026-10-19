@@ -202,6 +202,12 @@ class Phase3StaticGuards(unittest.TestCase):
         self.assertIn("Widget _historyCard(List events)", rv)
         self.assertIn("'Reopen for correction'", rv)
         self.assertIn("_askReasonAndDecide('rejected', reopen: true)", rv)
+        # audit A-2 / A-3: admins never see return/reject on attendance sheets
+        self.assertIn("bool get _canReturnOrReject", rv)
+        self.assertIn("if (open && _canReturnOrReject)", rv)
+        mjs = read("frontend/js/mezmur.js")
+        self.assertIn("=== 'mezmur_dept';", mjs)
+        self.assertIn("opt.disabled = !deptOnly; opt.hidden = !deptOnly;", mjs)
         self.assertIn("version: 1.7.1+38", (fl / "pubspec.yaml").read_text(encoding="utf-8"))
 
     def test_php_syntax(self):
@@ -245,7 +251,7 @@ class Phase3LiveGuards(unittest.TestCase):
         db(f"DELETE FROM grade_submissions WHERE submission_type='attendance' AND class_id={cls.CLASS_ID} AND attendance_date IN ('{dates}')")
         db(f"DELETE FROM attendance_warnings WHERE member_id={cls.MID}")
         db(f"DELETE FROM notifications WHERE type='attendance_warning' AND JSON_EXTRACT(data,'$.member_id') = {cls.MID}")
-        db("DELETE FROM notifications WHERE type='attendance_submission_review' AND JSON_EXTRACT(data,'$.reason') LIKE 'P3-TEST%'")
+        db("DELETE FROM notifications WHERE type='attendance_submission_review' AND JSON_UNQUOTE(JSON_EXTRACT(data,'$.reason')) LIKE 'P3-TEST%'")
         db(f"DELETE FROM mezmur_submissions WHERE attendance_date='{cls.MEZ_DATE}' AND section='{cls.MEZ_SECTION}'")
         db("DELETE FROM attendance_submission_events WHERE reason LIKE 'P3-TEST%' OR (department='edu' AND packet_id NOT IN (SELECT id FROM grade_submissions)) OR (department='mezmur' AND packet_id NOT IN (SELECT id FROM mezmur_submissions))")
         db("UPDATE attendance_policies SET consecutive_threshold=5, prolonged_threshold=8, critical_threshold=10, auto_deactivate=0, low_rate_threshold=75.00, min_sessions=99")
@@ -453,6 +459,9 @@ class Phase3LiveGuards(unittest.TestCase):
         self.assertEqual((tgt, sdept), ("8", "mezmur_dept"))
         self.assertIn("P3-TEST reopen mezmur", message)
         self.assertNotRegex(message, r"\b\d{4}-\d{2}-\d{2}\b")
+        # A-4: canonical section labels in the text (code stays in data)
+        self.assertNotIn(f"for {self.MEZ_SECTION} on", message)
+        self.assertIn("Children", message)
         payload = json.loads(data_json)
         self.assertEqual((payload["section"], payload["attendance_date"]), (self.MEZ_SECTION, self.MEZ_DATE))
 

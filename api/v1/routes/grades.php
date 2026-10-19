@@ -1367,8 +1367,9 @@ if ($method === 'POST' && $action === 'submission-review') {
 
     // Phase 3 (attendance alerting): same decision path as the web console
     // — H9 transition guard, race-safe UPDATE, audit, per-packet history and
-    // attendance-warning recalculation. Approved ATTENDANCE sheets may be
-    // reopened / rejected by edu_dept only (reason required).
+    // attendance-warning recalculation. ATTENDANCE sheets: every non-approve
+    // decision (return / reject / reopen, submitted or approved) is edu_dept
+    // only (owner decision Q-1, 2026-10-19); reason required.
     $review = \App\Services\SubmissionService::reviewPacket(
         $conn, $submissionId, $newStatus, $notes, (int)$userId, (string)$userRole, 'mobile'
     );

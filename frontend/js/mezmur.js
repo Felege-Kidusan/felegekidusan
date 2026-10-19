@@ -2778,8 +2778,19 @@
                     ? '<p class="packet-reopen-note">This packet is approved and counts for attendance. Reopening or rejecting it needs a reason and immediately recalculates streaks and warnings for its members.</p>'
                     : '') +
                 packetHistoryHtml(p.events);
+            // Q-1 (2026-10-19): return / reject / reopen are department-only
+            // decisions; admins only approve. Hide what the server would
+            // refuse so the modal never offers a dead end.
+            var deptOnly = ((window.APP || {}).role || '') === 'mezmur_dept';
+            if (!deptOnly && p.status === 'approved') {
+                window.toast('Only the Mezmur department can reopen or reject an approved packet.', 'e');
+                return;
+            }
+            Array.prototype.forEach.call($('mzRvDecision').options, function (opt) {
+                if (opt.value !== 'approved') { opt.disabled = !deptOnly; opt.hidden = !deptOnly; }
+            });
             // A previously returned packet keeps its decision context.
-            $('mzRvDecision').value = p.status === 'submitted' ? 'approved' : 'revision_needed';
+            $('mzRvDecision').value = (p.status === 'submitted' || !deptOnly) ? 'approved' : 'revision_needed';
             $('mzRvNotes').value = '';
             showError($('mzRvError'), '');
             openModalF('mzReviewModal', '#mzRvDecision');

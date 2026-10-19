@@ -704,6 +704,19 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
         (widget.dept == 'mezmur' && role == UserRoles.mezmurDept);
   }
 
+  /// Owner decision Q-1 (2026-10-19): on an ATTENDANCE sheet (every Mezmur
+  /// packet; Education packets with submission_type == 'attendance') only
+  /// the owning department may return or reject — admins may only approve.
+  /// The server refuses anyway; this keeps dead-end buttons off the screen.
+  bool get _canReturnOrReject {
+    final isAttendance = widget.dept == 'mezmur' ||
+        '${_sub['submission_type'] ?? ''}' == 'attendance';
+    if (!isAttendance) return true;
+    final role = _api.userRole;
+    return (widget.dept == 'edu' && role == UserRoles.eduDept) ||
+        (widget.dept == 'mezmur' && role == UserRoles.mezmurDept);
+  }
+
   Future<void> _askReasonAndDecide(String status, {bool reopen = false}) async {
     final ctrl = TextEditingController();
     final reject = status == 'rejected';
@@ -796,7 +809,7 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
         title: Text(widget.title, style: const TextStyle(fontSize: 16)),
         automaticallyImplyLeading: true,
         actions: [
-          if (open)
+          if (open && _canReturnOrReject)
             PopupMenuButton<String>(
               onSelected: (v) {
                 if (v == 'rejected') _askReasonAndDecide('rejected');
@@ -1070,12 +1083,14 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
   }
 
   Widget _decisionBar() {
+    final canReturn = _canReturnOrReject;
     return SafeArea(
               child: Container(
                 color: Theme.of(context).scaffoldBackgroundColor,
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
                 child: Row(
                   children: [
+                    if (canReturn)
                     Expanded(
                       child: SizedBox(
                         height: 56,
@@ -1094,7 +1109,7 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    if (canReturn) const SizedBox(width: 12),
                     Expanded(
                       child: SizedBox(
                         height: 56,

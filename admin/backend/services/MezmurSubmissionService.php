@@ -670,14 +670,24 @@ final class MezmurSubmissionService
                 require_once dirname(__DIR__) . '/ethiopian_date.php';
             }
             $dateEc = ethio_date_format(new \DateTime($date), 'F j, Y');
+            // Canonical section names (the stored value is a code such as
+            // 'children'); fall back to the raw value for unknown codes.
+            $sectionAm = MemberCategory::normalizeSectionAm($section) ?? $section;
+            $sectionEn = $section;
+            foreach (MemberCategory::sections() as $meta) {
+                if (($meta['am'] ?? '') === $sectionAm) {
+                    $sectionEn = (string)$meta['en'];
+                    break;
+                }
+            }
             $what = $newStatus === self::STATUS_REJECTED
                 ? ($reopen ? 'rejected (it was approved)' : 'rejected')
                 : ($reopen ? 'reopened for correction (it was approved)' : 'returned for correction');
             $whatAm = $newStatus === self::STATUS_REJECTED ? 'ውድቅ ተደርጓል' : 'ለማስተካከያ ተመልሷል';
             $title = ($newStatus === self::STATUS_REJECTED ? 'Mezmur attendance rejected' : 'Mezmur attendance returned')
                 . ' · ' . $whatAm;
-            $message = "Your Mezmur attendance for {$section} on {$dateEc} was {$what}.\nReason: {$reason}\n"
-                . "የ{$section} የ{$dateEc} የመዝሙር ተገኝነት {$whatAm}። ምክንያት፡ {$reason}";
+            $message = "Your Mezmur attendance for {$sectionEn} on {$dateEc} was {$what}.\nReason: {$reason}\n"
+                . "የ{$sectionAm} የ{$dateEc} የመዝሙር ተገኝነት {$whatAm}። ምክንያት፡ {$reason}";
             $data = json_encode([
                 'submission_id' => $packetId, 'department' => 'mezmur', 'section' => $section,
                 'attendance_date' => $date, 'attendance_date_ec' => $dateEc,

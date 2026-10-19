@@ -276,8 +276,9 @@ switch ($action) {
         // Phase 3 (attendance alerting): ONE shared decision path for web
         // and mobile — transition guard (H9), race-safe guarded UPDATE,
         // SecurityAudit trail, per-packet history, and the attendance
-        // warning recalculation after every transition. Approved
-        // ATTENDANCE sheets may be reopened / rejected by edu_dept only.
+        // warning recalculation after every transition. ATTENDANCE sheets:
+        // every non-approve decision (return / reject / reopen, submitted or
+        // approved) is edu_dept only — owner decision Q-1, 2026-10-19.
         $review = \App\Services\SubmissionService::reviewPacket(
             $conn, $submissionId, (string)$newStatus, $notes, (int)$userId, (string)$userRole, 'web'
         );

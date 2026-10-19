@@ -161,11 +161,11 @@ $pass('locked upsert refuses with the teacher-style message');
 
 // ── review: reason mandatory for returns ──────────────────────
 $pid = (int)$conn->query("SELECT id FROM mezmur_submissions LIMIT 1")->fetch_assoc()['id'];
-$bad = MezmurSubmissionService::reviewPacket($conn, $pid, 'revision_needed', 'x', 2);
+$bad = MezmurSubmissionService::reviewPacket($conn, $pid, 'revision_needed', 'x', 2, 'mezmur_dept');
 $bad['ok'] === false or $fail('short reason must be refused');
 $pass('review refuses short reasons');
 
-$good = MezmurSubmissionService::reviewPacket($conn, $pid, 'revision_needed', 'እባክዎ ማስታወሻውን ያረጋግጡ', 2);
+$good = MezmurSubmissionService::reviewPacket($conn, $pid, 'revision_needed', 'እባክዎ ማስታወሻውን ያረጋግጡ', 2, 'mezmur_dept');
 $good['ok'] or $fail('valid review failed: ' . $good['message']);
 $st = $conn->query("SELECT status FROM mezmur_submissions WHERE id = $pid")->fetch_assoc()['status'];
 $st === 'revision_needed' or $fail('status after review: ' . $st);
@@ -183,7 +183,7 @@ $pass('revision_needed unlocks taker + delivers the reason');
 // The packet was RETURNED to the taker, so it is no longer awaiting
 // review and cannot be approved until it is resubmitted. Before the fix
 // this silently succeeded.
-$tooEarly = MezmurSubmissionService::reviewPacket($conn, $pid, 'approved', '', 2);
+$tooEarly = MezmurSubmissionService::reviewPacket($conn, $pid, 'approved', '', 2, 'mezmur_dept');
 $tooEarly['ok'] === false or $fail('approving a returned packet must be refused');
 ($tooEarly['code'] ?? '') === 'invalid_transition' or $fail('expected invalid_transition, got: ' . ($tooEarly['code'] ?? 'none'));
 $conn->query("SELECT status FROM mezmur_submissions WHERE id = $pid")->fetch_assoc()['status'] === 'revision_needed'
@@ -207,11 +207,11 @@ $fresh = $conn->query(
 $pass('finding D: resubmission clears the previous reviewer decision');
 
 // approve path
-$ap = MezmurSubmissionService::reviewPacket($conn, $pid, 'approved', '', 2);
+$ap = MezmurSubmissionService::reviewPacket($conn, $pid, 'approved', '', 2, 'mezmur_dept');
 $ap['ok'] or $fail('approve failed');
 
 // a replayed decision must not flip an already-approved packet
-$replay = MezmurSubmissionService::reviewPacket($conn, $pid, 'rejected', 'changed my mind', 2);
+$replay = MezmurSubmissionService::reviewPacket($conn, $pid, 'rejected', 'changed my mind', 2, 'mezmur_dept');
 $replay['ok'] === false or $fail('an approved packet must not be re-decided');
 $conn->query("SELECT status FROM mezmur_submissions WHERE id = $pid")->fetch_assoc()['status'] === 'approved'
     or $fail('replayed review corrupted the decision');

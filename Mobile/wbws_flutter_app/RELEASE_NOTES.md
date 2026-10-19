@@ -24,6 +24,9 @@ Mobile side of attendance alerting Phase 3 (owner decisions Q‑1/Q‑2/Q‑3,
   so the correction can be made at once.
 - Return / reject dialogs name the action (Return / Reopen / Reject)
   instead of always saying "Return".
+- Admin accounts no longer see Return / Reject on attendance sheets
+  (Education attendance packets and every Mezmur packet) — those decisions
+  belong to the department; Approve stays.
 - No schema change; no new feature flag.
 
 ## 1.7.0 (build 37) — Attendance warnings (Phase 2 mobile)
