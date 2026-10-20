@@ -288,6 +288,21 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
     return (_weekStart.difference(newYearWeekStart).inDays ~/ 7) + 1;
   }
 
+  /// Keeps the monthly grid on the Ethiopian month of [_selected] so a day
+  /// picked in the weekly/daily view is visible when switching to Monthly.
+  void _syncMonthToSelected() {
+    final e = EthiopianDate.fromGregorian(_selected);
+    _ecMonth = e.month;
+    _ecYear = e.year;
+  }
+
+  void _select(DateTime d) {
+    setState(() {
+      _selected = _dateOnly(d);
+      _syncMonthToSelected();
+    });
+  }
+
   void _goToday() {
     final t = EthiopianDate.today();
     setState(() {
@@ -436,7 +451,10 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
       final on = _view == v;
       return Expanded(
         child: GestureDetector(
-          onTap: () => setState(() => _view = v),
+          onTap: () => setState(() {
+            _view = v;
+            _syncMonthToSelected();
+          }),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             padding: const EdgeInsets.symmetric(vertical: 9),
@@ -558,7 +576,7 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
           child: Row(
             children: [
               _navArrow(Icons.chevron_left_rounded,
-                  () => setState(() => _selected = _selected.subtract(const Duration(days: 7)))),
+                  () => _select(_selected.subtract(const Duration(days: 7)))),
               Expanded(
                 child: Column(
                   children: [
@@ -575,7 +593,7 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
                 ),
               ),
               _navArrow(Icons.chevron_right_rounded,
-                  () => setState(() => _selected = _selected.add(const Duration(days: 7)))),
+                  () => _select(_selected.add(const Duration(days: 7)))),
             ],
           ),
         ),
@@ -616,7 +634,7 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
     final has = _hasClasses(date);
     final ec = EthiopianDate.fromGregorian(date);
     return GestureDetector(
-      onTap: () => setState(() => _selected = date),
+      onTap: () => _select(date),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 3),
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -673,7 +691,7 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
           child: Row(
             children: [
               _navArrow(Icons.chevron_left_rounded,
-                  () => setState(() => _selected = _selected.subtract(const Duration(days: 1)))),
+                  () => _select(_selected.subtract(const Duration(days: 1)))),
               Expanded(
                 child: Column(
                   children: [
@@ -691,7 +709,7 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
                 ),
               ),
               _navArrow(Icons.chevron_right_rounded,
-                  () => setState(() => _selected = _selected.add(const Duration(days: 1)))),
+                  () => _select(_selected.add(const Duration(days: 1)))),
             ],
           ),
         ),
@@ -829,7 +847,7 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
     final isToday = _isToday(date);
     final has = _hasClasses(date);
     return GestureDetector(
-      onTap: () => setState(() => _selected = date),
+      onTap: () => _select(date),
       child: Container(
         height: 44,
         margin: const EdgeInsets.all(2),
@@ -980,20 +998,27 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (s.room != null)
-                        Text(s.room!,
-                            style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                                color: color)),
-                      if (!s.isMakeup && s.periodLabel.isNotEmpty)
-                        Text(s.periodLabel,
-                            style: const TextStyle(
-                                fontSize: 10.5, color: AppTheme.textSecondary)),
-                    ],
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 88),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (s.room != null)
+                          Text(s.room!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: color)),
+                        if (!s.isMakeup && s.periodLabel.isNotEmpty)
+                          Text(s.periodLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 10.5, color: AppTheme.textSecondary)),
+                      ],
+                    ),
                   ),
                 ],
               ),

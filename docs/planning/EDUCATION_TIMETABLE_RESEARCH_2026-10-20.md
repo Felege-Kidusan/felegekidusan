@@ -230,3 +230,20 @@ Owner instruction: "build the mobile screens for the teacher like the eduid, sam
 **Verification**: `flutter analyze lib` → 0 errors (Flutter stable SDK fetched into the sandbox for analysis only; infos are pre-existing style hints). `tests/security/test_timetable_mobile.py` (8 static + 5 live) green; full suite 2304 passed / 0 failed.
 
 **Not in scope / owner actions**: APK must be built by the owner (`flutter build apk`), then `latest_build` on the server. Education/admin mobile timetable views and builder on mobile are not included (web builder remains the only editor).
+
+### 11.1 Final audit + end‑to‑end test of T‑3 (2026‑10‑20, after `7162d42`)
+
+Audited one file at a time: `api/v1/routes/timetable.php`, `TimetableService::teacherSchedule/formatMakeup`, `teacher_timetable_screen.dart`, `timetable_cache.dart`, `teacher_home.dart` card, `session_service.dart` clears, `api_service.dart`, release pins.
+
+| # | Finding | Severity | Fix |
+|---|---------|----------|-----|
+| A‑1 | Makeup filter used DB `CURDATE()` while `today_date` used Africa/Addis_Ababa — could disagree around midnight on a foreign‑TZ shared host. | Low | `teacherSchedule()` now binds the Addis date to `lesson_date >= ?` and returns the same value as `today_date` (web + mobile). |
+| A‑2 | Monthly grid did not follow a day picked in Weekly/Daily (grid stayed on the old EC month while the list below showed another). | Low (UX) | `_select()` / `_syncMonthToSelected()` keep `_ecMonth/_ecYear` in step on every day/week/view change. |
+| A‑3 | Long room names (≤50 chars) could overflow the period card's trailing column. | Low (UX) | Trailing column capped at 88 px, single‑line ellipsis. |
+| — | Auth/roles, teacher forced to own id, 405 on writes, 404 on unknown sub‑path, rate limit, no `getMessage` leakage, no sensitive columns in payload (`formatMakeup` whitelist), per‑user cache owner check, cache wiped on sign‑out and scope change, EC‑only strings, no pubspec/package change, no schema change. | OK | — |
+
+**End‑to‑end tests added**
+- `tests/security/test_timetable_mobile.py::TimetableWebToMobileEndToEnd` — Education builds class 2 on the WEB (real CSRF session: `save_days`, 3× `save_period` incl. break, 2× `save_entry`, 2× `save_makeup`) → teacher reads `/api/v1/timetable/week` + `/today` on the PHONE API: every placed lesson/makeup returned with exact times/rooms; break period and another teacher's lesson never leak; `days{}` mirrors `lessons[]`; EC labels cross‑checked against an independent JDN conversion; Education + School Admin may read the teacher via `teacher_id`, Info 403; Education clears a lesson + deletes a makeup on the web → phone reflects it; audit rows present.
+- `Mobile/wbws_flutter_app/test/teacher_timetable_screen_test.dart` (Flutter widget tests, 5): screen pumped with `AppTheme`, teacher adopted into `ApiService`, cache pre‑seeded; asserts header/options, "Now" + "Makeup" pills, class/room, "2 lessons", maroon selected segment, cached‑copy banner, **no Gregorian month/year text anywhere**, Daily nav + Back to Today, Monthly EC grid (all days drawn once, 13‑month wrap → next EC year, Today returns), recoverable error state, per‑user cache isolation.
+
+**Results**: `flutter analyze lib` 0 errors; `flutter test` **615 passed** (whole app suite incl. new file); Python full suite **2304 passed / 0 failed**; timetable live + E2E **22 passed**; fixtures leave 0 timetable rows.

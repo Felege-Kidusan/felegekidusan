@@ -11,16 +11,19 @@ mobile login rate limit).
 """
 from __future__ import annotations
 
+import datetime as _dt
+import json
 import re
 import sys
 import unittest
 import urllib.error
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_attendance_phase1 import (  # noqa: E402
-    USERS, db, mobile, mobile_token, _live_ready,
+    BASE, USERS, WebSession, db, mobile, mobile_token, _live_ready,
 )
 
 FLUTTER = ROOT / "Mobile/wbws_flutter_app"
@@ -220,6 +223,166 @@ class TimetableMobileLive(unittest.TestCase):
         tok = _token("hr_dept")
         code, _ = mobile(tok, "GET", "/api/v1/timetable/week")
         self.assertEqual(code, 403)
+
+
+def _ec_from_gregorian(ymd: str):
+    """Independent EC conversion (JDN epoch 1723856) used to cross-check the API labels."""
+    d = _dt.date.fromisoformat(ymd)
+    a = (14 - d.month) // 12
+    y = d.year + 4800 - a
+    m = d.month + 12 * a - 3
+    jdn = d.day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
+    e = 1723856
+    r = (jdn - e) % 1461
+    n = r % 365 + 365 * (r // 1460)
+    year = 4 * ((jdn - e) // 1461) + r // 365 - r // 1460
+    return year, n // 30 + 1, n % 30 + 1
+
+
+EC_MONTHS = ["Meskerem", "Tikimt", "Hidar", "Tahsas", "Tir", "Yekatit", "Megabit",
+             "Miyazya", "Ginbot", "Sene", "Hamle", "Nehase", "Pagume"]
+
+
+@unittest.skipUnless(_live_ready(), "live test server / seeded DB not available")
+class TimetableWebToMobileEndToEnd(unittest.TestCase):
+    """Education builds class 2 on the WEB builder (real CSRF session, real
+    api_timetable.php actions) → the teacher reads it on the PHONE API.
+    Everything Education placed must come back, nothing else, with EC labels
+    that match an independent conversion; Education / admins can look at the
+    teacher; non-education roles cannot. Cleans up through the web API too."""
+
+    CLASS = 2
+
+    @classmethod
+    def setUpClass(cls):
+        if db("SHOW TABLES LIKE 'timetable_class_days'") == "":
+            raise unittest.SkipTest("sql/077 not applied")
+        cls._wipe()
+        cls.edu = WebSession("edu_dept")
+        cls.T = int(db("SELECT id FROM users WHERE username='audit_teach'"))
+        subs = [int(x) for x in db("SELECT id FROM subjects WHERE is_active=1 ORDER BY id LIMIT 2").split()]
+        cls.S1, cls.S2 = subs[0], subs[-1]
+        cls.created = {"periods": [], "makeups": []}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._wipe()
+
+    @classmethod
+    def _wipe(cls):
+        db(f"DELETE FROM timetable_entries WHERE class_id={cls.CLASS}")
+        db(f"DELETE FROM timetable_periods WHERE class_id={cls.CLASS}")
+        db(f"DELETE FROM timetable_class_days WHERE class_id={cls.CLASS}")
+        db(f"DELETE FROM timetable_makeup_classes WHERE class_id={cls.CLASS}")
+
+    def web(self, action, payload):
+        payload = dict(payload)
+        payload["csrf_token"] = self.edu.csrf
+        st, body = self.edu._open(
+            BASE + "/admin/api_timetable.php?action=" + action,
+            data=urllib.parse.urlencode(payload, doseq=True).encode(),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        d = json.loads(body.decode("utf-8"))
+        self.assertEqual(d.get("status"), "success", (action, d))
+        return d
+
+    def test_end_to_end(self):
+        C, T = self.CLASS, self.T
+        today = _dt.date.today()
+        today_iso = today.isoweekday()
+        other_iso = 1 if today_iso != 1 else 2
+
+        # ── 1. Education builds the class on the web ──────────────────
+        self.web("save_days", {"class_id": C, "days[]": [today_iso, other_iso]})
+        p1 = self.web("save_period", {"class_id": C, "label": "E2E P1", "start_time": "07:30", "end_time": "08:15"})["period_id"]
+        pb = self.web("save_period", {"class_id": C, "label": "E2E Break", "start_time": "08:15", "end_time": "08:30", "is_break": 1})["period_id"]
+        p2 = self.web("save_period", {"class_id": C, "label": "E2E P2", "start_time": "08:30", "end_time": "09:15"})["period_id"]
+        self.web("save_entry", {"class_id": C, "period_id": p1, "day_of_week": today_iso, "subject_id": self.S1, "teacher_id": T, "room": "E2E Room A"})
+        self.web("save_entry", {"class_id": C, "period_id": p2, "day_of_week": other_iso, "subject_id": self.S2, "teacher_id": T, "room": ""})
+        # a lesson of ANOTHER teacher in the same class must not leak into ours
+        # (the seed has a single teacher account, so this row is seeded directly)
+        year_id = int(db("SELECT id FROM academic_years WHERE status='active' ORDER BY id DESC LIMIT 1"))
+        db(f"INSERT INTO timetable_entries (class_id,academic_year_id,period_id,day_of_week,subject_id,teacher_id,room)"
+           f" VALUES ({C},{year_id},{p2},{today_iso},{self.S2},1,'X')")
+        mk_today = self.web("save_makeup", {"class_id": C, "lesson_date": today.isoformat(), "start_time": "16:00", "end_time": "16:40",
+                                             "subject_id": self.S1, "teacher_id": T, "reason": "E2E today"})
+        nxt = today + _dt.timedelta(days=3)
+        self.web("save_makeup", {"class_id": C, "lesson_date": nxt.isoformat(), "start_time": "16:00", "end_time": "16:40",
+                                            "subject_id": self.S2, "teacher_id": T, "reason": "E2E later"})
+
+        # ── 2. Teacher reads it on the phone ──────────────────────────
+        tok = _token("teacher")
+        code, body = mobile(tok, "GET", "/api/v1/timetable/week")
+        self.assertEqual(code, 200, body)
+        d = body["data"]
+        self.assertEqual(d["teacher_id"], T)
+        self.assertEqual(d["today_date"], today.isoformat())
+        self.assertEqual(d["today_iso"], today_iso)
+
+        mine = [l for l in d["lessons"] if l["class_id"] == C]
+        self.assertEqual(len(mine), 2, mine)
+        by_day = {l["day_of_week"]: l for l in mine}
+        self.assertEqual(by_day[today_iso]["period_label"], "E2E P1")
+        self.assertEqual(by_day[today_iso]["start_time"], "07:30")
+        self.assertEqual(by_day[today_iso]["end_time"], "08:15")
+        self.assertEqual(by_day[today_iso]["room"], "E2E Room A")
+        self.assertEqual(by_day[today_iso]["subject_id"], self.S1)
+        self.assertEqual(by_day[other_iso]["period_label"], "E2E P2")
+        self.assertEqual(by_day[other_iso]["room"], "")
+        # the break period and the other teacher's lesson never appear
+        self.assertFalse(any(l["period_id"] == pb for l in d["lessons"]))
+        self.assertFalse(any(l["room"] == "X" for l in d["lessons"]))
+        # days{} mirrors lessons[] and working_days lists only days with lessons
+        for iso, l in by_day.items():
+            self.assertIn(l, d["days"][str(iso)])
+        self.assertTrue({today_iso, other_iso} <= set(d["working_days"]))
+
+        mks = {m["reason"]: m for m in d["makeup_classes"] if m["class_id"] == C}
+        self.assertEqual(set(mks), {"E2E today", "E2E later"})
+        self.assertEqual(mks["E2E today"]["lesson_date"], today.isoformat())
+        self.assertEqual(mks["E2E later"]["lesson_date"], nxt.isoformat())
+        self.assertEqual(mks["E2E today"]["start_time"], "16:00")
+
+        # ── 3. Ethiopian labels cross-checked independently ───────────
+        for ymd, label in ((d["today_date"], d["today_date_ec"]),
+                           (nxt.isoformat(), mks["E2E later"]["lesson_date_ec"])):
+            ey, em, ed = _ec_from_gregorian(ymd)
+            dow = _dt.date.fromisoformat(ymd).strftime("%A")
+            self.assertEqual(label, f"{dow}, {EC_MONTHS[em - 1]} {ed}, {ey}", (ymd, label))
+        self.assertNotRegex(d["today_date_ec"], r"\b20(2[0-9])\b")  # no Gregorian year in the EC label
+
+        # ── 4. /today = only today's weekday + today's makeups ────────
+        code, body = mobile(tok, "GET", "/api/v1/timetable/today")
+        self.assertEqual(code, 200, body)
+        t = body["data"]
+        self.assertEqual([l["period_label"] for l in t["lessons"] if l["class_id"] == C], ["E2E P1"])
+        self.assertEqual([m["reason"] for m in t["makeup_classes"] if m["class_id"] == C], ["E2E today"])
+
+        # ── 5. Education / admin may look at this teacher; others cannot ─
+        for role in ("edu_dept", "school_admin"):
+            rtok = _token(role)
+            code, body = mobile(rtok, "GET", f"/api/v1/timetable/week?teacher_id={T}")
+            self.assertEqual(code, 200, (role, body))
+            self.assertEqual(body["data"]["teacher_id"], T)
+            self.assertEqual(len([l for l in body["data"]["lessons"] if l["class_id"] == C]), 2)
+            # without teacher_id they get their own (normally empty) schedule, never an error
+            code, body = mobile(rtok, "GET", "/api/v1/timetable/week")
+            self.assertEqual(code, 200)
+            self.assertNotEqual(body["data"]["teacher_id"], T)
+        code, body = mobile(_token("info_dept"), "GET", "/api/v1/timetable/week")
+        self.assertEqual(code, 403, body)
+
+        # ── 6. Education clears a lesson + removes a makeup on the web → phone follows ─
+        self.web("clear_entry", {"class_id": C, "period_id": p1, "day_of_week": today_iso})
+        self.web("delete_makeup", {"class_id": C, "makeup_id": mk_today["makeup_id"]})
+        code, body = mobile(tok, "GET", "/api/v1/timetable/week")
+        self.assertEqual(code, 200, body)
+        d = body["data"]
+        self.assertEqual([l["period_label"] for l in d["lessons"] if l["class_id"] == C], ["E2E P2"])
+        self.assertEqual([m["reason"] for m in d["makeup_classes"] if m["class_id"] == C], ["E2E later"])
+        # the web audit trail recorded Education's work (no mobile write path exists)
+        self.assertGreaterEqual(int(db("SELECT COUNT(*) FROM activity_logs WHERE entity_type='timetable' AND action LIKE 'Timetable%'")), 6)
 
 
 if __name__ == "__main__":

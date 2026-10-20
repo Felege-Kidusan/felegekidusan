@@ -253,6 +253,11 @@ class TimetableService
                 $stmt->close();
             }
         }
+        // "Today" is Ethiopia's calendar day, not the DB server's CURDATE()
+        // (shared hosting may run in another time zone) — the same date is
+        // returned as today_date so the makeup filter and the label agree.
+        $today = new \DateTime('now', new \DateTimeZone('Africa/Addis_Ababa'));
+        $todayYmd = $today->format('Y-m-d');
         $makeups = [];
         if ($teacherId > 0 && $yearId > 0) {
             $stmt = $conn->prepare(
@@ -261,11 +266,11 @@ class TimetableService
                  LEFT JOIN subjects s ON s.id = m.subject_id
                  LEFT JOIN users u ON u.id = m.teacher_id
                  JOIN classes c ON c.id = m.class_id
-                 WHERE m.teacher_id = ? AND m.academic_year_id = ? AND m.lesson_date >= CURDATE()
+                 WHERE m.teacher_id = ? AND m.academic_year_id = ? AND m.lesson_date >= ?
                  ORDER BY m.lesson_date, m.start_time LIMIT 50"
             );
             if ($stmt) {
-                $stmt->bind_param('ii', $teacherId, $yearId);
+                $stmt->bind_param('iis', $teacherId, $yearId, $todayYmd);
                 $stmt->execute();
                 $r = $stmt->get_result();
                 while ($row = $r->fetch_assoc()) {
@@ -274,12 +279,11 @@ class TimetableService
                 $stmt->close();
             }
         }
-        $today = new \DateTime('now', new \DateTimeZone('Africa/Addis_Ababa'));
         return [
             'status'      => 'success',
             'teacher_id'  => $teacherId,
             'today_iso'   => (int)$today->format('N'),
-            'today_date'  => $today->format('Y-m-d'),
+            'today_date'  => $todayYmd,
             'lessons'     => $lessons,
             'makeups'     => $makeups,
         ];
