@@ -193,3 +193,55 @@ scans and the live role journeys — not by a human‑style reading of every lin
   (teacher 403 / Information 200); mobile partial name PUT; School Admin
   role switch + restore audit rows; Finance add → update → delete audit rows.
 * No schema change; no migration for the owner; shared‑hosting compatible.
+
+---
+
+# PASS 3 — dashboards, JS, remaining APIs, public pages (same day)
+
+## 12. Method
+* Role/CSRF/method gates read for every remaining `admin/api_*.php`,
+  `backend/*.php`, `member_file.php`, `register_submit.php`, `member.php`,
+  `logout.php`, `app_session.php`; `ROLE_MAP` cross‑checked.
+* Repo‑wide SQL‑construction scan (`->query("… $var`, dynamic `ORDER BY`):
+  every dynamic fragment is an int cast, a whitelist lookup or a constant.
+* DOM‑XSS scan: a tokenizer (`/tmp/xss_scan.py`) extracted every template
+  literal assigned to `innerHTML` / `insertAdjacentHTML` in all dashboards,
+  pages and JS files and listed `${…}` interpolations that go through no
+  escaper; each candidate was read by hand. `onclick="fn('${esc(x)}')"`
+  patterns were traced into the receiving function (browser entity‑decodes
+  attribute values, so the receiver must escape again).
+* Upload handling (`api_branding.php`, `GalleryService`, `MemberFileService`)
+  and the storage layout (private documents outside the web root,
+  `uploads/.htaccess` denies scripts) re‑checked.
+
+## 13. Findings and patches
+
+| # | Severity | File | Problem → Fix |
+|---|---|---|---|
+| A15 | Medium (stored XSS) | `admin/dashboards/edu_dept.php` | `openTransfer(enrollId, name, code)` wrote `name`/`code` raw into `innerHTML` although the caller had escaped them inside the `onclick` attribute (entity‑decoded again by the browser) → a student name containing HTML executed in the Education console. Fixed: `esc()` inside the function; teacher initials also escaped. |
+
+## 14. Reviewed with no finding
+`api_identity.php`, `api_dept_takers.php` + `DeptTakerService` (department
+attribution, 12‑char passwords), `hr_register_member.php` (policy, CSRF,
+rate limit, transaction), `member_file.php` (role gate, whitelist, private
+root, `nosniff`/sandbox CSP), `register_submit.php` (POST‑only, honeypot,
+5/h per IP, prepared), `member.php` (QR verify, 30/10 min, coarse address),
+`logout.php`, `app_session.php` (410), `super-admin.php` user table (escaped,
+delete = confirm page → POST + password re‑verification), `dashboard.php`
+header, finance/material/groups/reports/teacher/taker dashboards (all
+interpolations escaped or numeric), `frontend/js/*` (escapers used
+throughout).
+
+## 15. Verification
+`tests/security/test_production_audit_pass2.py` now 22 (14 static + 8 live);
+full suite **2291 passed, 0 failed, 468 skipped**.
+
+## 16. Coverage statement after pass 3 (honest)
+Everything listed in §10 as unread was covered in pass 3 by *targeted*
+reading (gates, writes, dynamic SQL, DOM sinks, uploads) — not by a
+sequential reading of every line of the four 4 000‑line dashboards. Residual
+ANALYSIS INCOMPLETE: non‑sink JS logic in the big dashboards (UI state,
+charts), `api_reports*.php` / `api_report_views.php` query builders beyond
+the sort/filter whitelists, `calendar_system.php`, `BackupService` content,
+the Flutter app (SDK unavailable). Those remain covered by syntax gates, the
+2291‑test suite and the live role journeys.

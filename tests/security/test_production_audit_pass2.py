@@ -1,5 +1,5 @@
 """
-Production-readiness audit 2026-10-20 — PASS 2 guards (findings A1–A14).
+Production-readiness audit 2026-10-20 — PASS 2 guards (findings A1–A15).
 
 Static pins (always run):
   * A1  api_attendance.php: teachers are scoped to their assigned classes;
@@ -16,7 +16,9 @@ Static pins (always run):
   * A11 api_settings.php dept_save/system_info/clear_cache are role-gated;
   * A12 PUT /api/v1/members/{id} keeps the stored name parts in full_name_am;
   * A13 api_impersonate.php writes an audit row for switch and restore;
-  * A14 api_finance.php add/update/delete transaction write activity_logs rows.
+  * A14 api_finance.php add/update/delete transaction write activity_logs rows;
+  * A15 edu_dept.php transfer dialog re-escapes the student name (onclick string
+        arguments are entity-decoded by the browser before they reach JS).
 Live (skipped unless the local server + seed are present):
   * teacher 403 outside own class / taker allowed; future date 422 (web + legacy);
   * TIER 2c 403 for teacher + taker, 200 for Education;
@@ -204,6 +206,15 @@ class Pass2StaticGuards(unittest.TestCase):
         # the deleted row is captured BEFORE the DELETE statement
         body = block(src, "case 'delete_transaction':", "\ncase '")
         self.assertLess(body.index("SELECT type, amount, description"), body.index("DELETE FROM finance_transactions"))
+
+    # A15 ----------------------------------------------------------------
+    def test_a15_transfer_dialog_escapes_student_name(self):
+        src = read("admin/dashboards/edu_dept.php")
+        fn = src[src.index("function openTransfer("):]
+        fn = fn[: fn.index("\n}\n")]
+        self.assertIn("${esc(name)}", fn)
+        self.assertIn("${esc(code)}", fn)
+        self.assertNotIn("${name}", fn)
 
 
 # ──────────────────────────────────────────────────────────────────────

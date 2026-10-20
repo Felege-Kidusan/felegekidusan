@@ -2050,7 +2050,7 @@ async function saveTeacher(){
 async function viewTeacher(id){
     try{const d=await getAPI(`/admin/api_teachers.php?action=get_teacher&teacher_id=${id}`);
     if(d.status==='success'){const t=d.teacher,a=t.assignments||d.assignments||[];
-    const initials=(t.full_name||'?').split(' ').map(w=>w[0]).join('').toUpperCase().substring(0,2);
+    const initials=esc((t.full_name||'?').split(' ').map(w=>w[0]||'').join('').toUpperCase().substring(0,2));
     document.getElementById('viewTeacherContent').innerHTML=`
         <div style="display:flex;gap:1.25rem;align-items:flex-start;margin-bottom:1.25rem;flex-wrap:wrap">
             <div style="width:72px;height:72px;border-radius:16px;background:linear-gradient(135deg,#7c3aed,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.3rem;flex-shrink:0">${initials}</div>
@@ -2417,7 +2417,7 @@ async function unenroll(eid){if(!confirm('Remove student from class?'))return;co
 // --- Transfer ---
 function openTransfer(enrollId, name, code) {
     document.getElementById('transferEnrollmentId').value=enrollId;
-    document.getElementById('transferStudentInfo').innerHTML=`<strong>${name}</strong> <span class="ch ch-i">${code}</span>`;
+    document.getElementById('transferStudentInfo').innerHTML=`<strong>${esc(name)}</strong> <span class="ch ch-i">${esc(code)}</span>`;
     document.getElementById('transferReason').value='';
     document.getElementById('transferModal').classList.add('show');
 }
