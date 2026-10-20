@@ -16,6 +16,7 @@ import 'notification_service.dart';
 import 'profile_cache.dart';
 import 'session_models.dart';
 import 'sync_service.dart';
+import 'timetable_cache.dart';
 import 'warm_store.dart';
 
 /// The sole owner of mobile authentication/session state.
@@ -308,6 +309,7 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     );
     await _db.clearAuthorizationScopedReadCaches();
     await NotificationService.instance.clearPersistedState();
+    await TimetableCache.instance.clearAll();
     CatalogService().clear();
     AppNav().resetForAuthorizationScope();
     AppNavigator.popToRootForAuthorizationScope();
@@ -905,6 +907,7 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       await ProfileImageCache.instance.clearAll();
       onProfileSessionCleared?.call();
       await NotificationService.instance.clearPersistedState();
+      await TimetableCache.instance.clearAll();
       await _db.clearAllUserData();
       await AppLockService().clearPin();
       await _db.persistLocalSession(

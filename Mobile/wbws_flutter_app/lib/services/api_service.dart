@@ -1409,6 +1409,14 @@ class ApiService {
       get('/dashboard/recent', params: {'limit': '$limit'});
 
   // ============================================================
+  // TIMETABLE (read-only; built by Education on the web)
+  // ============================================================
+
+  /// Weekly grid of the signed-in teacher (lessons keyed by ISO weekday)
+  /// plus upcoming makeup classes. Teachers always get their own schedule.
+  Future<ApiResponse> getMyTimetableWeek() => get('/timetable/week');
+
+  // ============================================================
   // MEMBERS
   // ============================================================
 

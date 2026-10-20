@@ -15,6 +15,7 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/notification_bell_button.dart';
 import '../../widgets/session_logout_dialog.dart';
+import 'teacher_timetable_screen.dart';
 
 class TeacherHomeScreen extends StatefulWidget {
   const TeacherHomeScreen({super.key});
@@ -274,6 +275,10 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
       _buildQuickStats(),
       const SizedBox(height: 16),
 
+      // My Timetable (read-only; built by Education on the web)
+      _buildTimetableCard(),
+      const SizedBox(height: 16),
+
       if (AppUpdateService().featureEnabled('attendance')) ...[
         // My classes — attendance status per class
         _buildMyClasses(),
@@ -409,6 +414,52 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTimetableCard() {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const TeacherTimetableScreen()),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppTheme.accent.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.calendar_month_rounded,
+                    color: AppTheme.primary, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('My Timetable',
+                        style: TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text('Weekly · Daily · Monthly — your lessons and makeup classes',
+                        style: TextStyle(
+                            fontSize: 12, color: AppTheme.textSecondary)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.textSecondary),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

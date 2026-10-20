@@ -209,3 +209,24 @@ Mobile: `GET /api/v1/timetable/week`, `/timetable/today` (teacher‑scoped; Feat
 **Rules enforced server‑side:** period overlap (per class) blocked, back‑to‑back allowed; lesson only on a working day and on a non‑break period of the same class; teacher time‑overlap clash across classes (same ISO weekday, same year) blocked with a message naming the class; removing days / periods clears lessons and reports the count; copy bell replaces target periods+days and clears its lessons; makeup ≥ today, teacher busy against weekly grid (weekday) and other makeups (date); time‑travel to a past year → read‑only (403).
 
 **Not in T‑1 (unchanged scope):** mobile teacher timetable (T‑3, separate approval), link to Phase‑6 lesson attendance (owner: not now), whole‑school day sheet.
+
+## 11. Implementation record — T‑3 teacher mobile timetable (2026‑10‑20)
+
+Owner instruction: "build the mobile screens for the teacher like the eduid, same layout and same options, but the branding has to match FKSS."
+
+**Backend (mobile API, read-only)** — `api/v1/routes/timetable.php`, registered as `timetable` in `api/v1/index.php`.
+- `GET /api/v1/timetable/week` → `{teacher_id, academic_year_id, year_name, today_iso, today_date, today_date_ec, working_days[], days{iso→lessons}, lessons[], makeup_classes[]}`; `GET /api/v1/timetable/today` → today's lessons + makeups dated today.
+- Roles: teacher (always own id), edu_dept / school_admin / super_admin (may pass `teacher_id`). Other roles 403; non-GET 405; unknown sub-path 404; rate limit `timetable` 120/min.
+- Reuses `TimetableService::teacherSchedule()` (same rules as web T‑1); adds Ethiopian labels `today_date_ec` / `lesson_date_ec` via `ethio_date_format`. No schema change.
+
+**Flutter (`Mobile/wbws_flutter_app`)**
+- `lib/screens/teacher/teacher_timetable_screen.dart` — port of eduid `schedule_screen.dart`: Weekly (‹ › week nav, Mon–Sun strip with lesson dots, selected day list), Daily (‹ › day nav, "Back to Today"), Monthly (Ethiopian month grid, 13 months incl. ጳጉሜን, Monday-first), Today button, period cards (time column, tinted card, circular subject icon, subject / class / room, "Now" pill for the lesson in progress, "Makeup" pill for makeup classes), skeleton, offline / error / "No timetable yet" states, pull-to-refresh.
+- Branding: `AppTheme` only (maroon `#5A1212` primary, gold `#D4AF37` accent); no eduid `AppColors`.
+- **Ethiopian calendar only**: no `intl`/`DateFormat`; all dates via `EthiopianDate`, `monthNameAmharic`, `daysInEthiopianMonth`, `ethiopianToGregorian`. Week label = EC range + "Week N" of the EC year.
+- `lib/services/timetable_cache.dart` — per-user `shared_preferences` copy (`timetable_week_v1_<uid>`), owner-checked on read, cleared in `SessionService` destructive sign-out and on authorization-scope change. No sqflite schema change.
+- `ApiService.getMyTimetableWeek()`; teacher home gets a "My Timetable" card (`_buildTimetableCard`).
+- Release pin moved together: `1.7.2+39` (pubspec, `AppConfig`, `RELEASE_NOTES.md`, `app_release.php`, `app_release.example.php`, pinned tests). No pubspec dependency changes.
+
+**Verification**: `flutter analyze lib` → 0 errors (Flutter stable SDK fetched into the sandbox for analysis only; infos are pre-existing style hints). `tests/security/test_timetable_mobile.py` (8 static + 5 live) green; full suite 2304 passed / 0 failed.
+
+**Not in scope / owner actions**: APK must be built by the owner (`flutter build apk`), then `latest_build` on the server. Education/admin mobile timetable views and builder on mobile are not included (web builder remains the only editor).

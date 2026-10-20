@@ -131,6 +131,7 @@ $routeMap = [
     'hr'            => 'hr.php',
     'notifications' => 'notifications.php',
     'sync'          => 'sync.php',
+    'timetable'     => 'timetable.php',
 ];
 
 // Check if resource exists

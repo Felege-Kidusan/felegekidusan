@@ -5,6 +5,25 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.7.2 (build 39) — Teacher "My Timetable" (Weekly · Daily · Monthly)
+
+Mobile side of the Education timetable builder (web, `sql/077`). Read-only.
+
+- **My Timetable** card on the teacher home opens the new timetable screen:
+  Weekly view (Mon–Sun strip with lesson dots, week navigation), Daily view
+  (day navigation, "Back to Today"), Monthly view (Ethiopian month grid,
+  including ጳጉሜን), a Today button, and a period list with time, subject,
+  class, room and a "Now" highlight for the lesson in progress.
+- **Makeup / extra classes** added by Education appear on their date with a
+  "Makeup" badge.
+- **Ethiopian calendar only** — every date on the screen is EC.
+- **Works offline**: the last loaded timetable is kept on the phone (per
+  user) and shown with an offline banner; it is wiped on sign-out.
+- Teachers see only their own schedule; the phone never edits the timetable
+  (Education builds it on the web).
+- New endpoint `GET /api/v1/timetable/week` (and `/today`). No schema
+  change; no new feature flag; no new packages.
+
 ## 1.7.1 (build 38) — Attendance sheet reopen + review bells (Phase 3 mobile)
 
 Mobile side of attendance alerting Phase 3 (owner decisions Q‑1/Q‑2/Q‑3,
