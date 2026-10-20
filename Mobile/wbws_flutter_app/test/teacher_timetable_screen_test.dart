@@ -140,7 +140,26 @@ void main() {
       expect(find.text('Monthly'), findsOneWidget);
       expect(find.text('Today'), findsOneWidget);
 
-      // today's lesson, the in-progress pill, class and room
+      // Daily is the default view and the first segment (owner, 2026-10-20);
+      // the segment order is Daily · Weekly · Monthly.
+      final selectedSeg = find.ancestor(
+        of: find.text('Daily'),
+        matching: find.byWidgetPredicate((w) =>
+            w is AnimatedContainer &&
+            w.decoration is BoxDecoration &&
+            (w.decoration as BoxDecoration).color == AppTheme.primary),
+      );
+      expect(selectedSeg, findsOneWidget);
+      final dailyX = tester.getCenter(find.text('Daily')).dx;
+      final weeklyX = tester.getCenter(find.text('Weekly')).dx;
+      final monthlyX = tester.getCenter(find.text('Monthly')).dx;
+      expect(dailyX < weeklyX && weeklyX < monthlyX, isTrue);
+      // one continuous header: no Material AppBar above the gradient block
+      expect(find.byType(AppBar), findsNothing);
+
+      // weekly view: today's lesson, the in-progress pill, class and room
+      await tester.tap(find.text('Weekly'));
+      await tester.pump();
       expect(find.text('መጽሐፍ ቅዱስ'), findsWidgets);
       expect(find.text('Now'), findsOneWidget);
       expect(find.text('Room 1'), findsOneWidget);

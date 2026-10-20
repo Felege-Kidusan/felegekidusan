@@ -13,6 +13,7 @@ import '../update/update_banner.dart';
 // Role home screens
 import '../teacher/teacher_home.dart';
 import '../teacher/teacher_grades.dart';
+import '../teacher/teacher_timetable_screen.dart';
 import '../att_taker/att_taker_home.dart';
 import '../hr/hr_taker_home.dart';
 import '../hr/hr_home.dart';
@@ -257,6 +258,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         return const MezmurAnalyticsScreen();
       case 'grades':
         return TeacherGradesScreen(key: _gradesKey);
+      case 'timetable':
+        // T-3 teacher timetable as a bottom-nav tab (2026-10-20); the Home
+        // card still opens the same screen pushed.
+        return const TeacherTimetableScreen();
       case 'members':
         return const MemberListScreen();
       case 'reviews':

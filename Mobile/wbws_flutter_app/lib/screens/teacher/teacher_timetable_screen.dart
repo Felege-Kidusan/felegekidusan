@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
@@ -119,7 +120,7 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
   StreamSubscription<bool>? _netSub;
   Timer? _clock;
 
-  _View _view = _View.weekly;
+  _View _view = _View.daily;
   DateTime _selected = _dateOnly(DateTime.now());
 
   /// Ethiopian month currently shown in the monthly view.
@@ -360,88 +361,121 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.bgLight,
-      appBar: AppBar(
-        title: const Text('My Timetable'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: TextButton.icon(
-              onPressed: _goToday,
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Colors.white54),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                visualDensity: VisualDensity.compact,
-              ),
-              icon: const Icon(Icons.today_rounded, size: 16),
-              label: const Text('Today', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
-            ),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          _header(),
-          _viewSwitcher(),
-          if (_offline || _fromCache) _offlineBanner(),
-          Expanded(child: _body()),
-        ],
+    // One continuous maroon block: title row + greeting/date share a single
+    // gradient (no AppBar seam), rounded at the bottom so the view switcher
+    // card sits on the page like the teacher home. Works both pushed from
+    // the Home card (back arrow) and as the "Timetable" bottom-nav tab.
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: AppTheme.bgLight,
+        body: Column(
+          children: [
+            _header(context),
+            _viewSwitcher(),
+            if (_offline || _fromCache) _offlineBanner(),
+            Expanded(child: _body()),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _header() {
+  Widget _header(BuildContext context) {
     final e = EthiopianDate.today();
+    final canPop = Navigator.of(context).canPop();
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           colors: [AppTheme.primaryDark, AppTheme.primary, AppTheme.primaryLight],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(22)),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('የእኔ የጊዜ ሰሌዳ',
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        color: Colors.white70,
-                        fontFamily: 'NotoSansEthiopic')),
-                const SizedBox(height: 2),
-                const Text('Stay organized, teach better.',
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white)),
-                const SizedBox(height: 6),
-                Text(
-                  '${_dayLong[e.toGregorian().weekday - 1]} · ${monthNameAmharic(e.month)} ${e.day}, ${e.year}'
-                  '${_yearName.isNotEmpty ? '  ·  $_yearName' : ''}',
-                  style: const TextStyle(fontSize: 12, color: Colors.white70),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(canPop ? 4 : 16, 6, 12, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  if (canPop)
+                    IconButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      tooltip: 'Back',
+                    ),
+                  const Expanded(
+                    child: Text('My Timetable',
+                        style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                  ),
+                  TextButton.icon(
+                    onPressed: _goToday,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white54),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.today_rounded, size: 16),
+                    label: const Text('Today',
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: EdgeInsets.only(left: canPop ? 12 : 0, right: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('የእኔ የጊዜ ሰሌዳ',
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: Colors.white70,
+                                  fontFamily: 'NotoSansEthiopic')),
+                          const SizedBox(height: 2),
+                          const Text('Stay organized, teach better.',
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white)),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${_dayLong[e.toGregorian().weekday - 1]} · ${monthNameAmharic(e.month)} ${e.day}, ${e.year}'
+                            '${_yearName.isNotEmpty ? '  ·  $_yearName' : ''}',
+                            style: const TextStyle(fontSize: 12, color: Colors.white70),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: AppTheme.accent.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.accent.withOpacity(0.6)),
+                      ),
+                      child: const Icon(Icons.calendar_month_rounded, color: AppTheme.accent),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AppTheme.accent.withOpacity(0.18),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.accent.withOpacity(0.6)),
-            ),
-            child: const Icon(Icons.calendar_month_rounded, color: AppTheme.accent),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -489,8 +523,8 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
           border: Border.all(color: AppTheme.borderLight),
         ),
         child: Row(children: [
-          seg(_View.weekly, 'Weekly', Icons.view_week_rounded),
           seg(_View.daily, 'Daily', Icons.view_day_rounded),
+          seg(_View.weekly, 'Weekly', Icons.view_week_rounded),
           seg(_View.monthly, 'Monthly', Icons.calendar_view_month_rounded),
         ]),
       ),

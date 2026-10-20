@@ -120,6 +120,7 @@ List<NavTab> _baseTabsForRole(String role) {
         NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
         NavTab(id: 'attendance', label: 'Attendance', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
         NavTab(id: 'grades', label: 'Grades', icon: Icons.grading_outlined, activeIcon: Icons.grading_rounded),
+        NavTab(id: 'timetable', label: 'Timetable', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month_rounded),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 

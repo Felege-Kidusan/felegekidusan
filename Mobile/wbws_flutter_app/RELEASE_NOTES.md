@@ -9,6 +9,10 @@ the version below must always match `pubspec.yaml` +
 
 Mobile side of the Education timetable builder (web, `sql/077`). Read-only.
 
+- **Timetable tab** in the teacher bottom navigation (Home · Attendance ·
+  Grades · Timetable · Profile) in addition to the Home card. Views are
+  ordered Daily · Weekly · Monthly and open on **Daily**; the top of the
+  screen is one continuous header (title, Today button, greeting and date).
 - **My Timetable** card on the teacher home opens the new timetable screen:
   Weekly view (Mon–Sun strip with lesson dots, week navigation), Daily view
   (day navigation, "Back to Today"), Monthly view (Ethiopian month grid,

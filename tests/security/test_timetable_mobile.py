@@ -130,6 +130,30 @@ class TimetableMobileStaticGuards(unittest.TestCase):
         self.assertIn("_buildTimetableCard()", home)
         self.assertIn("const TeacherTimetableScreen()", home)
 
+    def test_timetable_is_a_teacher_bottom_nav_tab_with_daily_default(self):
+        """Owner 2026-10-20: Timetable also in the bottom nav (Home card kept),
+        segments ordered Daily · Weekly · Monthly, Daily by default, and one
+        continuous header block instead of AppBar + banner."""
+        cfg = read(FLUTTER / "lib/utils/config.dart")
+        teacher = cfg.split("case UserRoles.teacher:", 1)[1].split("];", 1)[0]
+        self.assertIn("NavTab(id: 'timetable', label: 'Timetable'", teacher)
+        ids = re.findall(r"NavTab\(id: '([a-z_]+)'", teacher)
+        self.assertEqual(ids, ["home", "attendance", "grades", "timetable", "profile"])
+        shell = read(FLUTTER / "lib/screens/shell/app_shell.dart")
+        self.assertIn("case 'timetable':", shell)
+        self.assertIn("return const TeacherTimetableScreen();", shell)
+        self.assertIn("import '../teacher/teacher_timetable_screen.dart';", shell)
+        s = read(SCREEN)
+        self.assertIn("_View _view = _View.daily;", s)
+        order = [m for m in re.findall(r"seg\(_View\.(\w+),", s)]
+        self.assertEqual(order, ["daily", "weekly", "monthly"])
+        self.assertNotIn("appBar: AppBar(", s)
+        self.assertIn("BorderRadius.vertical(bottom: Radius.circular(22))", s)
+        self.assertIn("Navigator.of(context).canPop()", s)
+        # the Home card still exists
+        home = read(FLUTTER / "lib/screens/teacher/teacher_home.dart")
+        self.assertIn("TeacherTimetableScreen", home)
+
     def test_release_pin_moved_together(self):
         pubspec = read(FLUTTER / "pubspec.yaml")
         config = read(FLUTTER / "lib/utils/config.dart")
