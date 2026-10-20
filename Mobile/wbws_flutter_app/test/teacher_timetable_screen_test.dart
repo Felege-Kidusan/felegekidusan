@@ -209,6 +209,22 @@ void main() {
       await _tearDown(tester);
     });
 
+    testWidgets('header calendar button opens the Monthly grid and back to Daily',
+        (tester) async {
+      await _pumpScreen(tester);
+      final ec = EthiopianDate.fromGregorian(today);
+      final button = find.byKey(const Key('timetable_calendar_button'));
+      expect(button, findsOneWidget);
+      await tester.tap(button);
+      await tester.pump();
+      expect(find.text('${monthNameAmharic(ec.month)} ${ec.year}'), findsOneWidget);
+      await tester.tap(button);
+      await tester.pump();
+      expect(find.text('${monthNameAmharic(ec.month)} ${ec.year}'), findsNothing);
+      expect(find.text('Now'), findsOneWidget); // Daily again, today
+      await _tearDown(tester);
+    });
+
     testWidgets('Monthly view is an Ethiopian month grid', (tester) async {
       await _pumpScreen(tester);
       await tester.tap(find.text('Monthly'));

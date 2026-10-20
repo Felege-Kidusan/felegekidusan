@@ -150,6 +150,9 @@ class TimetableMobileStaticGuards(unittest.TestCase):
         self.assertNotIn("appBar: AppBar(", s)
         self.assertIn("BorderRadius.vertical(bottom: Radius.circular(22))", s)
         self.assertIn("Navigator.of(context).canPop()", s)
+        # header calendar icon is a working EC date picker (Monthly grid), not decoration
+        self.assertIn("onTap: _openMonthPicker", s)
+        self.assertIn("timetable_calendar_button", s)
         # the Home card still exists
         home = read(FLUTTER / "lib/screens/teacher/teacher_home.dart")
         self.assertIn("TeacherTimetableScreen", home)

@@ -304,6 +304,20 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
     });
   }
 
+  /// Header calendar button: jump to the Monthly grid (the app's Ethiopian
+  /// date picker) for the selected day; from Monthly it returns to Daily on
+  /// the day picked there.
+  void _openMonthPicker() {
+    setState(() {
+      if (_view == _View.monthly) {
+        _view = _View.daily;
+      } else {
+        _view = _View.monthly;
+        _syncMonthToSelected();
+      }
+    });
+  }
+
   void _goToday() {
     final t = EthiopianDate.today();
     setState(() {
@@ -460,15 +474,34 @@ class _TeacherTimetableScreenState extends State<TeacherTimetableScreen> {
                         ],
                       ),
                     ),
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: AppTheme.accent.withOpacity(0.18),
+                    // Calendar button = Ethiopian date picker: opens the
+                    // Monthly grid on the selected day's month (EC-only, no
+                    // Gregorian Material date picker).
+                    Material(
+                      color: AppTheme.accent.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        key: const Key('timetable_calendar_button'),
+                        onTap: _openMonthPicker,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppTheme.accent.withOpacity(0.6)),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppTheme.accent.withOpacity(0.6)),
+                          ),
+                          child: Tooltip(
+                            message: 'Pick a date',
+                            child: Icon(
+                              _view == _View.monthly
+                                  ? Icons.view_day_rounded
+                                  : Icons.calendar_month_rounded,
+                              color: AppTheme.accent,
+                            ),
+                          ),
+                        ),
                       ),
-                      child: const Icon(Icons.calendar_month_rounded, color: AppTheme.accent),
                     ),
                   ],
                 ),
