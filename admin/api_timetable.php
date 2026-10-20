@@ -1,7 +1,12 @@
 <?php
 /**
- * Timetable API — periods + weekly grid.
- * Teachers may only read their own schedule. Writes are Education / admin.
+ * Timetable API — per‑class working days, bell schedule, weekly grid and
+ * makeup classes (Education builder) + the teacher's own schedule.
+ *
+ * Reads : Education / School Admin / Super Admin (any class), teachers (own).
+ * Writes: Education / School Admin / Super Admin only, POST + CSRF, refused
+ *         while time‑travelling to a past academic year (ay_require_writable).
+ * Every write is audited by TimetableService into activity_logs.
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -28,7 +33,17 @@ if (!$isTeacher && !$canManage) {
 }
 
 $action = (string)($_REQUEST['action'] ?? '');
-$writeActions = ['save_period', 'delete_period', 'save_entry', 'clear_entry'];
+$writeActions = ['save_days', 'save_period', 'delete_period', 'copy_bell', 'save_entry', 'clear_entry', 'save_makeup', 'delete_makeup'];
+$readActions = ['class_setup', 'teacher_schedule', 'my_schedule', 'classes'];
+
+$actor = [
+    'id'       => (int)$_SESSION['admin_id'],
+    'username' => (string)($_SESSION['admin_username'] ?? ''),
+    'ip'       => (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+];
+
+$yearCtx = function_exists('ay_resolve') ? ay_resolve($conn) : ['id' => 0, 'active_id' => 0, 'is_readonly' => false];
+$yearId = (int)($yearCtx['id'] ?? 0);
 
 if (in_array($action, $writeActions, true)) {
     if (!$canManage) {
@@ -36,33 +51,63 @@ if (in_array($action, $writeActions, true)) {
         echo json_encode(['status' => 'error', 'message' => 'Only Education can edit the timetable.']);
         exit;
     }
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        http_response_code(405);
-        echo json_encode(['status' => 'error', 'message' => 'POST required']);
-        exit;
-    }
+    requirePostActions($action, $writeActions);
     $csrf = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!validateCsrf($csrf)) {
+        http_response_code(403);
         echo json_encode(['status' => 'error', 'message' => 'Security token expired. Please refresh.']);
         exit;
     }
+    // Refuses with 403/409 JSON while viewing a past year or with no active year.
+    $yearId = (int)ay_require_writable($conn);
+} elseif (!in_array($action, $readActions, true)) {
+    echo json_encode(['status' => 'error', 'message' => 'Unknown action']);
+    exit;
 }
 
-TimetableService::ensureSchema($conn);
+if ($yearId <= 0) {
+    http_response_code(409);
+    echo json_encode(['status' => 'error', 'message' => 'No academic year is set. A School Admin must set the current year first.', 'code' => 'no_active_year']);
+    exit;
+}
 
 try {
     switch ($action) {
-        case 'periods':
-            echo json_encode(TimetableService::periods($conn), JSON_UNESCAPED_UNICODE);
-            break;
-
-        case 'class_grid':
+        case 'classes':
             if (!$canManage) {
                 http_response_code(403);
                 echo json_encode(['status' => 'error', 'message' => 'Access denied']);
                 break;
             }
-            echo json_encode(TimetableService::classGrid($conn, (int)($_GET['class_id'] ?? 0)), JSON_UNESCAPED_UNICODE);
+            $rows = [];
+            $r = $conn->query("SELECT id, class_name, class_name_en, class_code, level_order FROM classes WHERE is_active = 1 ORDER BY level_order, class_name");
+            if ($r) {
+                while ($row = $r->fetch_assoc()) {
+                    $rows[] = [
+                        'id'            => (int)$row['id'],
+                        'class_name'    => $row['class_name'],
+                        'class_name_en' => $row['class_name_en'],
+                        'class_code'    => $row['class_code'],
+                    ];
+                }
+            }
+            echo json_encode([
+                'status'           => 'success',
+                'classes'          => $rows,
+                'academic_year_id' => $yearId,
+                'year_name'        => (string)($yearCtx['year']['year_name'] ?? ''),
+                'ec_year'          => $yearCtx['ec_year'] ?? null,
+                'readonly'         => !empty($yearCtx['is_readonly']),
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+
+        case 'class_setup':
+            if (!$canManage) {
+                http_response_code(403);
+                echo json_encode(['status' => 'error', 'message' => 'Access denied']);
+                break;
+            }
+            echo json_encode(TimetableService::classSetup($conn, (int)($_GET['class_id'] ?? 0), $yearId), JSON_UNESCAPED_UNICODE);
             break;
 
         case 'teacher_schedule':
@@ -74,7 +119,7 @@ try {
                 echo json_encode(['status' => 'error', 'message' => 'Teacher is required.']);
                 break;
             }
-            echo json_encode(TimetableService::teacherSchedule($conn, $tid), JSON_UNESCAPED_UNICODE);
+            echo json_encode(TimetableService::teacherSchedule($conn, $tid, $yearId), JSON_UNESCAPED_UNICODE);
             break;
 
         case 'my_schedule':
@@ -82,19 +127,31 @@ try {
                 echo json_encode(['status' => 'error', 'message' => 'Not a teacher account']);
                 break;
             }
-            echo json_encode(TimetableService::teacherSchedule($conn, (int)$_SESSION['admin_id']), JSON_UNESCAPED_UNICODE);
+            echo json_encode(TimetableService::teacherSchedule($conn, (int)$_SESSION['admin_id'], $yearId), JSON_UNESCAPED_UNICODE);
+            break;
+
+        case 'save_days':
+            $days = $_POST['days'] ?? [];
+            if (is_string($days)) {
+                $days = $days === '' ? [] : explode(',', $days);
+            }
+            echo json_encode(TimetableService::saveWorkingDays($conn, (int)($_POST['class_id'] ?? 0), $yearId, (array)$days, $actor), JSON_UNESCAPED_UNICODE);
             break;
 
         case 'save_period':
-            echo json_encode(TimetableService::savePeriod($conn, $_POST), JSON_UNESCAPED_UNICODE);
+            echo json_encode(TimetableService::savePeriod($conn, $_POST, $yearId, $actor), JSON_UNESCAPED_UNICODE);
             break;
 
         case 'delete_period':
-            echo json_encode(TimetableService::deletePeriod($conn, (int)($_POST['period_id'] ?? 0)), JSON_UNESCAPED_UNICODE);
+            echo json_encode(TimetableService::deletePeriod($conn, (int)($_POST['period_id'] ?? 0), (int)($_POST['class_id'] ?? 0), $yearId, $actor), JSON_UNESCAPED_UNICODE);
+            break;
+
+        case 'copy_bell':
+            echo json_encode(TimetableService::copyBell($conn, (int)($_POST['from_class_id'] ?? 0), (int)($_POST['class_id'] ?? 0), $yearId, $actor), JSON_UNESCAPED_UNICODE);
             break;
 
         case 'save_entry':
-            echo json_encode(TimetableService::saveEntry($conn, $_POST), JSON_UNESCAPED_UNICODE);
+            echo json_encode(TimetableService::saveEntry($conn, $_POST, $yearId, $actor), JSON_UNESCAPED_UNICODE);
             break;
 
         case 'clear_entry':
@@ -103,10 +160,20 @@ try {
                     $conn,
                     (int)($_POST['class_id'] ?? 0),
                     (int)($_POST['period_id'] ?? 0),
-                    (int)($_POST['day_of_week'] ?? 0)
+                    (int)($_POST['day_of_week'] ?? 0),
+                    $yearId,
+                    $actor
                 ),
                 JSON_UNESCAPED_UNICODE
             );
+            break;
+
+        case 'save_makeup':
+            echo json_encode(TimetableService::saveMakeup($conn, $_POST, $yearId, $actor), JSON_UNESCAPED_UNICODE);
+            break;
+
+        case 'delete_makeup':
+            echo json_encode(TimetableService::deleteMakeup($conn, (int)($_POST['makeup_id'] ?? 0), $yearId, $actor), JSON_UNESCAPED_UNICODE);
             break;
 
         default:

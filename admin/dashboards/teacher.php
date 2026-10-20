@@ -299,6 +299,20 @@ $csrfToken = generateCsrfToken();
                         <?php endif; ?>
                     </div>
                     
+                    <!-- My Timetable (Education builder: admin/api_timetable.php?action=my_schedule) -->
+                    <div class="card p-4 mb-6" id="tt-card">
+                        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                            <div>
+                                <div class="text-xs text-slate-500 uppercase">My Timetable</div>
+                                <div class="text-sm text-slate-600" id="tt-today-label"><?= e($todayFormatted) ?></div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button>
+                        </div>
+                        <div id="tt-today" class="mb-4 text-sm text-slate-500">Loading…</div>
+                        <div id="tt-week" class="overflow-x-auto"></div>
+                        <div id="tt-makeups" class="mt-3"></div>
+                    </div>
+
                     <!-- My Assigned Classes -->
                     <h2 class="text-lg font-bold text-slate-800 mb-4">My Assigned Classes & Subjects</h2>
                     <?php if (!empty($assignments)): ?>
@@ -704,6 +718,41 @@ $csrfToken = generateCsrfToken();
         window.switchSection = showSection;
         window.navigateToSection = showSection;
         window.switchTab = showSection;
+
+        // ── My Timetable (read-only; EC dates via WBWSCalendar) ──
+        (function(){
+            var DAYS={1:'Monday',2:'Tuesday',3:'Wednesday',4:'Thursday',5:'Friday',6:'Saturday',7:'Sunday'};
+            function esc(v){var d=document.createElement('div');d.textContent=(v===null||v===undefined)?'':String(v);return d.innerHTML.replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+            function toMin(t){var p=String(t||'0:0').split(':');return (+p[0])*60+(+p[1]);}
+            function ecDate(iso){try{if(window.WBWSCalendar&&WBWSCalendar.formatDate)return WBWSCalendar.formatDate(iso,'long');}catch(e){}return iso;}
+            var todayBox=document.getElementById('tt-today'),weekBox=document.getElementById('tt-week'),mkBox=document.getElementById('tt-makeups');
+            if(!todayBox)return;
+            fetch('/admin/api_timetable.php?action=my_schedule',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+                if(!d||d.status!=='success'){todayBox.textContent=(d&&d.message)||'Timetable unavailable.';return;}
+                var lessons=d.lessons||[],tIso=d.today_iso,now=new Date(),nowMin=now.getHours()*60+now.getMinutes();
+                var today=lessons.filter(function(l){return l.day_of_week===tIso;});
+                var mkToday=(d.makeups||[]).filter(function(m){return m.lesson_date===d.today_date;});
+                if(!today.length&&!mkToday.length){todayBox.innerHTML='<span class="text-slate-500">No lessons today.</span>';}
+                else{
+                    todayBox.innerHTML='<div class="text-xs text-slate-500 uppercase mb-1">Today</div>'+today.map(function(l){
+                        var isNow=nowMin>=toMin(l.start_time)&&nowMin<toMin(l.end_time);
+                        return '<div class="flex items-center gap-3 py-2 border-b border-slate-100'+(isNow?' bg-amber-50 rounded px-2':'')+'"><div class="w-24 text-xs text-slate-500">'+esc(l.start_time)+'–'+esc(l.end_time)+'</div><div class="flex-1"><div class="font-semibold">'+esc(l.subject_name||'—')+'</div><div class="text-xs text-slate-500 amharic">'+esc(l.class_name)+(l.room?' · '+esc(l.room):'')+'</div></div>'+(isNow?'<span class="chip chip-blue">Now</span>':'')+'</div>';
+                    }).join('')+mkToday.map(function(m){
+                        return '<div class="flex items-center gap-3 py-2 border-b border-slate-100 bg-sky-50 rounded px-2"><div class="w-24 text-xs text-slate-500">'+esc(m.start_time)+'–'+esc(m.end_time)+'</div><div class="flex-1"><div class="font-semibold">'+esc(m.subject_name||'—')+' <span class="text-xs text-sky-700">(makeup class)</span></div><div class="text-xs text-slate-500 amharic">'+esc(m.class_name)+(m.room?' · '+esc(m.room):'')+'</div></div></div>';
+                    }).join('');
+                }
+                if(!lessons.length){weekBox.innerHTML='<p class="text-sm text-slate-500">No weekly lessons have been scheduled for you yet.</p>';}
+                else{
+                    var days=[];lessons.forEach(function(l){if(days.indexOf(l.day_of_week)<0)days.push(l.day_of_week);});days.sort(function(a,b){return a-b;});
+                    var slots=[];lessons.forEach(function(l){if(!slots.some(function(s){return s.s===l.start_time&&s.e===l.end_time;}))slots.push({s:l.start_time,e:l.end_time});});slots.sort(function(a,b){return toMin(a.s)-toMin(b.s);});
+                    var h='<table class="w-full text-sm" style="border-collapse:separate;border-spacing:0 4px"><thead><tr><th class="text-left text-xs text-slate-500 uppercase px-2">Time</th>'+days.map(function(dd){return '<th class="text-left text-xs uppercase px-2 '+(dd===tIso?'text-sky-700':'text-slate-500')+'">'+DAYS[dd]+(dd===tIso?' · today':'')+'</th>';}).join('')+'</tr></thead><tbody>';
+                    slots.forEach(function(sl){h+='<tr><td class="px-2 text-xs text-slate-500 whitespace-nowrap">'+esc(sl.s)+'–'+esc(sl.e)+'</td>'+days.map(function(dd){var l=lessons.filter(function(x){return x.day_of_week===dd&&x.start_time===sl.s&&x.end_time===sl.e;})[0];return '<td class="px-2 py-1">'+(l?'<div class="rounded-lg border border-slate-200 px-2 py-1"><div class="font-semibold text-xs">'+esc(l.subject_name||'—')+'</div><div class="text-xs text-slate-500 amharic">'+esc(l.class_name)+(l.room?' · '+esc(l.room):'')+'</div></div>':'')+'</td>';}).join('')+'</tr>';});
+                    weekBox.innerHTML=h+'</tbody></table>';
+                }
+                var mk=(d.makeups||[]);
+                mkBox.innerHTML=mk.length?'<div class="text-xs text-slate-500 uppercase mb-1">Upcoming makeup classes</div>'+mk.map(function(m){return '<div class="text-sm py-1 border-b border-slate-100"><span class="font-semibold">'+esc(ecDate(m.lesson_date))+'</span> · '+esc(m.start_time)+'–'+esc(m.end_time)+' · '+esc(m.subject_name||'—')+' · <span class="amharic">'+esc(m.class_name)+'</span>'+(m.reason?' <span class="text-slate-500">— '+esc(m.reason)+'</span>':'')+'</div>';}).join(''):'';
+            }).catch(function(){todayBox.textContent='Timetable unavailable.';});
+        })();
         // Restore section from URL on load
         {const _sp=new URLSearchParams(window.location.search).get('section');if(_sp)showSection(_sp);}
         

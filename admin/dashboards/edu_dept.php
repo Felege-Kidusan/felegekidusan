@@ -104,6 +104,7 @@ const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSO
 <script src="/admin/js/education_analytics_hub.js?v=20260927"></script>
 <script src="/admin/js/academic_intelligence.js?v=20261003"></script>
 <script src="/admin/js/academic_tracking.js?v=20261003"></script>
+<script src="/admin/js/edu_timetable.js?v=20261020"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
 /* Field footer: inline validation errors + live character counters (patch 8) */
@@ -513,6 +514,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <button class="nl" data-sec="teachers"><i class="fa-solid fa-chalkboard-teacher"></i> Teachers</button>
 <button class="nl" data-sec="classes"><i class="fa-solid fa-school"></i> Classes</button>
 <button class="nl" data-sec="subjects"><i class="fa-solid fa-book"></i> Subjects</button>
+<button class="nl" data-sec="timetable"><i class="fa-solid fa-calendar-days"></i> Timetable</button>
 </div>
 <div>
 <div class="nt">Academic</div>
@@ -824,6 +826,9 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
      four entry points with nothing selected; the scoped tracking screens
      are Phase 2. -->
 <div id="sec-academic-tracking" class="sec"></div>
+
+<!-- ═══ TIMETABLE BUILDER (per-class working days, bell schedule, weekly grid, makeup classes) ═══ -->
+<div id="sec-timetable" class="sec"></div>
 
 <!-- ═══ EDUCATION ANALYTICS, REPORTING & INTELLIGENCE HUB ═══ -->
 <div id="sec-academic-intel" class="sec"></div>
@@ -1577,6 +1582,7 @@ $navItems = [
     ],
     [
         ['icon' => 'fa-solid fa-book', 'label' => 'Subjects', 'attrs' => 'data-sec="subjects"'],
+        ['icon' => 'fa-solid fa-calendar-days', 'label' => 'Timetable', 'attrs' => 'data-sec="timetable"'],
         ['icon' => 'fa-solid fa-star', 'label' => 'Grades', 'attrs' => 'data-sec="grades"'],
         ['icon' => 'fa-solid fa-clipboard-list', 'label' => 'Assess', 'attrs' => 'data-sec="assessments"'],
         ['icon' => 'fa-solid fa-file-lines', 'label' => 'Reports', 'attrs' => 'data-sec="reportcards"'],
@@ -4224,6 +4230,7 @@ nav=function(n){
     try{if(n==='filter'&&!pfData.length)applyPerformanceFilter();}catch(e){console.error(e);}
     try{if(n==='analytics'&&window.EduHubInstance)window.EduHubInstance.load();}catch(e){console.error(e);}
     try{if(n==='academic-tracking'&&window.AcademicTrackingInstance)window.AcademicTrackingInstance.boot();}catch(e){console.error(e);}
+    try{if(n==='timetable'&&window.EduTimetableInstance)window.EduTimetableInstance.boot();}catch(e){console.error(e);}
     try{if(n==='academic-intel'&&window.AcademicIntelligenceInstance)window.AcademicIntelligenceInstance.boot();}catch(e){console.error(e);}
     try{if(n==='assessments'&&!allAssessmentTypes.length)loadAssessmentTypes();}catch(e){console.error(e);}
 };
