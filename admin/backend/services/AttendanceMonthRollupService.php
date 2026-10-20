@@ -102,6 +102,9 @@ final class AttendanceMonthRollupService
      * @param int[]|null $memberIds
      * @return array{ok:bool,rows:int,reset:int}
      */
+    /** Message of the last failed refresh in this request (null when the last refresh succeeded). */
+    public static ?string $lastError = null;
+
     public static function refreshMonth(\mysqli $conn, string $dept, int $ecYear, int $ecMonth, ?array $memberIds = null): array
     {
         $out = ['ok' => false, 'rows' => 0, 'reset' => 0];
@@ -177,7 +180,14 @@ final class AttendanceMonthRollupService
             $from = $window['from'];
             $to = $window['to'];
             $stmt->bind_param('siiiddss', $dept, $ecYear, $ecMonth, $minSessions, $threshold, $threshold, $from, $to);
-            $stmt->execute();
+            // mysqli reporting is off project-wide: a failed execute (e.g. a
+            // missing column on a server where a migration was not run) must
+            // not pass as "0 rows, ok" — surface it as a rollup failure.
+            if (!$stmt->execute()) {
+                $err = $stmt->error;
+                $stmt->close();
+                throw new \RuntimeException('rollup insert failed: ' . $err);
+            }
             $out['rows'] = max(0, $stmt->affected_rows);
             $stmt->close();
             $conn->commit();
@@ -188,6 +198,8 @@ final class AttendanceMonthRollupService
             } catch (\Throwable $e2) {
                 // ignore
             }
+            $out['error'] = $e->getMessage();
+            self::$lastError = $e->getMessage();
             error_log('[AttendanceMonthRollupService::refreshMonth] ' . $e->getMessage());
         }
         return $out;
@@ -237,6 +249,7 @@ final class AttendanceMonthRollupService
             }
         }
         if ($refresh) {
+            self::$lastError = null;
             self::refreshMonth($conn, $dept, $ecYear, $ecMonth);
         }
         return $refresh;

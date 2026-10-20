@@ -22,6 +22,8 @@ a{color:var(--rc-primary)}
 .rc-badge{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;background:rgba(255,255,255,.2);padding:2px 7px;border-radius:999px}
 .rc-header .rc-iconbtn,.rc-header .rc-btn-ghost{color:#fff;border-color:rgba(255,255,255,.25)}
 .rc-header .rc-btn-ghost:hover,.rc-header .rc-iconbtn:hover{background:rgba(255,255,255,.12)}
+/* solid (non-ghost) buttons in the teal header: white pill needs the brand text colour, not the header's inherited white */
+.rc-header .rc-btn:not(.rc-btn-ghost):not(.rc-btn-primary){color:var(--rc-primary)}
 .rc-seg{display:inline-flex;border:1px solid rgba(255,255,255,.3);border-radius:999px;overflow:hidden}
 .rc-seg button{background:transparent;border:0;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600;color:#fff;opacity:.75}
 .rc-seg button.is-on{background:#fff;color:var(--rc-primary);opacity:1}
