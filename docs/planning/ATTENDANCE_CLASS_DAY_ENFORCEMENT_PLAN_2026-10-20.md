@@ -111,4 +111,5 @@ Per-lesson timetable-bound attendance (Option B/C research); mezmur calendar rul
 |---|---|
 | 2026-10-20 rev 1 | Initial plan (5 open questions). |
 | 2026-10-20 rev 2 | Owner decisions 1–5 applied: block unconfigured classes (`NOT_CONFIGURED`), 45-day backdate limit, per-entry "cancel makeup classes?" choice, `ATTENDANCE_EXISTS` guard, Education-only calendar rights; feature renamed **"Day Off"** (`school_day_offs`, `is_off`, `cancel_makeup`). |
+| 2026-10-20 rev 4 | Owner request: the School view of the calendar is **linked to the timetable** — every day now shows **School day** (how many classes meet, from `timetable_class_days` + makeups), **Off** (holiday / Day Off), or **Neutral** (no class meets). Entry-point buttons added (Academic Year section, Education dashboard card, Monthly Attendance header). |
 | 2026-10-20 rev 3 | Implemented P0–P4. Deviations from rev 2: the `OUT_OF_YEAR` check was **removed** (it was not an owner rule and rejects valid dates when `academic_years` rows carry tight windows); `SchoolCalendarService` splits `dayType` (calendar display) from `classDayStatus` (save verdict) so future days still show Day Off/holiday status. |

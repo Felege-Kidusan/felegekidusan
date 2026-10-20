@@ -150,6 +150,8 @@ switch ($action) {
         $todayEc = gregorian_to_ethiopian(SchoolCalendarService::today());
         $ok($meta + [
             'from' => $from, 'to' => $to,
+            'school_days' => SchoolCalendarService::schoolDaysForRange($conn, $from, $to),
+            'weekday_class_counts' => SchoolCalendarService::weekdayClassCounts($conn),
             'holidays' => SchoolCalendarService::holidays($conn, $from, $to),
             'day_offs' => SchoolCalendarService::dayOffs($conn, $from, $to),
             'unconfigured_classes' => SchoolCalendarService::unconfiguredClasses($conn),

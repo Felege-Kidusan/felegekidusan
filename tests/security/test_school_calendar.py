@@ -284,6 +284,34 @@ class SchoolCalendarLive(unittest.TestCase):
         st, data = self._get(self.edu, "class_days", f"class_id=1&from={future}&to={future}")
         self.assertEqual(data["days"][future]["code"], "HOLIDAY", data)
 
+    # ── timetable ↔ calendar link: school day / neutral / off ──────────────
+    def test_school_days_follow_the_timetable(self):
+        # temp class meets on the weekday AFTER today's → that day becomes a
+        # school day, today becomes/keeps whatever the other classes say
+        db("INSERT INTO classes (class_name, class_name_en, class_code, level_order, is_active)"
+           " VALUES ('SC Temp', 'SC Temp D', 'SCTMPD', 99, 1)")
+        cid = int(db("SELECT id FROM classes WHERE class_name_en = 'SC Temp D' LIMIT 1"))
+        today_iso = date.fromisoformat(self.today).weekday() + 1
+        meet_iso = (today_iso % 7) + 1
+        meet_date = date.fromisoformat(self.today)
+        while meet_date.weekday() + 1 != meet_iso:
+            meet_date += timedelta(days=1)
+        db(f"INSERT INTO timetable_class_days (class_id, academic_year_id, working_days, updated_by)"
+           f" VALUES ({cid}, 1, '{meet_iso}', 2)")
+        m = meet_date.isoformat()
+        st, data = self._get(self.edu, "overview", f"from={self.today}&to={m}")
+        days = data.get("school_days", {})
+        self.assertEqual(days[m]["type"], "school", (m, days.get(m)))
+        self.assertIn("class", days[m]["detail"], days[m])
+        # a Day Off overrides the timetable verdict
+        st, data = self._api(self.edu, "mark_day_off", {"date": m, "reason": "SC link test", "cancel_makeup": "1"})
+        self.assertEqual(st, 200, data)
+        st, data = self._get(self.edu, "overview", f"from={self.today}&to={m}")
+        self.assertEqual(data["school_days"][m]["type"], "off", data["school_days"][m])
+        self.assertEqual(data["school_days"][m]["kind"], "day_off", data["school_days"][m])
+        # weekday_class_counts reports the linked timetable
+        self.assertGreaterEqual(int(data.get("weekday_class_counts", {}).get(str(meet_iso), 0)), 1, data)
+
     # ── decision 5: Education dept only writes ────────────────────────────
     def test_writes_are_education_only(self):
         st, data = self._api(self.teacher, "mark_day_off",

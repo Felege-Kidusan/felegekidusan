@@ -10,7 +10,7 @@
   var EC = window.WBWSCalendar;
   var state = {
     year: 0, month: 1, classId: 0,
-    yearHolidays: [], yearDayOffs: [], unconfigured: [],
+    yearHolidays: [], yearDayOffs: [], unconfigured: [], schoolDays: {}, weekdayCounts: {};
     classDays: null, classes: []
   };
 
@@ -59,6 +59,8 @@
       state.yearHolidays = r.body.holidays || [];
       state.yearDayOffs = r.body.day_offs || [];
       state.unconfigured = r.body.unconfigured_classes || [];
+      state.schoolDays = r.body.school_days || {};
+      state.weekdayCounts = r.body.weekday_class_counts || {};
       renderPanels();
       renderMonthStrip();
     });
@@ -78,14 +80,27 @@
 
   // ── day status (school view: from year data) ────────────────────────────
   function schoolStatus(greg) {
-    var off = state.yearDayOffs.filter(function (o) { return o.date === greg; })[0];
-    if (off) return { cls: 'st-dayoff', tag: 'Day Off', why: off.reason || '' };
-    var hol = state.yearHolidays.filter(function (h) { return h.date_from <= greg && h.date_to >= greg; })[0];
-    if (hol) return { cls: 'st-holiday', tag: 'Holiday', why: hol.title_am || hol.title };
-    var dt = new Date(greg + 'T12:00:00');
-    var dow = dt.getDay(); // 0=Sun
-    if (dow === 0) return { cls: 'st-classday', tag: 'Sunday', why: '' };
-    return { cls: 'st-ok', tag: 'Open', why: '' };
+    // Timetable-linked school view: off (Day Off / holiday), school day
+    // (some class meets per the timetable, or a makeup class), or neutral.
+    var day = state.schoolDays[greg];
+    if (!day) {
+      var off = state.yearDayOffs.filter(function (o) { return o.date === greg; })[0];
+      if (off) return { cls: 'st-dayoff', tag: 'Day Off', why: off.reason || '' };
+      var hol = state.yearHolidays.filter(function (h) { return h.date_from <= greg && h.date_to >= greg; })[0];
+      if (hol) return { cls: 'st-holiday', tag: 'Holiday', why: hol.title_am || hol.title };
+      return { cls: 'st-off', tag: '—', why: '' };
+    }
+    if (day.type === 'off') {
+      return day.kind === 'holiday'
+        ? { cls: 'st-holiday', tag: 'Holiday', why: day.detail || '' }
+        : { cls: 'st-dayoff', tag: 'Day Off', why: day.detail || '' };
+    }
+    if (day.type === 'school') {
+      return day.kind === 'makeup'
+        ? { cls: 'st-makeup', tag: 'School day', why: day.detail || '' }
+        : { cls: 'st-classday', tag: 'School day', why: day.detail || '' };
+    }
+    return { cls: 'st-off', tag: 'Neutral', why: day.detail || 'No class meets on this day' };
   }
   function classStatus(greg) {
     var s = (state.classDays || {})[greg];
@@ -166,11 +181,11 @@
       el.addEventListener('click', function () { openDayDialog(el.getAttribute('data-date')); });
     });
     $('sc-legend').innerHTML =
-      '<span><i style="background:#f0fdf4;border-color:#bbf7d0"></i>Class day / open</span>'
-      + '<span><i style="background:#f0fdfa;border-color:#99f6e4"></i>Makeup class day</span>'
-      + '<span><i style="background:#faf5ff;border-color:#e9d5ff"></i>Holiday</span>'
+      '<span><i style="background:#f0fdf4;border-color:#bbf7d0"></i>School day — classes meet per the timetable</span>'
+      + '<span><i style="background:#f0fdfa;border-color:#99f6e4"></i>School day (makeup class)</span>'
+      + '<span><i style="background:#faf5ff;border-color:#e9d5ff"></i>Holiday / vacation</span>'
       + '<span><i style="background:#fff7ed;border-color:#fed7aa"></i>Day Off</span>'
-      + '<span><i style="background:#f8fafc"></i>No class / not configured</span>'
+      + '<span><i style="background:#f8fafc"></i>Neutral — no class meets</span>'
       + '<span style="opacity:.7">Click a day (today or later) to mark or reopen a Day Off.</span>';
   }
 
@@ -227,7 +242,8 @@
     if (!state.unconfigured.length) {
       unc.innerHTML = 'All active classes have working days configured. ✓';
     } else {
-      unc.innerHTML = '<strong>These classes cannot take attendance yet</strong> — set their working days in the Timetable builder first:<br><br>'
+      unc.innerHTML = '<strong>These classes cannot take attendance yet</strong> — set their working days in the '
+        + '<a href="/admin/dashboards/edu_dept.php?section=timetable">Timetable builder</a> first:<br><br>'
         + state.unconfigured.map(function (c) { return esc(c.name); }).join(' · ');
     }
   }

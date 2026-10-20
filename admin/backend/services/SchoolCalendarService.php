@@ -260,6 +260,112 @@ class SchoolCalendarService
         return $days === [] ? null : array_values(array_unique($days));
     }
 
+    /**
+     * Timetable-linked school view (owner request 2026-10-20): for every date
+     * in the range, what kind of day is it for the WHOLE school?
+     *   type 'off'     — Day Off or holiday (classes do not hold);
+     *   type 'school'  — the timetable puts at least one active class on this
+     *                    weekday (or a dated makeup class exists);
+     *   type 'neutral' — no class meets and the day is not declared off.
+     * @return array<string,array{type:string,kind?:string,label?:string,detail?:string,classes?:int}>
+     */
+    public static function schoolDaysForRange(\mysqli $conn, string $from, string $to): array
+    {
+        $weekdayCounts = self::weekdayClassCounts($conn);   // ISO weekday => classes meeting
+        $makeupCounts = [];                                  // Y-m-d => makeup classes
+        if (self::timetableReady($conn)) {
+            try {
+                $stmt = $conn->prepare(
+                    'SELECT lesson_date, COUNT(*) AS c FROM timetable_makeup_classes
+                      WHERE lesson_date >= ? AND lesson_date <= ? GROUP BY lesson_date'
+                );
+                if ($stmt) {
+                    $stmt->bind_param('ss', $from, $to);
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    while ($row = $res->fetch_assoc()) {
+                        $makeupCounts[substr((string)$row['lesson_date'], 0, 10)] = (int)$row['c'];
+                    }
+                    $stmt->close();
+                }
+            } catch (\Throwable $e) {
+                // makeups are an enhancement — never break the calendar
+            }
+        }
+        $out = [];
+        $d = new \DateTime($from);
+        $end = new \DateTime($to);
+        while ($d <= $end) {
+            $ymd = $d->format('Y-m-d');
+            $entry = null;
+            if (self::tablesReady($conn)) {
+                $off = self::dayOffStatus($conn, $ymd);
+                if ($off['is_off']) {
+                    $entry = ['type' => 'off', 'kind' => 'day_off', 'label' => 'Day Off',
+                        'detail' => $off['reason'] !== '' ? $off['reason'] : 'classes are off for the whole school'];
+                } else {
+                    $holiday = self::holidayOn($conn, $ymd);
+                    if ($holiday !== null) {
+                        $entry = ['type' => 'off', 'kind' => 'holiday', 'label' => 'Holiday', 'detail' => $holiday];
+                    }
+                }
+            }
+            if ($entry === null) {
+                $dow = (int)$d->format('N');
+                $classes = $weekdayCounts[$dow] ?? 0;
+                if (isset($makeupCounts[$ymd])) {
+                    $entry = ['type' => 'school', 'kind' => 'makeup', 'label' => 'School day',
+                        'detail' => $makeupCounts[$ymd] . ' makeup class' . ($makeupCounts[$ymd] > 1 ? 'es' : ''),
+                        'classes' => $makeupCounts[$ymd]];
+                } elseif ($classes > 0) {
+                    $entry = ['type' => 'school', 'kind' => 'regular', 'label' => 'School day',
+                        'detail' => $classes . ' class' . ($classes > 1 ? 'es' : '') . ' meet',
+                        'classes' => $classes];
+                } else {
+                    $entry = ['type' => 'neutral', 'kind' => 'none', 'label' => 'Neutral',
+                        'detail' => 'No class meets on this day'];
+                }
+            }
+            $out[$ymd] = $entry;
+            $d->modify('+1 day');
+        }
+        return $out;
+    }
+
+    /** ISO weekday => number of active classes whose timetable working days include it. */
+    public static function weekdayClassCounts(\mysqli $conn): array
+    {
+        $counts = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0, 6 => 0, 7 => 0];
+        if (!self::timetableReady($conn)) {
+            return $counts;
+        }
+        $year = self::activeYearRow($conn);
+        if ($year === null) {
+            return $counts;
+        }
+        $stmt = $conn->prepare(
+            'SELECT t.working_days FROM timetable_class_days t
+               JOIN classes c ON c.id = t.class_id
+              WHERE c.is_active = 1 AND t.academic_year_id = ?'
+        );
+        if (!$stmt) {
+            return $counts;
+        }
+        $stmt->bind_param('i', $year['id']);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($row = $res->fetch_assoc()) {
+            foreach (explode(',', (string)$row['working_days']) as $part) {
+                $n = (int)trim($part);
+                if ($n >= 1 && $n <= 7) {
+                    $counts[$n]++;
+                }
+            }
+        }
+        $stmt->close();
+        return $counts;
+    }
+
     /** Classes without a working-days row for the active year (Year Calendar page). */
     public static function unconfiguredClasses(\mysqli $conn): array
     {
