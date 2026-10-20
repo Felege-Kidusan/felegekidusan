@@ -288,9 +288,11 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
     if (!$classId || empty($records)) err('class_id and records array are required');
     if (!is_array($records)) err('records must be an array');
     if ($date > date('Y-m-d')) err('Attendance cannot be recorded for a future date.', 422, ['code' => 'FUTURE_DATE']);
-    apiAssertClassDay($conn, $classId, $date);
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
+    // After the access check: a teacher must not learn another class's
+    // schedule verdicts (class-day / day-off detail is class-specific).
+    apiAssertClassDay($conn, $classId, $date);
     $userId = (int)$auth['uid'];
     apiIdempotencyBegin($userId, (string)($input['client_op_id'] ?? ''));
     if (isApiRateLimited('attendance_save', 30)) {
@@ -377,9 +379,11 @@ if ($method === 'POST' && $action === 'submit') {
     if (!$classId || empty($records)) err('class_id and records array are required');
     if (!is_array($records)) err('records must be an array');
     if ($date > date('Y-m-d')) err('Attendance cannot be recorded for a future date.', 422, ['code' => 'FUTURE_DATE']);
-    apiAssertClassDay($conn, $classId, $date);
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
+    // After the access check: a teacher must not learn another class's
+    // schedule verdicts (class-day / day-off detail is class-specific).
+    apiAssertClassDay($conn, $classId, $date);
     $yearIdOrNull = $year ? (int)$year['id'] : null;
     $userId = (int)$auth['uid'];
     apiIdempotencyBegin($userId, (string)($input['client_op_id'] ?? ''));

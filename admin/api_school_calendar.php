@@ -97,6 +97,15 @@ $dateParam = static function (string $raw) use ($fail): string {
     }
     return $d;
 };
+$rangeGuard = static function (string $from, string $to) use ($fail): array {
+    if ($to < $from) {
+        $fail(400, 'The end date cannot be before the start date.');
+    }
+    if ((strtotime($to) - strtotime($from)) / 86400 > 400) {
+        $fail(400, 'Date range too large (max 400 days). Use ec_year + ec_month for month grids.');
+    }
+    return [$from, $to];
+};
 $monthWindow = static function (array $q) use ($fail): array {
     $ecYear = (int)($q['ec_year'] ?? 0);
     $ecMonth = (int)($q['ec_month'] ?? 0);
@@ -132,8 +141,7 @@ switch ($action) {
             $fail(400, 'class_id is required.');
         }
         if (isset($_GET['from']) && isset($_GET['to'])) {
-            $from = $dateParam((string)$_GET['from']);
-            $to = $dateParam((string)$_GET['to']);
+            [$from, $to] = $rangeGuard($dateParam((string)$_GET['from']), $dateParam((string)$_GET['to']));
         } else {
             [$from, $to] = $monthWindow($_GET);
         }
@@ -142,8 +150,7 @@ switch ($action) {
 
     case 'overview':
         if (isset($_GET['from']) && isset($_GET['to'])) {
-            $from = $dateParam((string)$_GET['from']);
-            $to = $dateParam((string)$_GET['to']);
+            [$from, $to] = $rangeGuard($dateParam((string)$_GET['from']), $dateParam((string)$_GET['to']));
         } else {
             [$from, $to] = $monthWindow($_GET);
         }
@@ -178,11 +185,13 @@ switch ($action) {
     case 'holidays':
         $from = $dateParam((string)($_GET['from'] ?? SchoolCalendarService::today()));
         $to = $dateParam((string)($_GET['to'] ?? $from));
+        [$from, $to] = $rangeGuard($from, $to);
         $ok($meta + ['holidays' => SchoolCalendarService::holidays($conn, $from, $to)]);
 
     case 'day_offs':
         $from = $dateParam((string)($_GET['from'] ?? SchoolCalendarService::today()));
         $to = $dateParam((string)($_GET['to'] ?? $from));
+        [$from, $to] = $rangeGuard($from, $to);
         $ok($meta + ['day_offs' => SchoolCalendarService::dayOffs($conn, $from, $to)]);
 
     case 'save_holiday':

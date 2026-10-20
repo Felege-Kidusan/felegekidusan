@@ -221,15 +221,17 @@ switch ($action) {
         if ($date > (new DateTime('now', new DateTimeZone('Africa/Addis_Ababa')))->format('Y-m-d')) {
             $fail(422, 'A lesson sheet cannot be saved for a future date.');
         }
+        if ($subjectId <= 0) {
+            $fail(400, 'Subject is required.');
+        }
+        $assertScope($classId, $subjectId);
+        // After the scope check (audit F-S1): no class-schedule verdicts for
+        // classes the caller cannot access.
         $dayStatus = SchoolCalendarService::classDayStatus($conn, $classId, $date);
         if (empty($dayStatus['ok'])) {
             $fail(422, $dayStatus['detail'] !== '' ? $dayStatus['detail'] : 'This is not a class day.',
                 ['code' => $dayStatus['code'], 'date_status' => $dayStatus]);
         }
-        if ($subjectId <= 0) {
-            $fail(400, 'Subject is required.');
-        }
-        $assertScope($classId, $subjectId);
         $records = $input['records'] ?? [];
         if (!is_array($records)) {
             $records = json_decode((string)$records, true);

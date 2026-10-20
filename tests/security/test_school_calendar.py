@@ -43,6 +43,36 @@ def read(rel: str) -> str:
 
 
 class SchoolCalendarStatic(unittest.TestCase):
+    # ── pre-production audit 2026-10-21 (F-S1/F-S2/F-P1 regression pins) ────
+    def test_guard_order_no_schedule_leak(self):
+        # the class-day verdict must come AFTER the class-access check so a
+        # teacher cannot probe another class's schedule (audit F-S1)
+        route = read("api/v1/routes/attendance.php")
+        import re as _re
+        for m in _re.finditer(r"apiRequireClassAccess\(\$conn, \$auth, \$classId, \$yearId\);\s*\n\s*.*apiAssertClassDay", route):
+            pass
+        self.assertGreaterEqual(
+            len(_re.findall(
+                r"apiRequireClassAccess\(\$conn, \$auth, \$classId, \$yearId\);\s*\n\s*(?://[^\n]*\n\s*)*apiAssertClassDay",
+                route)), 2, "mobile saves must run apiAssertClassDay after apiRequireClassAccess")
+        lesson = read("admin/api_lesson_attendance.php")
+        self.assertRegex(
+            lesson,
+            r"\$assertScope\(\$classId, \$subjectId\);[\s\S]{0,400}?SchoolCalendarService::classDayStatus",
+            "lesson save must run the day guard after assertScope")
+
+    def test_api_range_is_capped(self):
+        api = read("admin/api_school_calendar.php")
+        self.assertIn("rangeGuard", api)
+        self.assertIn("max 400 days", api)
+
+    def test_service_batches_range_queries(self):
+        svc = read(SVC)
+        self.assertIn("primeRange", svc)
+        self.assertIn("invalidateRange", svc)
+        self.assertIn("$wdMemo", svc)
+        self.assertIn("$yearMemo", svc)
+
     def test_schema_is_additive_and_idempotent(self):
         src = read(SQL)
         self.assertIn("CREATE TABLE IF NOT EXISTS `school_holidays`", src)
@@ -137,6 +167,10 @@ class SchoolCalendarLive(unittest.TestCase):
         db(f"DELETE FROM school_day_offs WHERE day_date >= '{self.today}'")
         db(f"DELETE FROM school_holidays WHERE date_to >= '{self.today}'")
         db(f"DELETE FROM attendance WHERE member_id = {self.TEMP_MEMBER}")
+        # the mobile-refusal probe uses the teacher's own class + member 900000;
+        # if a run ever gets past the refusal, its rows must not linger (they
+        # would trip ATTENDANCE_EXISTS for every later run)
+        db(f"DELETE FROM attendance WHERE member_id = 900000 AND attendance_date >= '{self.today}'")
         db(f"DELETE FROM attendance_summary WHERE member_id = {self.TEMP_MEMBER}")
         db(f"DELETE FROM class_enrollments WHERE member_id = {self.TEMP_MEMBER}")
         db(f"DELETE FROM members WHERE id = {self.TEMP_MEMBER}")
@@ -181,14 +215,24 @@ class SchoolCalendarLive(unittest.TestCase):
         self.assertEqual(st, 422, data)
         self.assertEqual(data.get("code"), "DAY_OFF", data)
 
-        # 4. mobile save refused the same way (rule applies to the app)
+        # 4. mobile save refused the same way (rule applies to the app).
+        #    The teacher uses his OWN class (class 1): probes of classes he
+        #    cannot access must fail at the access check first (audit F-S1).
         try:
             tok = mobile_token("teacher")
             st, data = mobile(tok, "POST", "/api/v1/attendance",
-                              {"class_id": cid, "date": self.today,
-                               "records": [{"member_id": self.TEMP_MEMBER, "status": "present"}]})
+                              {"class_id": 1, "date": self.today,
+                               "records": [{"member_id": 900000, "status": "present"}]})
             self.assertEqual(st, 422, data)
             self.assertEqual(data.get("code"), "DAY_OFF", data)
+            # F-S1 regression: another class → 403, never the schedule verdict
+            try:
+                st2, data2 = mobile(tok, "POST", "/api/v1/attendance",
+                                    {"class_id": cid, "date": self.today,
+                                     "records": [{"member_id": self.TEMP_MEMBER, "status": "present"}]})
+                self.assertEqual(st2, 403, data2)
+            except urllib.error.HTTPError as e2:
+                self.assertEqual(e2.code, 403, e2.read()[:200])
         except urllib.error.HTTPError as e:
             self.assertEqual(e.code, 422)
 
@@ -209,6 +253,15 @@ class SchoolCalendarLive(unittest.TestCase):
         self.assertEqual(data.get("code"), "ATTENDANCE_EXISTS", data)
 
     # ── decision 2: 45-day window ─────────────────────────────────────────
+    def test_invalid_date_is_refused_cleanly(self):
+        st, data = self._get(self.edu, "date_status", f"class_id=1&date=not-a-date")
+        self.assertEqual(st, 400, data)
+
+    def test_range_cap_enforced(self):
+        st, data = self._get(self.edu, "overview", "from=2020-01-01&to=2027-01-01")
+        self.assertEqual(st, 400, data)
+        self.assertIn("too large", data.get("message", ""), data)
+
     def test_backdate_window_is_45_days(self):
         today = date.fromisoformat(self.today)
         old = (today - timedelta(days=46)).isoformat()

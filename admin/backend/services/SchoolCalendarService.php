@@ -33,6 +33,10 @@ class SchoolCalendarService
 
     private static ?bool $tablesReady = null;
     private static ?bool $timetableTablesReady = null;
+    /** @var array{from:string,to:string,off:array<string,array>,hol:array<int,array>,mk:array<string,int>,mkClass:array<string,bool>}|null */
+    private static ?array $range = null;
+    /** @var array<string,(int[]|null)> memo of workingDays per "class:year" */
+    private static array $wdMemo = [];
 
     // ─────────────────────────────────────────────────────────────────────
     // Read model
@@ -42,6 +46,74 @@ class SchoolCalendarService
     {
         self::$tablesReady = null;
         self::$timetableTablesReady = null;
+        self::$range = null;
+        self::$wdMemo = [];
+        self::$yearMemo = null;
+        self::$yearMemoSet = false;
+    }
+
+    /** True when the per-request range cache already answers for this date. */
+    private static function covers(string $date): bool
+    {
+        return self::$range !== null
+            && $date >= self::$range['from'] && $date <= self::$range['to'];
+    }
+
+    /**
+     * Load every day-off / holiday / makeup fact for a date window ONCE
+     * (F-P1). Per-day lookups inside the window then answer from memory —
+     * the Year Calendar page drops from ~736 SQL queries to 4.
+     */
+    private static function primeRange(\mysqli $conn, string $from, string $to): void
+    {
+        if (self::$range !== null && self::$range['from'] <= $from && self::$range['to'] >= $to) {
+            return;
+        }
+        $off = []; $hol = []; $mk = []; $mkClass = [];
+        if (self::tablesReady($conn)) {
+            foreach (self::dayOffs($conn, $from, $to) as $row) {
+                // dayOffs() already resolves "latest row per date wins" and
+                // keeps only the effective Day Offs (reopened days drop out —
+                // exactly what dayOffStatus() reports per date).
+                $off[$row['date']] = [
+                    'is_off'      => true,
+                    'cancel_makeup' => $row['cancel_makeup'],
+                    'reason'      => $row['reason'],
+                    'can_change'  => $row['can_change'],
+                ];
+            }
+            foreach (self::holidays($conn, $from, $to) as $row) {
+                $hol[] = $row; // matched per date; highest id wins (holidayOn rule)
+            }
+        }
+        if (self::timetableReady($conn)) {
+            try {
+                $stmt = $conn->prepare(
+                    'SELECT class_id, lesson_date FROM timetable_makeup_classes
+                      WHERE lesson_date >= ? AND lesson_date <= ?'
+                );
+                if ($stmt) {
+                    $stmt->bind_param('ss', $from, $to);
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    while ($row = $res->fetch_assoc()) {
+                        $d = substr((string)$row['lesson_date'], 0, 10);
+                        $mk[$d] = ($mk[$d] ?? 0) + 1;
+                        $mkClass[(int)$row['class_id'] . ':' . $d] = true;
+                    }
+                    $stmt->close();
+                }
+            } catch (\Throwable $e) {
+                // makeups are an enhancement — never break the calendar
+            }
+        }
+        self::$range = ['from' => $from, 'to' => $to, 'off' => $off, 'hol' => $hol, 'mk' => $mk, 'mkClass' => $mkClass];
+    }
+
+    private static function invalidateRange(): void
+    {
+        self::$range = null;
+        self::$wdMemo = [];
     }
 
     public static function tablesReady(\mysqli $conn): bool
@@ -93,16 +165,25 @@ class SchoolCalendarService
      */
     public static function classDayStatus(\mysqli $conn, int $classId, string $date): array
     {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return ['date' => $date, 'label' => $date, 'is_makeup' => false,
+                'ok' => false, 'code' => 'INVALID_DATE', 'detail' => 'A valid date is required.'];
+        }
         $today = self::today();
         if ($date > $today) {
             return ['date' => $date, 'label' => self::ecLabel($date), 'is_makeup' => false,
                 'ok' => false, 'code' => 'FUTURE_DATE', 'detail' => 'Attendance opens on the class day.'];
         }
-        $minDate = date('Y-m-d', strtotime($today . ' -' . self::BACKDATE_DAYS . ' days'));
-        if ($date < $minDate) {
-            return ['date' => $date, 'label' => self::ecLabel($date), 'is_makeup' => false,
-                'ok' => false, 'code' => 'BACKDATE_LIMIT',
-                'detail' => 'Attendance can be recorded up to ' . self::BACKDATE_DAYS . ' days back.'];
+        // The 45-day backdating window belongs to this feature: it activates
+        // with sql/078 like everything else, so a code pull that has not run
+        // the migration yet behaves exactly as before (audit F-P2).
+        if (self::tablesReady($conn)) {
+            $minDate = date('Y-m-d', strtotime($today . ' -' . self::BACKDATE_DAYS . ' days'));
+            if ($date < $minDate) {
+                return ['date' => $date, 'label' => self::ecLabel($date), 'is_makeup' => false,
+                    'ok' => false, 'code' => 'BACKDATE_LIMIT',
+                    'detail' => 'Attendance can be recorded up to ' . self::BACKDATE_DAYS . ' days back.'];
+            }
         }
         return self::dayType($conn, $classId, $date);
     }
@@ -173,6 +254,7 @@ class SchoolCalendarService
      */
     public static function classDaysForMonth(\mysqli $conn, int $classId, string $fromYmd, string $toYmd): array
     {
+        self::primeRange($conn, $fromYmd, $toYmd);
         $out = [];
         $d = new \DateTime($fromYmd);
         $end = new \DateTime($toYmd);
@@ -190,6 +272,11 @@ class SchoolCalendarService
         $out = ['is_off' => false, 'cancel_makeup' => true, 'reason' => '', 'can_change' => $date >= self::today()];
         if (!self::tablesReady($conn)) {
             return $out;
+        }
+        if (self::covers($date)) {
+            return isset(self::$range['off'][$date])
+                ? array_merge($out, self::$range['off'][$date])
+                : $out;
         }
         $stmt = $conn->prepare(
             'SELECT is_off, cancel_makeup, reason FROM ' . self::DAY_OFFS .
@@ -216,6 +303,15 @@ class SchoolCalendarService
         if (!self::tablesReady($conn)) {
             return null;
         }
+        if (self::covers($date)) {
+            $best = null;
+            foreach (self::$range['hol'] as $row) {
+                if ($row['date_from'] <= $date && $row['date_to'] >= $date) {
+                    $best = $row; // list order ends with the highest id — matches ORDER BY id DESC
+                }
+            }
+            return $best !== null ? (string)($best['title_am'] ?: $best['title']) : null;
+        }
         $stmt = $conn->prepare(
             'SELECT title, title_am FROM ' . self::HOLIDAYS .
             ' WHERE date_from <= ? AND date_to >= ? ORDER BY id DESC LIMIT 1'
@@ -237,6 +333,10 @@ class SchoolCalendarService
         if ($year === null) {
             return null;
         }
+        $memoKey = $classId . ':' . $year['id'];
+        if (array_key_exists($memoKey, self::$wdMemo)) {
+            return self::$wdMemo[$memoKey];
+        }
         $stmt = $conn->prepare(
             'SELECT working_days FROM timetable_class_days WHERE class_id = ? AND academic_year_id = ? LIMIT 1'
         );
@@ -248,7 +348,7 @@ class SchoolCalendarService
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if (!$row) {
-            return null;
+            return self::$wdMemo[$memoKey] = null;
         }
         $days = [];
         foreach (explode(',', (string)$row['working_days']) as $part) {
@@ -257,7 +357,7 @@ class SchoolCalendarService
                 $days[] = $n;
             }
         }
-        return $days === [] ? null : array_values(array_unique($days));
+        return self::$wdMemo[$memoKey] = ($days === [] ? null : array_values(array_unique($days)));
     }
 
     /**
@@ -271,27 +371,9 @@ class SchoolCalendarService
      */
     public static function schoolDaysForRange(\mysqli $conn, string $from, string $to): array
     {
+        self::primeRange($conn, $from, $to);
         $weekdayCounts = self::weekdayClassCounts($conn);   // ISO weekday => classes meeting
-        $makeupCounts = [];                                  // Y-m-d => makeup classes
-        if (self::timetableReady($conn)) {
-            try {
-                $stmt = $conn->prepare(
-                    'SELECT lesson_date, COUNT(*) AS c FROM timetable_makeup_classes
-                      WHERE lesson_date >= ? AND lesson_date <= ? GROUP BY lesson_date'
-                );
-                if ($stmt) {
-                    $stmt->bind_param('ss', $from, $to);
-                    $stmt->execute();
-                    $res = $stmt->get_result();
-                    while ($row = $res->fetch_assoc()) {
-                        $makeupCounts[substr((string)$row['lesson_date'], 0, 10)] = (int)$row['c'];
-                    }
-                    $stmt->close();
-                }
-            } catch (\Throwable $e) {
-                // makeups are an enhancement — never break the calendar
-            }
-        }
+        $makeupCounts = self::$range['mk'] ?? [];            // Y-m-d => makeup classes
         $out = [];
         $d = new \DateTime($from);
         $end = new \DateTime($to);
@@ -405,8 +487,15 @@ class SchoolCalendarService
     }
 
     /** @return array{id:int,from:?string,to:?string}|null */
+    private static ?array $yearMemo = null;
+    private static bool $yearMemoSet = false;
+
     private static function activeYearRow(\mysqli $conn): ?array
     {
+        if (self::$yearMemoSet) {
+            return self::$yearMemo;
+        }
+        self::$yearMemoSet = true;
         $res = $conn->query(
             "SELECT id, start_date, end_date FROM academic_years
               WHERE status = 'active' ORDER BY id DESC LIMIT 1"
@@ -417,10 +506,10 @@ class SchoolCalendarService
                   WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
             );
             if (!$res || !($row = $res->fetch_assoc())) {
-                return null;
+                return self::$yearMemo = null;
             }
         }
-        return [
+        return self::$yearMemo = [
             'id'   => (int)$row['id'],
             'from' => ($row['start_date'] !== null && $row['start_date'] !== '') ? substr((string)$row['start_date'], 0, 10) : null,
             'to'   => ($row['end_date'] !== null && $row['end_date'] !== '') ? substr((string)$row['end_date'], 0, 10) : null,
@@ -429,6 +518,9 @@ class SchoolCalendarService
 
     private static function hasMakeup(\mysqli $conn, int $classId, string $date): bool
     {
+        if (self::covers($date)) {
+            return isset(self::$range['mkClass'][$classId . ':' . $date]);
+        }
         $stmt = $conn->prepare(
             "SELECT 1 FROM timetable_makeup_classes WHERE class_id = ? AND lesson_date = ? LIMIT 1"
         );
@@ -523,6 +615,7 @@ class SchoolCalendarService
         if (!$okExec) {
             return ['ok' => false, 'message' => 'Could not save the holiday.'];
         }
+        self::invalidateRange();
         self::audit($conn, $actor, 'school_holiday_saved', [
             'id' => $newId, 'title' => $title, 'date_from' => $from, 'date_to' => $to, 'type' => $type,
         ], 'school_calendar', $newId);
@@ -537,9 +630,9 @@ class SchoolCalendarService
         if ($id <= 0) {
             return ['ok' => false, 'message' => 'Holiday id is required.'];
         }
-        // Refuse when the holiday still covers a date that has not passed and
-        // attendance exists... simplest rule matching decision 4's spirit:
-        // never delete rows that still cover today-or-future AND hold attendance.
+        // Holidays may be edited/deleted freely: they gate eligibility going
+        // forward and never rewrote historical attendance rows. The date_from/
+        // date_to values are read only for the audit trail.
         $stmt = $conn->prepare('SELECT date_from, date_to FROM ' . self::HOLIDAYS . ' WHERE id = ? LIMIT 1');
         if (!$stmt) {
             return ['ok' => false, 'message' => 'Could not load the holiday.'];
@@ -558,6 +651,7 @@ class SchoolCalendarService
         if (!$okExec) {
             return ['ok' => false, 'message' => 'Could not delete the holiday.'];
         }
+        self::invalidateRange();
         self::audit($conn, $actor, 'school_holiday_deleted', [
             'id' => $id, 'date_from' => $row['date_from'], 'date_to' => $row['date_to'],
         ], 'school_calendar', $id);
@@ -618,6 +712,7 @@ class SchoolCalendarService
         if (!$okExec) {
             return ['ok' => false, 'message' => 'Could not save the day off.'];
         }
+        self::invalidateRange();
         self::audit($conn, $actor, $isOff ? 'day_off_marked' : 'day_off_reopened', [
             'date' => $date, 'cancel_makeup' => $cancelMakeup, 'reason' => $reason,
         ], 'school_calendar', 0);
