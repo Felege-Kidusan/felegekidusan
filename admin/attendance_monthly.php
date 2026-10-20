@@ -108,6 +108,7 @@ $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
       </div>
     </div>
     <div class="rc-header-right">
+      <a class="rc-btn rc-btn-ghost rc-btn-sm" id="am-calendar-link" href="/admin/school_calendar.php">School Calendar</a>
       <a class="rc-btn rc-btn-ghost rc-btn-sm" id="am-warnings-link" href="/admin/attendance_warnings.php">Warnings</a>
       <button class="rc-btn rc-btn-ghost rc-btn-sm" id="am-refresh" type="button" title="Recompute this month now">Refresh</button>
       <button class="rc-btn rc-btn-sm" id="am-export" type="button">Export Excel</button>
