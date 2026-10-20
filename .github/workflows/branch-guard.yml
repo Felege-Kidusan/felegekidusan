@@ -1,0 +1,57 @@
+# ============================================================================
+# Branch guard — keeps the FKSS Beta (dev-branch) settings out of main.
+# ----------------------------------------------------------------------------
+# Owner rule 2026-10-20: `dev` (= main + one commit that points the phone app
+# at the test server felegekidusan.arkeonethiopia.com) must NEVER be merged
+# into `main` and never reach the production repository. See BRANCHING.md.
+# No secrets, no database, no deployment — checks only.
+# ============================================================================
+name: Branch guard (no beta settings on main)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-beta-on-main:
+    name: main must build the production app
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse pull requests whose head is the dev branch
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ "${{ github.head_ref }}" = "dev" ]; then
+            echo "::error::Pull requests from 'dev' into 'main' are forbidden (BRANCHING.md)."
+            exit 1
+          fi
+
+      - name: No beta target values in the mobile app on main
+        run: |
+          set -e
+          M=Mobile/wbws_flutter_app
+          fail=0
+          for needle in "arkeonethiopia.com/api" "fkss.beta" "FKSS Beta" "isBeta"; do
+            if grep -rqF -- "$needle" "$M/lib" "$M/android/app/src/main" "$M/android/app/build.gradle"; then
+              echo "::error::Beta value '$needle' found on main — dev branch content leaked (BRANCHING.md)."
+              fail=1
+            fi
+          done
+          grep -qF "static const String apiBaseUrl = 'https://felegekidusan.com/api/v1';" "$M/lib/utils/config.dart" \
+            || { echo "::error::apiBaseUrl on main is not the production API."; fail=1; }
+          grep -qF 'applicationId = "com.arkeonethiopia.fkss"' "$M/android/app/build.gradle" \
+            || { echo "::error::applicationId on main is not com.arkeonethiopia.fkss."; fail=1; }
+          test ! -e Mobile/HOW_TO_BUILD_BETA.md \
+            || { echo "::error::Mobile/HOW_TO_BUILD_BETA.md exists only on dev; it leaked to main."; fail=1; }
+          exit $fail
+
+      - name: Target-environment unit test
+        run: python3 -m pytest tests/security/test_mobile_target_environment.py -q -p no:cacheprovider

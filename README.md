@@ -6,6 +6,15 @@
 
 ---
 
+## Branches — read `BRANCHING.md` first
+
+| Branch | Purpose |
+|---|---|
+| `main` | The system. Identical in `suraman21/SSMS` and the production repo `Felege-Kidusan/felegekidusan`; builds the production phone app **FKSS** (`felegekidusan.com`). |
+| `dev` (`suraman21/SSMS` only) | `main` + **one** commit re‑targeting the phone app at the test server → **FKSS Beta** (`felegekidusan.arkeonethiopia.com`, package `com.arkeonethiopia.fkss.beta`). Always kept current by merging `main` **into** it. |
+
+**⛔ `dev` is never merged into `main` and never pushed to the production repo** (owner rule, enforced by `tests/security/test_mobile_target_environment.py` and `.github/workflows/branch-guard.yml`).
+
 ## Overview
 
 FKSS replaces fragmented spreadsheets and paper records with one platform used by HR, Education, Mezmur (hymn ministry), Information, and school administration departments:
