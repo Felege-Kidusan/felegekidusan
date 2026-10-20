@@ -26,6 +26,11 @@ from test_attendance_phase1 import (  # noqa: E402
     BASE, USERS, WebSession, db, mobile, mobile_token, _live_ready,
 )
 
+def _addis_today():
+    """Africa/Addis_Ababa 'today' — the clock every server-side date rule uses."""
+    return (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=3)).date()
+
+
 FLUTTER = ROOT / "Mobile/wbws_flutter_app"
 ROUTE = ROOT / "api/v1/routes/timetable.php"
 SCREEN = FLUTTER / "lib/screens/teacher/teacher_timetable_screen.dart"
@@ -183,7 +188,8 @@ class TimetableMobileLive(unittest.TestCase):
     def setUpClass(cls):
         cls.tearDownClass()
         db(
-            "INSERT INTO timetable_class_days (class_id,academic_year_id,working_days) VALUES (1,1,'6,7');"
+            "INSERT INTO timetable_class_days (class_id,academic_year_id,working_days) VALUES (1,1,'6,7')"
+            " ON DUPLICATE KEY UPDATE working_days=VALUES(working_days);"
             "INSERT INTO timetable_periods (class_id,academic_year_id,label,start_time,end_time,is_break,sort_order)"
             " VALUES (1,1,'TT-P1','08:00','08:45',0,9901),(1,1,'TT-Break','08:45','09:00',1,9902),(1,1,'TT-P2','09:00','09:45',0,9903);"
             "SET @p1=(SELECT id FROM timetable_periods WHERE sort_order=9901 AND class_id=1);"
@@ -191,7 +197,7 @@ class TimetableMobileLive(unittest.TestCase):
             "INSERT INTO timetable_entries (class_id,academic_year_id,period_id,day_of_week,subject_id,teacher_id,room)"
             " VALUES (1,1,@p1,6,1,3,'Room 1'),(1,1,@p2,7,2,3,'Hall');"
             "INSERT INTO timetable_makeup_classes (class_id,academic_year_id,lesson_date,start_time,end_time,subject_id,teacher_id,reason)"
-            " VALUES (1,1,CURDATE(),'14:00','14:45',1,3,'tt-mobile-test');"
+            f" VALUES (1,1,'{_addis_today().isoformat()}','14:00','14:45',1,3,'tt-mobile-test');"
         )
         cls.teacher = _token("teacher")
 
@@ -201,7 +207,8 @@ class TimetableMobileLive(unittest.TestCase):
             "DELETE FROM timetable_makeup_classes WHERE reason='tt-mobile-test';"
             "DELETE FROM timetable_entries WHERE class_id=1 AND period_id IN (SELECT id FROM timetable_periods WHERE sort_order IN (9901,9903));"
             "DELETE FROM timetable_periods WHERE sort_order IN (9901,9902,9903);"
-            "DELETE FROM timetable_class_days WHERE class_id=1 AND working_days='6,7';"
+            # restore the seeded default row (do NOT delete it — later tests need it)
+            "UPDATE timetable_class_days SET working_days='1,2,3,4,5,6,7' WHERE class_id=1 AND working_days='6,7';"
         )
 
     def test_week_returns_own_lessons_keyed_by_iso_weekday_with_ec_labels(self):
@@ -299,7 +306,8 @@ class TimetableWebToMobileEndToEnd(unittest.TestCase):
     def _wipe(cls):
         db(f"DELETE FROM timetable_entries WHERE class_id={cls.CLASS}")
         db(f"DELETE FROM timetable_periods WHERE class_id={cls.CLASS}")
-        db(f"DELETE FROM timetable_class_days WHERE class_id={cls.CLASS}")
+        # restore the seeded default row instead of deleting it
+        db(f"UPDATE timetable_class_days SET working_days='1,2,3,4,5,6,7' WHERE class_id={cls.CLASS}")
         db(f"DELETE FROM timetable_makeup_classes WHERE class_id={cls.CLASS}")
 
     def web(self, action, payload):
@@ -316,7 +324,7 @@ class TimetableWebToMobileEndToEnd(unittest.TestCase):
 
     def test_end_to_end(self):
         C, T = self.CLASS, self.T
-        today = _dt.date.today()
+        today = _addis_today()
         today_iso = today.isoweekday()
         other_iso = 1 if today_iso != 1 else 2
 

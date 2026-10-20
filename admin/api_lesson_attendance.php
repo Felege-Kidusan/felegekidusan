@@ -23,10 +23,12 @@ require_once __DIR__ . '/backend/academic_year.php';
 require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 require_once __DIR__ . '/backend/services/LessonAttendanceService.php';
+require_once __DIR__ . '/backend/services/SchoolCalendarService.php';
 
 use App\Services\AttendanceRecordService;
 use App\Services\EnrollmentService;
 use App\Services\LessonAttendanceService;
+use App\Services\SchoolCalendarService;
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -154,7 +156,8 @@ switch ($action) {
             $fail(400, 'Subject is required.');
         }
         $assertScope($classId, $subjectId);
-        $ok($meta + LessonAttendanceService::sheet($conn, $classId, $subjectId, $date, $lessonNo, $preferYear));
+        $ok($meta + ['date_status' => SchoolCalendarService::classDayStatus($conn, $classId, $date)]
+            + LessonAttendanceService::sheet($conn, $classId, $subjectId, $date, $lessonNo, $preferYear));
 
     case 'day':
         if (!$available) {
@@ -165,7 +168,8 @@ switch ($action) {
         if ($role === 'teacher') {
             $assertScope($classId, null);
         }
-        $ok($meta + ['sessions' => LessonAttendanceService::sessionsForDay($conn, $classId, $date, true)]);
+        $ok($meta + ['date_status' => SchoolCalendarService::classDayStatus($conn, $classId, $date),
+            'sessions' => LessonAttendanceService::sessionsForDay($conn, $classId, $date, true)]);
 
     case 'member':
         $memberId = (int)($_GET['member_id'] ?? 0);
@@ -216,6 +220,11 @@ switch ($action) {
         $date = $dateParam((string)($input['date'] ?? ''));
         if ($date > (new DateTime('now', new DateTimeZone('Africa/Addis_Ababa')))->format('Y-m-d')) {
             $fail(422, 'A lesson sheet cannot be saved for a future date.');
+        }
+        $dayStatus = SchoolCalendarService::classDayStatus($conn, $classId, $date);
+        if (empty($dayStatus['ok'])) {
+            $fail(422, $dayStatus['detail'] !== '' ? $dayStatus['detail'] : 'This is not a class day.',
+                ['code' => $dayStatus['code'], 'date_status' => $dayStatus]);
         }
         if ($subjectId <= 0) {
             $fail(400, 'Subject is required.');

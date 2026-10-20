@@ -222,6 +222,24 @@ $stmt->bind_param('iiiiii', $c1, $bible, $yearId, $termId, $assessmentId, $eduId
 $stmt->execute();
 $stmt->close();
 
+// Class-day-only attendance (owner decisions 2026-10-20): the test world
+// treats every day as a class day so date-based tests are not blocked by
+// NOT_CONFIGURED. Real deployments configure working days per class in the
+// Timetable builder (Education dept).
+$ttReady = $conn->query("SHOW TABLES LIKE 'timetable_class_days'");
+if ($ttReady && $ttReady->fetch_row()) {
+    foreach (array_values($classIds) as $cid) {
+        $stmt = $conn->prepare(
+            "INSERT INTO timetable_class_days (class_id, academic_year_id, working_days, updated_by)
+             VALUES (?, ?, '1,2,3,4,5,6,7', ?)
+             ON DUPLICATE KEY UPDATE working_days = VALUES(working_days)"
+        );
+        $stmt->bind_param('iii', $cid, $yearId, $eduId);
+        $stmt->execute();
+        $stmt->close();
+    }
+}
+
 while (ob_get_level() > 0) { @ob_end_flush(); }
 fwrite(STDERR, json_encode([
     'status' => 'success',

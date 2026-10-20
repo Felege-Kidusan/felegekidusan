@@ -247,6 +247,7 @@ $csrfToken = generateCsrfToken();
                             <div>
                                 <label class="form-label">Date</label>
                                 <input type="date" id="attDateInput" class="form-input" value="<?= $todayDate ?>" onchange="loadStudentsForAttendance()">
+                                <div id="scDayBanner"></div>
                             </div>
                         </div>
                     </div>
@@ -448,6 +449,7 @@ $csrfToken = generateCsrfToken();
                         document.getElementById('attSubtitle').textContent = `Date: ${(typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(date,'long'):date} | ${data.students.length} students`;
                         attendanceData = data.students;
                         renderAttendanceTable(data.students);
+                        if (window.SchoolCalendarWidget) SchoolCalendarWidget.render('scDayBanner', data.date_status);
                         updateSummary();
                         attSetDerivedLock(data.lessons || []);
                     } else {
@@ -541,6 +543,7 @@ $csrfToken = generateCsrfToken();
             const classId = document.getElementById('attClassSelect').value;
             const date = document.getElementById('attDateInput').value;
             if (!classId) return;
+            if (window.SchoolCalendarWidget && !SchoolCalendarWidget.allowSave(showToast)) return;
             const saveBtn = document.getElementById('attSaveBtn');
             if (saveBtn && saveBtn.disabled) return;
 
@@ -704,5 +707,6 @@ require __DIR__ . '/../components/bottom_nav.php';
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 
 <?php include __DIR__ . '/../components/account_link.php'; ?>
+<script src="/admin/js/school_calendar_widget.js"></script>
 </body>
 </html>

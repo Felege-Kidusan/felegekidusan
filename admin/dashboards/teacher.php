@@ -467,6 +467,7 @@ $csrfToken = generateCsrfToken();
                             </div>
                         </div>
                         <div id="attLessonInfo" class="text-sm text-slate-600 mt-3" style="display:none;"></div>
+                        <div id="scDayBanner"></div>
                     </div>
                     
                     <!-- Quick Actions -->
@@ -1057,6 +1058,7 @@ $csrfToken = generateCsrfToken();
                         document.getElementById('attSubtitle').textContent = `Date: ${dateLabel} | ${data.students.length} students` + (data.session ? ` | saved by ${data.session.teacher_name || 'teacher'} (${data.session.updated_at_ec})` : ' | not saved yet');
                         attendanceData = data.students;
                         renderAttendanceTable(data.students);
+                        if (window.SchoolCalendarWidget) SchoolCalendarWidget.render('scDayBanner', data.date_status);
                         attSetLocked(data.session && data.session.status === 'cancelled',
                             (data.session && data.session.status === 'cancelled' ? '<span class="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">Cancelled by Education</span> ' + escapeHtml(data.session.cancel_reason || '') + ' — saving again re-opens this lesson. ' : '')
                             + attLessonSummary(data.other_lessons, 'Other lessons this day: '));
@@ -1075,6 +1077,7 @@ $csrfToken = generateCsrfToken();
                         document.getElementById('attSubtitle').textContent = `Date: ${dateLabel} | ${data.students.length} students`;
                         attendanceData = data.students;
                         renderAttendanceTable(data.students);
+                        if (window.SchoolCalendarWidget) SchoolCalendarWidget.render('scDayBanner', data.date_status);
                         const lessons = data.lessons || [];
                         attSetLocked(lessons.length > 0, lessons.length
                             ? '<b>Day result is calculated from ' + lessons.length + ' lesson sheet(s)</b> — read-only here; pick the lesson above to change it. ' + attLessonSummary(lessons, '')
@@ -1130,6 +1133,7 @@ $csrfToken = generateCsrfToken();
             const classId = document.getElementById('attClassSelect').value;
             const date = document.getElementById('attDateInput').value;
             if (!classId) return;
+            if (window.SchoolCalendarWidget && !SchoolCalendarWidget.allowSave(showToast)) return;
 
             const sheet = AttendanceSheet.collect(document.getElementById('attendanceBody'));
             // Default-absent: the sheet is complete by construction (every
@@ -1594,5 +1598,6 @@ require __DIR__ . '/../components/bottom_nav.php';
 
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 <?php include __DIR__ . '/../components/account_link.php'; ?>
+<script src="/admin/js/school_calendar_widget.js"></script>
 </body>
 </html>

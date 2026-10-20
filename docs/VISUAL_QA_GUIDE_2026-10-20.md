@@ -115,6 +115,28 @@ If `attendance_warnings.php` says the feature is disabled → step 0/3 (flag) is
 
 ---
 
+## 4b. School Calendar + class-day attendance (needs `sql/078_school_calendar.sql`)
+
+What to check after `git pull` + `sql/078`:
+
+```
+/admin/school_calendar.php                      (Education role: year strip, month grid,
+                                                 add holiday, "Mark as Day Off" with the
+                                                 "Also cancel makeup classes?" choice,
+                                                 Reopen on a Day Off day)
+/admin/dashboards/teacher.php                   (attendance date banner + disabled save
+                                                 with the reason on Day Off / holiday /
+                                                 non-class days; Save refuses > 45 days back)
+Mobile app → Attendance                          (same banner; date picker opens only the
+                                                 last 45 days)
+```
+
+Rule: attendance only on class days (Timetable working days or a dated makeup), no future
+dates, max 45 days back. Classes without configured working days are blocked (the Year
+Calendar page lists them). Every action is in the audit log (`entity_type='school_calendar'`).
+
+---
+
 ## 5. Want screenshots instead?
 
 The sandbox has the full seeded test system (fake members, all SQL applied, flag on). On request I can re‑provision it and produce **a screenshot set per role** (desktop + phone width) of every item in §2 so you can review visually before touching production.

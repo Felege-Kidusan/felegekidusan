@@ -44,6 +44,30 @@ if (!class_exists('\\App\\Services\\LessonAttendanceService')) {
     }
 }
 
+if (!class_exists('\\App\\Services\\SchoolCalendarService')) {
+    $calendarServicePath = dirname(__DIR__, 3) . '/admin/backend/services/SchoolCalendarService.php';
+    if (is_file($calendarServicePath)) {
+        require_once $calendarServicePath;
+    }
+}
+
+/**
+ * Class-day-only attendance (owner decisions 2026-10-20): a sheet may only be
+ * saved for a class day of that class — inside the 45-day backdate window,
+ * not a Day Off / holiday / unconfigured class. The UI gets the same verdict
+ * from the 'date_status' fields so it can explain before anyone taps save.
+ */
+function apiAssertClassDay(\mysqli $conn, int $classId, string $date): void {
+    if (!class_exists('\\App\\Services\\SchoolCalendarService')) {
+        return; // graceful: service unavailable means the pre-calendar behaviour
+    }
+    $st = \App\Services\SchoolCalendarService::classDayStatus($conn, $classId, $date);
+    if (empty($st['ok'])) {
+        err($st['detail'] !== '' ? $st['detail'] : 'Attendance cannot be recorded for this date.',
+            422, ['code' => $st['code'], 'date_status' => $st]);
+    }
+}
+
 function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, array $records, bool $requireComplete, ?string $sheetDate = null): array {
     if (!class_exists('\\App\\Services\\AttendanceRecordService')
         || !class_exists('\\App\\Services\\EnrollmentService')) {
@@ -236,6 +260,9 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
     ok([
         'class' => $class,
         'date' => $date,
+        'date_status' => class_exists('\\App\\Services\\SchoolCalendarService')
+            ? \App\Services\SchoolCalendarService::classDayStatus($conn, $classId, $date)
+            : null,
         'students' => $students,
         'count' => count($students),
         'roster_year_id' => $rosterYearId ?: null,
@@ -261,6 +288,7 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
     if (!$classId || empty($records)) err('class_id and records array are required');
     if (!is_array($records)) err('records must be an array');
     if ($date > date('Y-m-d')) err('Attendance cannot be recorded for a future date.', 422, ['code' => 'FUTURE_DATE']);
+    apiAssertClassDay($conn, $classId, $date);
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
     $userId = (int)$auth['uid'];
@@ -349,6 +377,7 @@ if ($method === 'POST' && $action === 'submit') {
     if (!$classId || empty($records)) err('class_id and records array are required');
     if (!is_array($records)) err('records must be an array');
     if ($date > date('Y-m-d')) err('Attendance cannot be recorded for a future date.', 422, ['code' => 'FUTURE_DATE']);
+    apiAssertClassDay($conn, $classId, $date);
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
     $yearIdOrNull = $year ? (int)$year['id'] : null;

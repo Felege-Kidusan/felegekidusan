@@ -138,7 +138,9 @@ class TimetableLive(unittest.TestCase):
         for c in (cls.CLASS_A, cls.CLASS_B):
             db(f"DELETE FROM timetable_entries WHERE class_id={c}")
             db(f"DELETE FROM timetable_periods WHERE class_id={c}")
-            db(f"DELETE FROM timetable_class_days WHERE class_id={c}")
+            # restore the seeded default row (deleting it would break later
+            # tests and the next run — class-day rules need it)
+            db(f"UPDATE timetable_class_days SET working_days='1,2,3,4,5,6,7' WHERE class_id={c}")
             db(f"DELETE FROM timetable_makeup_classes WHERE class_id={c}")
         db("DELETE FROM activity_logs WHERE entity_type='timetable'")
 

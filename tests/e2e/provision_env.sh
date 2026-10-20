@@ -125,8 +125,11 @@ sudo -n mariadb "$DB_NAME" -e "CREATE TABLE IF NOT EXISTS attendance_archive LIK
   CREATE TABLE IF NOT EXISTS activity_logs_archive LIKE activity_logs;"
 
 echo "== 6. re-run the files that failed on ordering =="
+# 070/075/076 carry FKs to subjects/classes — created above from the PHP
+# migrations — so on a fresh database they must be re-applied here too.
 for f in 003_production_hardening 014_member_directory_scaling 017_identity_codes \
-         021_mezmur_department 029_subject_codes_and_limits; do
+         021_mezmur_department 029_subject_codes_and_limits \
+         070_report_definitions 075_assessment_followups 076_attendance_sessions; do
   sudo -n mariadb "$DB_NAME" < "sql/$f.sql" 2>/dev/null \
     && echo "  ok: $f" || echo "  (index-only residue, safe): $f"
 done

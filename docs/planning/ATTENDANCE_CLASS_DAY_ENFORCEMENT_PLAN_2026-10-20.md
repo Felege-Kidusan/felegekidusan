@@ -1,5 +1,5 @@
 # Implementation Plan — Class-Day-Only Attendance, Yearly Calendar, "Day Off" Days
-**Date:** 2026-10-20 (rev 2 — owner decisions applied) · **Status: PLAN COMPLETE — awaiting implementation approval**
+**Date:** 2026-10-20 (rev 2 — owner decisions applied) · **Status: IMPLEMENTED 2026-10-20 (P0–P4 approved and delivered)** — see `docs/audits/CLASS_DAY_ENFORCEMENT_REPORT_2026-10-20.md`
 Research: `ATTENDANCE_CLASS_DAY_CALENDAR_RESEARCH_2026-10-20.md` · Change log at the bottom.
 
 **Naming:** the override feature is called **"Day Off"** (Amharic label proposal: `ዕረፍት ቀን`). The words "urgent" and "emergency" do not appear in the UI. Technical table name `school_day_offs`.
@@ -111,3 +111,4 @@ Per-lesson timetable-bound attendance (Option B/C research); mezmur calendar rul
 |---|---|
 | 2026-10-20 rev 1 | Initial plan (5 open questions). |
 | 2026-10-20 rev 2 | Owner decisions 1–5 applied: block unconfigured classes (`NOT_CONFIGURED`), 45-day backdate limit, per-entry "cancel makeup classes?" choice, `ATTENDANCE_EXISTS` guard, Education-only calendar rights; feature renamed **"Day Off"** (`school_day_offs`, `is_off`, `cancel_makeup`). |
+| 2026-10-20 rev 3 | Implemented P0–P4. Deviations from rev 2: the `OUT_OF_YEAR` check was **removed** (it was not an owner rule and rejects valid dates when `academic_years` rows carry tight windows); `SchoolCalendarService` splits `dayType` (calendar display) from `classDayStatus` (save verdict) so future days still show Day Off/holiday status. |

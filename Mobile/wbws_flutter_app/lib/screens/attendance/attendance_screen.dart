@@ -56,6 +56,15 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   String? _successMsg;
   String? _rosterNote;
   String _packetStatus = '';
+  // Class-day-only attendance (owner rules 2026-10-20): verdict for the
+  // selected date from the server ({ok, code, label, detail, is_makeup}).
+  // null = unknown (offline / older server) → behave as before.
+  Map<String, dynamic>? _dateStatus;
+  bool get _dayAllowed => _dateStatus == null || _dateStatus!['ok'] != false;
+  final ValueNotifier<bool> _saveGate = ValueNotifier(false);
+  void _syncSaveGate() {
+    _saveGate.value = _dirty.value && _dayAllowed;
+  }
   /// Education's reason when this sheet was returned for correction.
   String? _returnNote;
   int _pendingCount = 0;
@@ -112,6 +121,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       if (!mounted || _isOffline == !hasLink) return;
       setState(() => _isOffline = !hasLink);
     });
+    _dirty.addListener(_syncSaveGate);
+    _syncSaveGate();
     _loadClasses();
     _updatePendingCount();
 
@@ -287,6 +298,14 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     if (!mounted) return;
 
     if (res.success && res.data != null) {
+      final dStatusRaw = res.data['date_status'];
+      final dStatus = (dStatusRaw is Map)
+          ? Map<String, dynamic>.from(dStatusRaw)
+          : null;
+      if (mounted) {
+        setState(() { _dateStatus = dStatus; });
+        _syncSaveGate();
+      }
       final parsed = RosterParse.students(res.data);
       if (parsed.isEmpty && RosterParse.reportedCount(res.data) > 0) {
         setState(() {
@@ -377,6 +396,17 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   /// no spinner, no "Sending…" text, buttons stay live (last write wins:
   /// saving again simply replaces the queued packet).
   Future<void> _saveAttendance() async {
+    if (!_dayAllowed) {
+      final detail = (_dateStatus != null && _dateStatus!['detail'] is String)
+          ? _dateStatus!['detail'] as String
+          : 'Attendance cannot be recorded for this date.';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(detail), backgroundColor: AppTheme.warning),
+        );
+      }
+      return;
+    }
     if (_selectedClassId == null || _students.isEmpty) return;
     if (_locked) return;
     _autoSave.cancel();
@@ -418,6 +448,17 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   /// Instant submit — no confirmation dialog. A short UNDO window replaces
   /// it; undo refuses honestly if the outbox already delivered the packet.
   Future<void> _submitAttendance() async {
+    if (!_dayAllowed) {
+      final detail = (_dateStatus != null && _dateStatus!['detail'] is String)
+          ? _dateStatus!['detail'] as String
+          : 'Attendance cannot be recorded for this date.';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(detail), backgroundColor: AppTheme.warning),
+        );
+      }
+      return;
+    }
     if (_selectedClassId == null || _students.isEmpty) return;
     if (_locked) return;
     // Cancel a delayed draft before creating the submitted generation. If an
@@ -607,7 +648,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     final picked = await showEthiopianDatePicker(
       context: context,
       initialGregorianDate: _selectedDate,
-      firstDate: DateTime(2024),
+      firstDate: DateTime.now().subtract(const Duration(days: 45)),
       lastDate: DateTime.now(),
     );
     if (picked != null) {
@@ -684,7 +725,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                   submitLabel: 'Submit',
                   onSave: _saveAttendance,
                   onSubmit: _submitAttendance,
-                  saveEnabled: _dirty,
+                  saveEnabled: _saveGate,
                 ),
       body: Column(
         children: [
@@ -798,6 +839,15 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             ),
           ),
 
+          if (_dateStatus != null && _dateStatus!['ok'] == false)
+            StatusBanner.warning((_dateStatus!['detail'] is String &&
+                    (_dateStatus!['detail'] as String).isNotEmpty)
+                ? _dateStatus!['detail'] as String
+                : 'Attendance cannot be recorded for this date.'),
+          if (_dateStatus != null &&
+              _dateStatus!['ok'] == true &&
+              _dateStatus!['is_makeup'] == true)
+            StatusBanner.success('Makeup class day — attendance can be recorded.'),
           if (_students.isNotEmpty && _error == null) _progressStrip(),
           if (_error != null)
             StatusBanner.error(_error!, onRetry: _loadAttendance),

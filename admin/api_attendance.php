@@ -12,8 +12,10 @@ require_once __DIR__ . '/backend/services/AttendanceSummaryService.php';
 require_once __DIR__ . '/backend/services/SubmissionService.php';
 require_once __DIR__ . '/backend/services/AttendanceWarningService.php';
 require_once __DIR__ . '/backend/services/LessonAttendanceService.php';
+require_once __DIR__ . '/backend/services/SchoolCalendarService.php';
 
 use App\Services\AttendanceRecordService;
+use App\Services\SchoolCalendarService;
 use App\Services\EnrollmentService;
 
 // Check authentication
@@ -63,6 +65,18 @@ $refuseFutureDate = static function (string $date): void {
     if ($date > date('Y-m-d')) {
         http_response_code(422);
         echo json_encode(['status' => 'error', 'message' => 'Attendance cannot be recorded for a future date.']);
+        exit;
+    }
+};
+// Class-day-only attendance (owner decisions 2026-10-20): the date must be a
+// class day of this class — inside the 45-day backdate window, not a Day Off,
+// not a holiday, and the class's working days must be configured.
+$assertClassDay = static function (string $date, int $classId) use ($conn): void {
+    $st = SchoolCalendarService::classDayStatus($conn, $classId, $date);
+    if (empty($st['ok'])) {
+        http_response_code(422);
+        echo json_encode(['status' => 'error', 'code' => $st['code'],
+            'message' => $st['detail'], 'date_status' => $st], JSON_UNESCAPED_UNICODE);
         exit;
     }
 };
@@ -159,6 +173,7 @@ switch ($action) {
             // class/day sheet is derived and read-only in the UI.
             'lessons' => \App\Services\LessonAttendanceService::sessionsForDay($conn, $classId, $date),
             'lesson_attendance_available' => \App\Services\LessonAttendanceService::available($conn),
+            'date_status' => SchoolCalendarService::classDayStatus($conn, $classId, $date),
         ], JSON_UNESCAPED_UNICODE);
         break;
     
@@ -178,6 +193,7 @@ switch ($action) {
         
         $academicYearId = $currentYear ? (int)$currentYear['id'] : null;
         $refuseFutureDate($date);
+        $assertClassDay($date, $classId);
         // Phase 6: a day with lesson sheets is derived → class/day sheet read-only.
         if (\App\Services\LessonAttendanceService::dayHasLessons($conn, $classId, $date)) {
             http_response_code(409);
@@ -303,6 +319,7 @@ switch ($action) {
         $memberName = $memberResult['student_name'] . ' ' . $memberResult['father_name'];
         $academicYearId = $currentYear ? $currentYear['id'] : null;
         $refuseFutureDate($date);
+        $assertClassDay($date, $classId);
         if (\App\Services\LessonAttendanceService::dayHasLessons($conn, $classId, $date)) {
             http_response_code(409);
             echo json_encode(['status' => 'error', 'code' => 'LESSON_DAY', 'message' => \App\Services\LessonAttendanceService::DAY_LOCKED_MESSAGE]);
