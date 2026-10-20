@@ -53,5 +53,8 @@ jobs:
             || { echo "::error::Mobile/HOW_TO_BUILD_BETA.md exists only on dev; it leaked to main."; fail=1; }
           exit $fail
 
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+
       - name: Target-environment unit test
         run: python3 -m pytest tests/security/test_mobile_target_environment.py -q -p no:cacheprovider

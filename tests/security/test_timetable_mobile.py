@@ -414,3 +414,35 @@ class TimetableWebToMobileEndToEnd(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SchemaGuardStatic(unittest.TestCase):
+    """The timetable module must degrade gracefully before sql/077 is run.
+
+    Production runs this code from the moment the owner pulls, but the
+    builder tables only exist after sql/077_timetable_builder.sql is pasted
+    into phpMyAdmin. Every public entry point of TimetableService funnels
+    through schemaReady() so a pre-077 database gets empty data / a clean
+    refusal instead of a 500 (mobile /timetable/week and /today were the
+    confirmed fatals in the 2026-10-20 audit)."""
+
+    def test_schema_ready_guard_present(self):
+        svc = read(ROOT / "admin/backend/services/TimetableService.php")
+        self.assertIn("function schemaReady", svc)
+        # both reads and all eight writes must check the guard
+        self.assertGreaterEqual(svc.count("self::schemaReady($conn)"), 10)
+        self.assertIn("function ensureSchema", svc)  # compatibility hook stays
+        self.assertIn("sql/077_timetable_builder.sql", svc)
+
+    def test_mobile_route_funnels_through_guarded_service(self):
+        route = read(ROUTE)
+        self.assertIn("TimetableService::teacherSchedule", route)
+        svc = read(ROOT / "admin/backend/services/TimetableService.php")
+        # teacherSchedule carries the guard itself (covers week + today)
+        head = svc.split("function teacherSchedule", 1)[1].split("function", 1)[0]
+        self.assertIn("schemaReady", head)
+
+    def test_branch_guard_installs_pytest(self):
+        wf = read(ROOT / ".github/workflows/branch-guard.yml")
+        self.assertIn("pip install", wf)
+        self.assertLess(wf.index("pip install"), wf.index("pytest tests/security/test_mobile_target_environment.py"))
+

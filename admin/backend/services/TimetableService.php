@@ -26,6 +26,58 @@ class TimetableService
 {
     public const DEFAULT_DAYS = [6, 7];
 
+    /** @var bool|null per-request cache for schemaReady() */
+    private static ?bool $schemaReadyCache = null;
+
+    /**
+     * True when sql/077_timetable_builder.sql has been applied to this
+     * database (timetable_class_days table + the 077 columns on
+     * timetable_entries / timetable_periods). Schema is deployment-managed
+     * (ensureSchema() is a no-op by design); on a database that has not run
+     * 077 yet every public entry point below degrades to an empty/declined
+     * response instead of fataling on missing tables — production may be
+     * running this code before the owner has run the SQL in phpMyAdmin.
+     */
+    public static function schemaReady(\mysqli $conn): bool
+    {
+        if (self::$schemaReadyCache !== null) {
+            return self::$schemaReadyCache;
+        }
+        $ready = false;
+        if ($r = $conn->query(
+            "SELECT
+               (SELECT COUNT(*) FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'timetable_class_days'),
+               (SELECT COUNT(*) FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'timetable_makeup_classes'),
+               (SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'timetable_entries'
+                   AND COLUMN_NAME = 'academic_year_id'),
+               (SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'timetable_entries'
+                   AND COLUMN_NAME = 'room'),
+               (SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'timetable_periods'
+                   AND COLUMN_NAME = 'class_id')"
+        )) {
+            $row = $r->fetch_row();
+            $r->free();
+            $ready = $row !== null
+                && (int)$row[0] === 1 && (int)$row[1] === 1
+                && (int)$row[2] === 1 && (int)$row[3] === 1 && (int)$row[4] === 1;
+        }
+        return self::$schemaReadyCache = $ready;
+    }
+
+    /** Uniform write refusal while sql/077 is missing. */
+    private static function schemaNotInstalled(): array
+    {
+        return [
+            'status'  => 'error',
+            'message' => 'Timetable module is not installed yet. Run sql/077_timetable_builder.sql first.',
+        ];
+    }
+
     /** Compatibility hook; schema is deployment-managed by 007 + 077. */
     public static function ensureSchema(\mysqli $conn): void
     {
@@ -40,6 +92,20 @@ class TimetableService
     {
         if ($classId <= 0 || $yearId <= 0) {
             return ['status' => 'error', 'message' => 'Class and academic year are required.'];
+        }
+        if (!self::schemaReady($conn)) {
+            return [
+                'status'           => 'success',
+                'available'        => false,
+                'class_id'         => $classId,
+                'academic_year_id' => $yearId,
+                'working_days'     => self::DEFAULT_DAYS,
+                'periods'          => [],
+                'entries'          => [],
+                'teachers'         => [],
+                'subjects'         => self::subjects($conn),
+                'makeups'          => [],
+            ];
         }
         return [
             'status'           => 'success',
@@ -215,6 +281,18 @@ class TimetableService
      */
     public static function teacherSchedule(\mysqli $conn, int $teacherId, int $yearId): array
     {
+        $today0 = new \DateTime('now', new \DateTimeZone('Africa/Addis_Ababa'));
+        if (!self::schemaReady($conn)) {
+            return [
+                'status'      => 'success',
+                'available'   => false,
+                'teacher_id'  => $teacherId,
+                'today_iso'   => (int)$today0->format('N'),
+                'today_date'  => $today0->format('Y-m-d'),
+                'lessons'     => [],
+                'makeups'     => [],
+            ];
+        }
         $lessons = [];
         if ($teacherId > 0 && $yearId > 0) {
             $stmt = $conn->prepare(
@@ -296,6 +374,9 @@ class TimetableService
     /** @param int[] $days */
     public static function saveWorkingDays(\mysqli $conn, int $classId, int $yearId, array $days, array $actor): array
     {
+        if (!self::schemaReady($conn)) {
+            return self::schemaNotInstalled();
+        }
         if ($classId <= 0 || $yearId <= 0) {
             return ['status' => 'error', 'message' => 'Class and academic year are required.'];
         }
@@ -353,6 +434,9 @@ class TimetableService
 
     public static function savePeriod(\mysqli $conn, array $in, int $yearId, array $actor): array
     {
+        if (!self::schemaReady($conn)) {
+            return self::schemaNotInstalled();
+        }
         $id = (int)($in['id'] ?? 0);
         $classId = (int)($in['class_id'] ?? 0);
         $label = trim((string)($in['label'] ?? ''));
@@ -434,6 +518,9 @@ class TimetableService
 
     public static function deletePeriod(\mysqli $conn, int $id, int $classId, int $yearId, array $actor): array
     {
+        if (!self::schemaReady($conn)) {
+            return self::schemaNotInstalled();
+        }
         if ($id <= 0 || !self::periodBelongs($conn, $id, $classId, $yearId)) {
             return ['status' => 'error', 'message' => 'Period not found for this class.'];
         }
@@ -460,6 +547,9 @@ class TimetableService
     /** Copy working days + bell schedule from another class (target lessons are cleared). */
     public static function copyBell(\mysqli $conn, int $fromClass, int $toClass, int $yearId, array $actor): array
     {
+        if (!self::schemaReady($conn)) {
+            return self::schemaNotInstalled();
+        }
         if ($fromClass <= 0 || $toClass <= 0 || $yearId <= 0 || $fromClass === $toClass) {
             return ['status' => 'error', 'message' => 'Choose a different class to copy from.'];
         }
@@ -523,6 +613,9 @@ class TimetableService
 
     public static function saveEntry(\mysqli $conn, array $in, int $yearId, array $actor): array
     {
+        if (!self::schemaReady($conn)) {
+            return self::schemaNotInstalled();
+        }
         $classId = (int)($in['class_id'] ?? 0);
         $periodId = (int)($in['period_id'] ?? 0);
         $day = (int)($in['day_of_week'] ?? 0);
@@ -616,6 +709,9 @@ class TimetableService
 
     public static function clearEntry(\mysqli $conn, int $classId, int $periodId, int $day, int $yearId, array $actor): array
     {
+        if (!self::schemaReady($conn)) {
+            return self::schemaNotInstalled();
+        }
         if ($classId <= 0 || $periodId <= 0 || $day < 1 || $day > 7) {
             return ['status' => 'error', 'message' => 'Class, period and weekday are required.'];
         }
@@ -642,6 +738,9 @@ class TimetableService
 
     public static function saveMakeup(\mysqli $conn, array $in, int $yearId, array $actor): array
     {
+        if (!self::schemaReady($conn)) {
+            return self::schemaNotInstalled();
+        }
         $classId = (int)($in['class_id'] ?? 0);
         $date = trim((string)($in['lesson_date'] ?? ''));
         $start = self::normTime((string)($in['start_time'] ?? ''));
@@ -732,6 +831,9 @@ class TimetableService
 
     public static function deleteMakeup(\mysqli $conn, int $id, int $yearId, array $actor): array
     {
+        if (!self::schemaReady($conn)) {
+            return self::schemaNotInstalled();
+        }
         if ($id <= 0) {
             return ['status' => 'error', 'message' => 'Makeup class is required.'];
         }

@@ -71,6 +71,7 @@ foreach ($lessons as $l) {
 ksort($days);
 
 $payload = [
+    'available'        => (bool)($sched['available'] ?? true),  // false before sql/077
     'teacher_id'       => $teacherId,
     'academic_year_id' => $yearId,
     'year_name'        => (string)($year['year_name'] ?? ''),

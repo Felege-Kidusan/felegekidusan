@@ -47,6 +47,17 @@ CREATE TABLE IF NOT EXISTS `timetable_makeup_classes` (
     KEY `idx_ttmk_year` (`academic_year_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- timetable_entries.room (007 creates it; self-heal if this database was
+-- provisioned without the full 007 shape) ---------------------------------
+SET @migration_sql := (
+    SELECT IF(
+        EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='timetable_entries')
+        AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='timetable_entries' AND column_name='room'),
+        'ALTER TABLE `timetable_entries` ADD COLUMN `room` VARCHAR(50) DEFAULT NULL AFTER `teacher_id`', 'SELECT 1'
+    )
+);
+PREPARE wbws_schema_stmt FROM @migration_sql; EXECUTE wbws_schema_stmt; DEALLOCATE PREPARE wbws_schema_stmt;
+
 -- timetable_periods.class_id ------------------------------------------------
 SET @migration_sql := (
     SELECT IF(
