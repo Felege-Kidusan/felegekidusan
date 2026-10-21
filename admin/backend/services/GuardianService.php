@@ -225,6 +225,16 @@ class GuardianService
             self::update($conn, $existing, ['display_name' => $name, 'phone_primary' => $p1, 'phone_alt' => $p2]);
             return ['guardian_id' => $existing, 'mode' => 'synced'];
         }
+        // D5 (owner decision 2026-10-21): siblings share a guardian when the
+        // mother's full name matches exactly AND the members' father +
+        // grandfather names match — even when no phone was recorded.
+        // A phone match alone stays a scored (review) suggestion below.
+        $familyGid = self::familyNameGuardianMatch($conn, $memberId, $name);
+        if ($familyGid > 0) {
+            self::linkMember($conn, $familyGid, $memberId, 'other', 1, true);
+            self::audit($conn, 'Guardian Linked', "Member {$memberId} auto-linked to guardian {$familyGid} (same guardian name and same father/grandfather names).");
+            return ['guardian_id' => $familyGid, 'mode' => 'auto_family'];
+        }
         $probe = [
             'display_name' => $name,
             'phone_primary' => $p1,
@@ -290,6 +300,76 @@ class GuardianService
             }
         }
         return ['guardian_id' => $gid, 'mode' => 'created'];
+    }
+
+    /**
+     * D5 sibling rule: the ONE active guardian whose name (display name or
+     * alias, normalized) equals $guardianName and who is already linked to
+     * another non-archived member with the same normalized father_name AND
+     * grandfather_name. Returns 0 when there is no such guardian or when
+     * more than one distinct guardian qualifies (never guessed).
+     */
+    private static function familyNameGuardianMatch(\mysqli $conn, int $memberId, string $guardianName): int
+    {
+        $stmt = $conn->prepare('SELECT father_name, grandfather_name FROM members WHERE id = ?');
+        if (!$stmt) {
+            return 0;
+        }
+        $stmt->bind_param('i', $memberId);
+        $stmt->execute();
+        $me = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        $father = GuardianMatchService::normalizeName((string)($me['father_name'] ?? ''));
+        $grandfather = GuardianMatchService::normalizeName((string)($me['grandfather_name'] ?? ''));
+        $wanted = GuardianMatchService::normalizeName($guardianName);
+        if ($father === '' || $grandfather === '' || $wanted === '') {
+            return 0;
+        }
+        $stmt = $conn->prepare(
+            "SELECT g.id, g.display_name, m2.father_name, m2.grandfather_name
+               FROM member_guardians mg
+               JOIN guardians g ON g.id = mg.guardian_id
+               JOIN members m2 ON m2.id = mg.member_id
+              WHERE mg.member_id <> ?
+                AND g.status = 'active'
+                AND m2.status <> 'archived'
+                AND TRIM(m2.father_name) = ?
+              LIMIT 200"
+        );
+        if (!$stmt) {
+            return 0;
+        }
+        $rawFather = trim((string)($me['father_name'] ?? ''));
+        $stmt->bind_param('is', $memberId, $rawFather);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $hits = [];
+        while ($res && ($row = $res->fetch_assoc())) {
+            if (GuardianMatchService::normalizeName((string)$row['father_name']) !== $father
+                || GuardianMatchService::normalizeName((string)$row['grandfather_name']) !== $grandfather) {
+                continue;
+            }
+            $gid = (int)$row['id'];
+            if (isset($hits[$gid])) {
+                continue;
+            }
+            $names = [GuardianMatchService::normalizeName((string)$row['display_name'])];
+            $al = $conn->prepare('SELECT alias_name FROM guardian_aliases WHERE guardian_id = ?');
+            if ($al) {
+                $al->bind_param('i', $gid);
+                $al->execute();
+                $ar = $al->get_result();
+                while ($ar && ($a = $ar->fetch_assoc())) {
+                    $names[] = GuardianMatchService::normalizeName((string)$a['alias_name']);
+                }
+                $al->close();
+            }
+            if (in_array($wanted, $names, true)) {
+                $hits[$gid] = true;
+            }
+        }
+        $stmt->close();
+        return count($hits) === 1 ? (int)array_key_first($hits) : 0;
     }
 
     public static function get(\mysqli $conn, int $id): ?array
@@ -693,7 +773,7 @@ class GuardianService
     }
 
     /** Members that carry a legacy guardian name but have no guardian link yet. */
-    public static function unlinkedMembers(\mysqli $conn, int $page = 1, int $per = 25, int $afterId = 0): array
+    public static function unlinkedMembers(\mysqli $conn, int $page = 1, int $per = 25, int $afterId = 0, bool $ascending = false): array
     {
         $per = max(5, min(100, $per));
         $page = max(1, $page);
@@ -704,8 +784,11 @@ class GuardianService
         $page = min($page, $pages);
         $off = ($page - 1) * $per;
         $extra = $afterId > 0 ? " AND m.id > " . (int)$afterId : '';
-        $order = $afterId > 0 ? 'ORDER BY m.id ASC' : 'ORDER BY m.id DESC';
-        $limit = $afterId > 0 ? "LIMIT {$per}" : "LIMIT {$per} OFFSET {$off}";
+        // Batch walks (attachBatch) go oldest → newest by id so the cursor
+        // can resume; the list view shows newest first with page offsets.
+        $asc = $afterId > 0 || $ascending;
+        $order = $asc ? 'ORDER BY m.id ASC' : 'ORDER BY m.id DESC';
+        $limit = $asc ? "LIMIT {$per}" : "LIMIT {$per} OFFSET {$off}";
         $rows = [];
         $res = $conn->query("SELECT m.id, m.member_code, m.student_name, m.full_name_am, m.current_section, m.guardian_name, m.guardian_phone1, m.guardian_phone2 FROM members m WHERE {$cond}{$extra} {$order} {$limit}");
         if ($res) {
@@ -724,7 +807,10 @@ class GuardianService
     public static function attachBatch(\mysqli $conn, int $cursor = 0, int $limit = 40, float $budget = 15.0): array
     {
         $t0 = microtime(true);
-        $batch = self::unlinkedMembers($conn, 1, $limit, $cursor);
+        // Ascending from the cursor. (Before 2026-10-21 the first step read
+        // the NEWEST members, moved the cursor past every older one and
+        // reported done — "Link all" stopped after one step of 40.)
+        $batch = self::unlinkedMembers($conn, 1, $limit, $cursor, true);
         $processed = $created = $matched = $failed = 0;
         $last = $cursor;
         foreach ($batch['rows'] as $m) {
@@ -737,7 +823,7 @@ class GuardianService
                 $processed++;
                 if ($r['mode'] === 'created') {
                     $created++;
-                } elseif ($r['mode'] === 'auto' || $r['mode'] === 'synced') {
+                } elseif ($r['mode'] === 'auto' || $r['mode'] === 'auto_family' || $r['mode'] === 'synced') {
                     $matched++;
                 }
             } catch (\Throwable $e) {
@@ -745,7 +831,7 @@ class GuardianService
                 error_log('attachBatch member ' . $m['id'] . ': ' . $e->getMessage());
             }
         }
-        $remaining = self::unlinkedMembers($conn, 1, 5, $last)['rows'];
+        $remaining = self::unlinkedMembers($conn, 1, 5, $last, true)['rows'];
         $done = count($remaining) === 0;
         $after = self::stats($conn)['members_unlinked'];
         return ['processed' => $processed, 'created' => $created, 'matched' => $matched, 'failed' => $failed, 'next_cursor' => $last, 'done' => $done, 'remaining' => $after, 'elapsed' => round(microtime(true) - $t0, 2)];

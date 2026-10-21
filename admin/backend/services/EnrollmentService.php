@@ -154,6 +154,68 @@ class EnrollmentService
     }
 
     /**
+     * Strict label lookup for bulk imports (Excel sync).
+     *
+     * Unlike resolveClass() — which treats a digit-only label as a class ID —
+     * this matches ONLY by class_name, class_name_en or class_code, so a
+     * grade label such as "5" can never land in the class whose id is 5.
+     * Whitespace differences are ignored (class names typed in the
+     * Education modal often carry irregular spaces, e.g. "ሣልሳይ (9ኛ ክፍል )").
+     * Ambiguous labels are reported, never guessed.
+     *
+     * @param array<int,array<string,mixed>>|null $activeClasses optional preloaded active classes
+     * @return array{status:string, class?:array<string,mixed>, matches?:int}
+     *         status: ok | unknown | ambiguous
+     */
+    public static function resolveClassByLabel(?\mysqli $conn, string $label, ?array $activeClasses = null): array
+    {
+        $key = self::classLabelKey($label);
+        if ($key === '') {
+            return ['status' => 'unknown'];
+        }
+        if ($activeClasses === null) {
+            $activeClasses = $conn !== null ? self::activeClassesForLookup($conn) : [];
+        }
+        $hits = [];
+        foreach ($activeClasses as $class) {
+            foreach (['class_name', 'class_name_en', 'class_code'] as $field) {
+                $candidate = self::classLabelKey((string)($class[$field] ?? ''));
+                if ($candidate !== '' && $candidate === $key) {
+                    $hits[(int)$class['id']] = $class;
+                    break;
+                }
+            }
+        }
+        if (count($hits) === 1) {
+            return ['status' => 'ok', 'class' => reset($hits)];
+        }
+        return count($hits) === 0
+            ? ['status' => 'unknown']
+            : ['status' => 'ambiguous', 'matches' => count($hits)];
+    }
+
+    /** @return array<int,array<string,mixed>> active classes (id, names, code, age_group) */
+    public static function activeClassesForLookup(\mysqli $conn): array
+    {
+        $rows = [];
+        $res = $conn->query('SELECT id, class_name, class_name_en, class_code, age_group FROM classes WHERE is_active = 1');
+        if ($res) {
+            while ($row = $res->fetch_assoc()) {
+                $rows[] = $row;
+            }
+            $res->free();
+        }
+        return $rows;
+    }
+
+    /** Comparison key for class labels: case-folded, all whitespace removed. */
+    public static function classLabelKey(string $label): string
+    {
+        $label = (string)preg_replace('/[\s\x{00A0}\x{200B}\x{FEFF}]+/u', '', $label);
+        return function_exists('mb_strtolower') ? mb_strtolower($label, 'UTF-8') : strtolower($label);
+    }
+
+    /**
      * Enroll using a dropdown name, class_code, or numeric class id.
      */
     public static function enrollByLabel(\mysqli $conn, int $memberId, string $label, ?int $yearId = null, ?int $enrolledBy = null, bool $withinTransaction = false): array

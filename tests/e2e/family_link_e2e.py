@@ -169,7 +169,8 @@ check(int(one("SELECT COUNT(*) FROM guardians")) == 1, "no duplicate guardian cr
 
 m3 = register(sa, "Caleb Alemu Worku", guardian_name="Kebede Alemu", guardian_phone1="0922000001")
 g2 = primary_of(m3)
-m4 = register(sa, "Dawit Alemu Worku", guardian_name="Kebede Alemu", guardian_phone1="0933000002")
+# Different grandfather → not siblings under D5, so only the scored path applies.
+m4 = register(sa, "Dawit Alemu Gebre", guardian_name="Kebede Alemu", guardian_phone1="0933000002")
 g3 = primary_of(m4)
 check(g2 and g3 and g2 != g3, "same name / different phone -> separate guardians (review band)")
 sug = sql(f"SELECT id, band, status FROM guardian_link_suggestions WHERE (guardian_a={g2} AND guardian_b={g3}) OR (guardian_a={g3} AND guardian_b={g2})")
@@ -187,15 +188,19 @@ m7 = register(sa, "ሄኖክ ተስፋዬ", guardian_name="አስቴር በቀ�
 g4 = primary_of(m7)
 check(g4 > 0 and guardian(g4)[0] == "አስቴር በቀለ", "Amharic guardian name round-trips", str(guardian(g4)))
 
-m8 = register(sa, "Hana Tesfaye Kebede", guardian_name="Aster Bekele", guardian_phone1="")  # same name, no phone
-check(primary_of(m8) != g1, "identical name but NO phone -> not auto-linked (review at most)", str(primary_of(m8)))
+# D5 (owner decision 2026-10-21): same guardian name AND same father +
+# grandfather names as a linked member → auto-link, even with no phone.
+m8 = register(sa, "Hana Tesfaye Kebede", guardian_name="Aster Bekele", guardian_phone1="")  # sibling of m1, no phone
+check(primary_of(m8) == g1, "D5: same guardian name + same father/grandfather, NO phone -> auto-linked", str(primary_of(m8)))
+m8b = register(sa, "Lidya Mekonnen Abebe", guardian_name="Aster Bekele", guardian_phone1="")  # other family, no phone
+check(primary_of(m8b) not in (0, g1), "identical guardian name, other family, NO phone -> not auto-linked (review at most)", str(primary_of(m8b)))
 
 print("== 2. family reads")
 st, fam = api_get(sa, "get_family", member_id=m1)
 sib = sorted(int(x["id"]) for x in fam["siblings"])
-check(st == 200 and sib == sorted([m2, m5]), "get_family lists siblings via shared guardian", str(sib))
+check(st == 200 and sib == sorted([m2, m5, m8]), "get_family lists siblings via shared guardian", str(sib))
 st, g = api_get(sa, "get", guardian_id=g1)
-check(st == 200 and len(g["guardian"]["children"]) == 3 and all(int(k["is_primary"]) == 1 for k in g["guardian"]["children"]), "get guardian -> children with primary flags (G1)")
+check(st == 200 and len(g["guardian"]["children"]) == 4 and all(int(k["is_primary"]) == 1 for k in g["guardian"]["children"]), "get guardian -> children with primary flags (G1)")
 st, _ = api_get(sa, "get", guardian_id=999999)
 check(st == 404, "get unknown guardian -> 404")
 st, pick = api_get(sa, "search", q="0911 23")

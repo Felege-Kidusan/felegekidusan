@@ -8,6 +8,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
 require_once __DIR__ . '/backend/services/MemberFileService.php';
+require_once __DIR__ . '/backend/services/MemberImportService.php';
 
 // Helper functions
 if (!function_exists('sel')) {
@@ -140,6 +141,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $y = (int)ethio_date_format($now, 'Y'); 
         $age = max(0, $y - $dob_year);
     }
+    // Keep the Gregorian date_of_birth (used for exact age everywhere) in
+    // step with the Ethiopian fields. Only a complete, valid EC date updates
+    // it; otherwise the stored value is left unchanged (COALESCE below).
+    $dob_gregorian = null;
+    if ($dob_day > 0 && $dob_month > 0 && $dob_year > 0) {
+        $dobParsed = \App\Services\MemberImportService::parseEcDate(sprintf('%04d-%02d-%02d', $dob_year, $dob_month, $dob_day));
+        if (!empty($dobParsed['ok'])) {
+            $dob_gregorian = (string)$dobParsed['gregorian'];
+            $exactAge = \App\Services\MemberImportService::ageFromGregorian($dob_gregorian);
+            if ($exactAge !== null) {
+                $age = $exactAge;
+            }
+        }
+    }
     // Respect explicitly provided values; never auto-override
     $age_group       = field('age_group', $cur['age_group'] ?? null) ?: null;
     $current_section = field('current_section', $cur['current_section'] ?? null) ?: null;
@@ -204,7 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             registration_type=?, member_type=?, status=?,
             student_name=?, baptismal_name=?, father_name=?, grandfather_name=?,
             full_name_am=?, gender=?, 
-            dob_ec_day=?, dob_ec_month=?, dob_ec_year=?, age=?, age_group=?, current_section=?,
+            dob_ec_day=?, dob_ec_month=?, dob_ec_year=?, date_of_birth=COALESCE(?, date_of_birth), age=?, age_group=?, current_section=?,
             education_level=?, spiritual_education=?, work_profession=?,
             city=?, sub_city=?, woreda=?, mender=?, block_number=?, house_number=?,
             phone_number=?, phone_primary=?, alt_phone_number=?,
@@ -222,7 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $registration_type, $member_type, $status,
             $student_name, $baptismal_name, $father_name, $grandfather_name,
             $full_name_am, $gender,
-            $dob_day, $dob_month, $dob_year, $ageVal, $age_group, $current_section,
+            $dob_day, $dob_month, $dob_year, $dob_gregorian, $ageVal, $age_group, $current_section,
             $education_level, $spiritual_education, $work_profession,
             $city, $sub_city, $woreda, $mender, $block_number, $house_number,
             $phone_number, $phone_number, $alt_phone_number,

@@ -11,13 +11,16 @@ namespace App\Services;
 class ExcelColumnMap
 {
     /** Virtual columns that are not members.* fields. */
-    public const VIRTUAL = ['class', 'class_code', 'class_name'];
+    public const VIRTUAL = ['class', 'class_code', 'class_name', 'system_id'];
 
     /**
      * key => [display header, aliases...]
      */
     private const META = [
         'member_code'        => ['Member Code'],
+        // members.id — exported read-only so re-uploads match exactly, even
+        // for temporary members and permanent members with a pending code.
+        'system_id'          => ['System ID'],
         'full_name_am'       => ['Full Name', 'full_name', 'name'],
         'baptismal_name'     => ['Christian Name', 'christian_name', 'Christian Name (የክርስትና ስም)', 'baptismal', 'baptismal_name'],
         'class'              => ['Class', 'class_code', 'class_name', 'grade', 'grade_code'],
@@ -37,6 +40,8 @@ class ExcelColumnMap
         'guardian_name'      => ['Guardian Name'],
         'guardian_phone1'    => ['Guardian Phone 1'],
         'guardian_phone2'    => ['Guardian Phone 2'],
+        'emergency_name'     => ['Emergency Contact', 'Emergency Name', 'Emergency Contact Name'],
+        'emergency_phone'    => ['Emergency Phone', 'Emergency Contact Number', 'Emergency Contact Phone'],
         'address'            => ['Address'],
         'city'               => ['City'],
         'sub_city'           => ['Sub City'],
@@ -58,10 +63,14 @@ class ExcelColumnMap
         if ($tier === 'temporary') {
             return [
                 'full_name_am', 'baptismal_name',
+                'class',
+                'gender', 'date_of_birth',
                 'current_section', 'education_level',
                 'phone_primary', 'phone_number',
-                'guardian_name', 'guardian_phone1',
+                'guardian_name', 'guardian_phone1', 'guardian_phone2',
+                'emergency_name', 'emergency_phone',
                 'waiting_since',
+                'system_id',
             ];
         }
         return [
@@ -76,14 +85,16 @@ class ExcelColumnMap
             'status',
             'phone_primary', 'phone_number', 'alt_phone_number', 'phone_guardian',
             'guardian_name', 'guardian_phone1', 'guardian_phone2',
+            'emergency_name', 'emergency_phone',
             'address', 'city', 'sub_city', 'woreda', 'house_number',
             'work_profession', 'registered_at',
+            'system_id',
         ];
     }
 
     public static function locked(string $tier): array
     {
-        return $tier === 'temporary' ? [] : ['member_code'];
+        return $tier === 'temporary' ? ['system_id'] : ['member_code', 'system_id'];
     }
 
     public static function header(string $key): string

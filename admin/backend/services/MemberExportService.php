@@ -160,6 +160,24 @@ final class MemberExportService
                 $row[$column] = $dateFormatter((string)$row[$column]);
             }
         }
+        // Members registered through the HR form keep only the Ethiopian
+        // birth fields (date_of_birth stays NULL). Export those as the same
+        // EC "Y-m-d" text the importer reads back, so a round trip never
+        // shows an empty birth date.
+        if (empty($row['date_of_birth'])
+            && (int)($row['dob_ec_year'] ?? 0) > 0
+            && (int)($row['dob_ec_month'] ?? 0) > 0
+            && (int)($row['dob_ec_day'] ?? 0) > 0) {
+            $row['date_of_birth'] = sprintf(
+                '%04d-%02d-%02d',
+                (int)$row['dob_ec_year'],
+                (int)$row['dob_ec_month'],
+                (int)$row['dob_ec_day']
+            );
+        }
+        if (isset($row['id'])) {
+            $row['system_id'] = (string)$row['id'];
+        }
         if (!empty($row['class_name'])) {
             $row['class'] = $row['class_name'];
         } elseif (!empty($row['class_code'])) {

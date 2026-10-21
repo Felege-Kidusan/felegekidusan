@@ -55,11 +55,15 @@ final class MemberCategory
      *          members.current_section store after sql/041)
      * 'en'   = English section name
      * 'ages' = human age-range label (change the range HERE — one place)
+     * 'max'  = oldest age (in whole years) that still belongs to the group;
+     *          null = no upper bound. Groups are checked in order, so the
+     *          first group also takes every younger child (owner decision
+     *          2026-10-21: all under-age members go to ህጻናት).
      */
     private const SECTION_META = [
-        '7_13'    => ['am' => 'ህጻናት',    'en' => 'Children',     'ages' => '7–13'],
-        '14_17'   => ['am' => 'ማዕከላዊያን', 'en' => 'Intermediate', 'ages' => '14–17'],
-        '18_plus' => ['am' => 'ወጣቶች',    'en' => 'Youth',        'ages' => '18+'],
+        '7_13'    => ['am' => 'ህጻናት',    'en' => 'Children',     'ages' => '7–13',  'max' => 13],
+        '14_17'   => ['am' => 'ማዕከላዊያን', 'en' => 'Intermediate', 'ages' => '14–17', 'max' => 17],
+        '18_plus' => ['am' => 'ወጣቶች',    'en' => 'Youth',        'ages' => '18+',   'max' => null],
     ];
 
     /**
@@ -200,6 +204,24 @@ final class MemberCategory
     {
         $normalized = self::normalizeGroup($ageGroup);
         return $normalized === null ? null : self::SECTION_META[$normalized]['ages'];
+    }
+
+    /**
+     * Stored age_group code for an age in whole years (or null when the age
+     * is unknown/invalid). Section and age group are the same concept and
+     * are decided by age; ranges come from SECTION_META only.
+     */
+    public static function groupForAge(?int $age): ?string
+    {
+        if ($age === null || $age < 0 || $age > 150) {
+            return null;
+        }
+        foreach (self::SECTION_META as $code => $meta) {
+            if ($meta['max'] === null || $age <= $meta['max']) {
+                return $code;
+            }
+        }
+        return null;
     }
 
     /** Stored age_group code for a canonical section name (or null). */

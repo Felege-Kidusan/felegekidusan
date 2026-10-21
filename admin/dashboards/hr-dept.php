@@ -4809,7 +4809,8 @@ const HrReports = (function () {
         
         <!-- Body -->
         <div class="p-6 overflow-y-auto space-y-6">
-            <p class="text-sm text-slate-600">Filled cells update the member. Blank cells are left unchanged. Member codes cannot be edited. Use the <span class="font-medium text-slate-800">Class</span> dropdown to assign an Education class. Editable workbooks are limited to 2,000 rows to match the safe import transaction limit; complete CSV downloads stream the full roster.</p>
+            <p class="text-sm text-slate-600">Filled cells update the member. Blank cells are left unchanged. Member codes cannot be edited. Use the <span class="font-medium text-slate-800">Class</span> dropdown to assign an Education class (leave it empty to add the member without a class). Date of Birth is the Ethiopian date (dd/mm/yyyy); age section is calculated from it. Editable workbooks are limited to 2,000 rows to match the safe import transaction limit; complete CSV downloads stream the full roster.</p>
+            <p class="text-sm text-slate-600"><span class="font-medium text-slate-800">Check file</span> first: it lists every problem and saves nothing. <span class="font-medium text-slate-800">Start Import</span> saves the whole file only when every row is valid — if any row has a problem, nothing is saved.</p>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <!-- Temporary Members Column -->
@@ -4831,10 +4832,13 @@ const HrReports = (function () {
                     <div class="bg-white rounded-xl p-4 shadow-sm">
                         <p class="text-xs text-slate-500 mb-3">Upload updated Temporary member data.</p>
                         <form id="formSyncTemporary" class="w-full">
-                            <input type="file" id="import_file_temp" accept=".xlsx, .xls" class="hidden">
+                            <input type="file" id="import_file_temp" accept=".xlsx" class="hidden">
                             <label for="import_file_temp" class="cursor-pointer w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-100 transition mb-2">
                                 <i class="fa-solid fa-folder-open"></i> <span id="fileNameDisplayTemp" class="truncate max-w-[200px]">Select Excel File</span>
                             </label>
+                            <button type="button" id="btnCheckTemp" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 mb-2 bg-white text-amber-800 rounded-lg font-semibold hover:bg-amber-50 transition border border-amber-300 disabled:opacity-50">
+                                <i class="fa-solid fa-list-check"></i> Check file
+                            </button>
                             <button type="submit" id="btnSyncTemp" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg font-bold hover:bg-amber-700 transition disabled:opacity-50">
                                 <i class="fa-solid fa-cloud-arrow-up"></i> Start Import
                             </button>
@@ -4861,10 +4865,13 @@ const HrReports = (function () {
                     <div class="bg-white rounded-xl p-4 shadow-sm">
                         <p class="text-xs text-slate-500 mb-3">Upload updated Permanent member data.</p>
                         <form id="formSyncPermanent" class="w-full">
-                            <input type="file" id="import_file_perm" accept=".xlsx, .xls" class="hidden">
+                            <input type="file" id="import_file_perm" accept=".xlsx" class="hidden">
                             <label for="import_file_perm" class="cursor-pointer w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-100 transition mb-2">
                                 <i class="fa-solid fa-folder-open"></i> <span id="fileNameDisplayPerm" class="truncate max-w-[200px]">Select Excel File</span>
                             </label>
+                            <button type="button" id="btnCheckPerm" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 mb-2 bg-white text-emerald-800 rounded-lg font-semibold hover:bg-emerald-50 transition border border-emerald-300 disabled:opacity-50">
+                                <i class="fa-solid fa-list-check"></i> Check file
+                            </button>
                             <button type="submit" id="btnSyncPerm" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition disabled:opacity-50">
                                 <i class="fa-solid fa-cloud-arrow-up"></i> Start Import
                             </button>
@@ -4876,7 +4883,7 @@ const HrReports = (function () {
             <!-- Import Status/Logs -->
             <div id="dataSyncStatusContainer" class="hidden">
                 <h4 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Import Logs</h4>
-                <div id="dataSyncStatusLog" class="bg-slate-900 text-green-400 font-mono text-xs p-3 rounded-lg max-h-40 overflow-y-auto break-words">
+                <div id="dataSyncStatusLog" class="bg-slate-900 text-green-400 font-mono text-xs p-3 rounded-lg max-h-72 overflow-y-auto break-words" aria-live="polite">
                 </div>
             </div>
         </div>
@@ -4884,7 +4891,7 @@ const HrReports = (function () {
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
-<script src="/admin/js/hr_data_sync.js"></script>
+<script src="/admin/js/hr_data_sync.js?v=20261021"></script>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 <script>
 // Explain a permission bounce (access_control.php → index.php → dashboard.php?error=access_denied).
