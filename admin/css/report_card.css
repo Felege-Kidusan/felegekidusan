@@ -219,8 +219,17 @@
   .rc-signs{flex-direction:column; gap:4mm}
 }
 
+/* ── print container (#rcPrintRoot, appended to <body> by printSheets) ──
+   Paper-only. It must never show on screen after printing, and must never
+   leak into another print job (e.g. "Print class list"). While cards are
+   printing, everything else on the page is hidden so the paper holds only
+   the cards. (The off-screen rule from ee96a3b was lost in 1.6.9.) */
+#rcPrintRoot{display:none}
+
 /* ── print: two exact A4 portrait pages, duplex short-edge ───────── */
 @media print{
+  body.rc-print-mode > *:not(#rcPrintRoot){display:none!important}
+  body.rc-print-mode #rcPrintRoot{display:block}
   @page{size:A4 portrait; margin:0}
   body.rc-print-mode #rcPrintRoot .rc-book{display:contents}
   body.rc-print-mode #rcPrintRoot .rc-book-page{

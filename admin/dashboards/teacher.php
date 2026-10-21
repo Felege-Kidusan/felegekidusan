@@ -150,7 +150,7 @@ $csrfToken = generateCsrfToken();
     </style>
 <?= wbws_calendar_scripts($conn ?? null) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
-<link rel="stylesheet" href="/admin/css/report_card.css?v=20261021a">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20261022p">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="min-h-screen">
@@ -701,7 +701,7 @@ $csrfToken = generateCsrfToken();
     </div>
     
     <div id="toastContainer"></div>
-    <script src="/admin/js/report_card.js?v=20261009b"></script>
+    <script src="/admin/js/report_card.js?v=20261022p"></script>
     <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
     <script src="/admin/js/attendance-sheet.js?v=20261022dc4"></script>
     <script>

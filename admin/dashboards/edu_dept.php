@@ -169,7 +169,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </style>
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
-<link rel="stylesheet" href="/admin/css/report_card.css?v=20261021a">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20261022p">
 <?php include __DIR__ . "/../theme.php"; ?>
 <style id="p70-edu-mobile">
 /* ═══════════════════════════════════════════════════════════════════
@@ -1605,7 +1605,7 @@ include __DIR__ . '/../components/comm/comm_section.php';
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.sec;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 
 <div id="toastC"></div>
-<script src="/admin/js/report_card.js?v=20261009b"></script>
+<script src="/admin/js/report_card.js?v=20261022p"></script>
 <script>
 let allTeachers=[],currentTeacherId=null,asgRows=[],homeroomClassIds=[],homeroomHolders={};
 const EDU_CLASSES=<?= json_encode(array_map(static function ($c) {

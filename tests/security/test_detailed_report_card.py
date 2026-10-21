@@ -208,5 +208,20 @@ class DashboardScreenStyles(unittest.TestCase):
                 self.assertTrue(s.startswith(".rc-print-banner"), s)
 
     def test_stylesheet_cache_busted_on_both_pages(self):
-        self.assertIn("/admin/css/report_card.css?v=20261021a", self.edu)
-        self.assertIn("/admin/css/report_card.css?v=20261021a", self.teacher)
+        self.assertIn("/admin/css/report_card.css?v=20261022p", self.edu)
+        self.assertIn("/admin/css/report_card.css?v=20261022p", self.teacher)
+        self.assertIn("/admin/js/report_card.js?v=20261022p", self.edu)
+        self.assertIn("/admin/js/report_card.js?v=20261022p", self.teacher)
+
+    # Print fix 2026-10-22: printed sheets must not stay on screen, must not
+    # leak into the class-list print, and the paper holds only the cards.
+    def test_print_root_hidden_except_while_printing_cards(self):
+        self.assertIn("#rcPrintRoot{display:none}", self.css)
+        self.assertIn("body.rc-print-mode > *:not(#rcPrintRoot){display:none!important}", self.css)
+        self.assertIn("body.rc-print-mode #rcPrintRoot{display:block}", self.css)
+
+    def test_print_mode_not_dropped_on_a_fixed_timer(self):
+        js = read("admin/js/report_card.js")
+        self.assertNotIn("setTimeout(done, 1500)", js)
+        self.assertIn("window.addEventListener('afterprint', done);", js)
+        self.assertIn("['pointerdown', 'keydown', 'focus']", js)

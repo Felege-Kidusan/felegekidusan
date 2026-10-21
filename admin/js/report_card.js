@@ -283,14 +283,24 @@
     root.innerHTML = list.map(renderSheet).join('');
     document.body.classList.add('rc-print-mode');
     const restoreAi = hideAiForPrint();
+    let finished = false;
+    const backEvents = ['pointerdown', 'keydown', 'focus'];
     const done = function () {
+      if (finished) return;
+      finished = true;
       document.body.classList.remove('rc-print-mode');
       restoreAi();
       window.removeEventListener('afterprint', done);
+      backEvents.forEach(function (t) { window.removeEventListener(t, done, true); });
     };
     window.addEventListener('afterprint', done);
     window.print();
-    setTimeout(done, 1500);
+    // Fallback for browsers that never fire "afterprint": end print mode when
+    // the user is back on the page (not on a fixed timer, which could hide the
+    // cards while a slow print dialog is still preparing them).
+    setTimeout(function () {
+      if (!finished) backEvents.forEach(function (t) { window.addEventListener(t, done, true); });
+    }, 500);
   }
 
   function fillModal(bodyEl, data) {
