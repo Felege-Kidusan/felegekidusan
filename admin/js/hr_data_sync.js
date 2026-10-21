@@ -106,11 +106,54 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        async function send(dryRun) {
+        // Danger confirmation (HIGH): the dialog first runs "Check file" and
+        // shows the real counts; the typed phrase goes to the server.
+        function previewImpact(file) {
+            const fd = new FormData();
+            fd.append('import_file', file);
+            fd.append('tier', tier);
+            fd.append('dry_run', '1');
+            if (typeof CSRF_TOKEN !== 'undefined' && CSRF_TOKEN) fd.append('csrf_token', CSRF_TOKEN);
+            return fetch('/admin/api_import_members.php', { method: 'POST', body: fd }).then((r) => r.json()).then((res) => {
+                const sm = res.summary || {};
+                if (!res.success) {
+                    const n = Number(res.error_count || (res.errors || []).length || 0);
+                    return [`The file has ${n || 'some'} problem(s), so the import will be REFUSED and nothing is saved. Cancel and press "Check file" to see them.`];
+                }
+                const out = [];
+                const newP = Number(sm.new_permanent || 0), newT = Number(sm.new_temporary || 0);
+                if (newP + newT) out.push(`${newP + newT} NEW member(s) are created (${newP} permanent, ${newT} temporary).`);
+                if (Number(sm.updated || 0)) out.push(`${sm.updated} existing member(s) are UPDATED with the values in the file.`);
+                if (Number(sm.to_enroll || 0)) out.push(`${sm.to_enroll} class assignment(s) are made.`);
+                if (Number(sm.codes_to_issue || 0)) out.push(`${sm.codes_to_issue} member code(s) are issued.`);
+                if (!out.length) out.push('Nothing changes: every row already matches the database.');
+                return out;
+            });
+        }
+
+        async function send(dryRun, phrase) {
             const file = pickedFile();
             if (!file) return;
-            if (!dryRun && !confirm(`Import "${file.name}" into ${tier} members?\n\nThe whole file is saved only if every row is valid.`)) {
-                return;
+            if (!dryRun && !phrase) {
+                if (!(window.DangerConfirm && window.DangerConfirm.ask)) {
+                    line('✗ The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', 'text-red-400 font-bold');
+                    statusContainer.classList.remove('hidden');
+                    return;
+                }
+                const dc = await window.DangerConfirm.ask({
+                    tier: 'high',
+                    title: `Import ${tier} members from this file?`,
+                    object: file.name,
+                    summary: 'Members are created or updated from the Excel file in one all-or-nothing step.',
+                    intent: 'I want to import this file',
+                    consequences: () => previewImpact(file),
+                    fallbackConsequences: ['Could not check the file first. New members may be created and existing members updated with the values in the file.'],
+                    keeps: ['The whole file is saved only if every row is valid.', 'Members that are not in the file are not touched.', 'Family links are made later in Family Link.'],
+                    phrase: 'IMPORT MEMBERS',
+                    confirmLabel: 'Import members'
+                });
+                if (!dc) return;
+                phrase = dc.phrase;
             }
             setBusy(true, dryRun ? checkBtn : submitBtn);
             statusContainer.classList.remove('hidden');
@@ -121,6 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
             formData.append('import_file', file);
             formData.append('tier', tier);
             formData.append('dry_run', dryRun ? '1' : '0');
+            if (!dryRun && phrase) formData.append('confirm_phrase', phrase);
             if (typeof CSRF_TOKEN !== 'undefined' && CSRF_TOKEN) {
                 formData.append('csrf_token', CSRF_TOKEN);
             }

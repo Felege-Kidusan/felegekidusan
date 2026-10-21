@@ -283,8 +283,7 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
         </div>
         <div class="flex gap-2">
             <!-- RENEW BUTTON -->
-            <form method="post" action="generate_id_card.php"
-                  onsubmit="return confirm('Update Issue Date to TODAY?')">
+            <form method="post" action="generate_id_card.php" id="dcRenewCardForm">
                 <?= csrf_field() ?>
                 <input type="hidden" name="member_id" value="<?= (int)$member_id ?>">
                 <input type="hidden" name="action" value="renew">
@@ -380,5 +379,16 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
             }
         }
     </script>
+<script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+<script>
+(function () {
+    var f = document.getElementById('dcRenewCardForm');
+    if (f && window.DangerConfirm && window.DangerConfirm.guardForm) {
+        window.DangerConfirm.guardForm(f, { tier: 'low', title: 'Renew this ID card?', summary: 'The issue date is set to TODAY and a new expiry date is calculated. Re-print the card afterwards.', confirmLabel: 'Renew card' });
+    } else if (f) {
+        f.addEventListener('submit', function (e) { e.preventDefault(); alert('The confirmation dialog did not load. Reload the page and try again.'); });
+    }
+})();
+</script>
 </body>
 </html>

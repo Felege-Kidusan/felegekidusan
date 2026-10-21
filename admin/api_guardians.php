@@ -9,6 +9,7 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/GuardianService.php';
+require_once __DIR__ . '/backend/danger_confirm.php';
 
 use App\Services\GuardianService;
 use App\Services\GuardianMatchService;
@@ -128,6 +129,9 @@ switch ($action) {
     }
 
     case 'attach_batch': {
+        // Danger confirmation (HIGH): "Link all" — every step carries the
+        // phrase typed in the 3-step dialog.
+        dc_require_phrase('guardians.link_all');
         $cursor = max(0, (int)($_POST['cursor'] ?? 0));
         @set_time_limit(60);
         $r = GuardianService::attachBatch($conn, $cursor, 40, 15.0);

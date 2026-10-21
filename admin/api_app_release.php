@@ -14,6 +14,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/AppReleaseManager.php';
+require_once __DIR__ . '/backend/danger_confirm.php';
 
 use App\Services\AppReleaseManager;
 
@@ -80,6 +81,21 @@ try {
                 'banner_text' => $_POST['banner_text'] ?? '',
                 'banner_kind' => $_POST['banner_kind'] ?? 'info',
             ];
+
+            // Danger confirmation (HIGH, conditional): turning Force update ON
+            // or changing the minimum version/build decides which installed
+            // apps are blocked until they update, so it needs the typed phrase.
+            // Other edits (notes, banner, latest version) do not.
+            $__cur = AppReleaseManager::getReleaseInfo(ROOT_PATH);
+            $__newMinV = preg_replace('/[^0-9.]/', '', (string)$input['min_version']);
+            if ($__newMinV === '') { $__newMinV = '1.0.0'; }
+            $__newMinB = max(1, (int)($input['min_build'] !== '' ? $input['min_build'] : ($__cur['min_build'] ?? 1)));
+            $__risky = ($input['force_update'] && empty($__cur['force_update']))
+                || ($__newMinV !== (string)($__cur['min_version'] ?? ''))
+                || ($__newMinB !== (int)($__cur['min_build'] ?? 0));
+            if ($__risky) {
+                dc_require_phrase('app_release.force_update');
+            }
 
             $updated = AppReleaseManager::saveConfig(ROOT_PATH, $input);
 
@@ -315,6 +331,7 @@ try {
                 echo json_encode(['status' => 'error', 'message' => 'POST required']);
                 exit;
             }
+            dc_require_phrase('app_release.delete_apk');
 
             $abi = (string)($_POST['abi'] ?? 'universal');
             if (!in_array($abi, ['universal', 'arm64-v8a', 'armeabi-v7a'], true)) {

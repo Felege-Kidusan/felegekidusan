@@ -27,6 +27,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/danger_confirm.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: ' . ssms_app_url('admin/users.php') . '');
@@ -52,6 +53,13 @@ $superadminPassword = isset($_POST['superadmin_password']) ? $_POST['superadmin_
 
 if ($deleteUserId <= 0 || $superadminPassword === '') {
     header('Location: ' . ssms_app_url('admin/users.php') . '?error=' . urlencode('Invalid delete request.'));
+    exit;
+}
+
+// Danger confirmation (HIGH): the 3-step dialog sends the typed phrase
+// DELETE USER. Checked before the password so nothing runs without it.
+if (!dc_phrase_ok('users.delete', $_POST)) {
+    header('Location: ' . ssms_app_url('admin/users.php') . '?error=' . urlencode('Type DELETE USER in the confirmation dialog to delete a user. User not deleted.') . '&delete_id=' . $deleteUserId);
     exit;
 }
 

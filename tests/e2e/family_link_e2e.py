@@ -369,14 +369,14 @@ check(st == 422 and links_of(u0) == [], "attach_member on a member with no guard
 before_g = int(one("SELECT COUNT(*) FROM guardians"))
 cursor, done, steps, created = 0, False, 0, 0
 while not done and steps < 20:
-    st, j = api(sa, "attach_batch", cursor=cursor)
+    st, j = api(sa, "attach_batch", cursor=cursor, confirm_phrase="LINK ALL")
     assert st == 200, j
     done, cursor, steps, created = j["done"], j["next_cursor"], steps + 1, created + j["created"]
 check(done and primary_of(u2) > 0, "attach_batch (in-browser backfill) links the remaining legacy member", str(j))
 check(int(one("SELECT COUNT(*) FROM guardians")) == before_g + 1 and created == 1, "attach_batch created exactly one guardian (Solomon Girma)")
 st, j = api_get(sa, "unlinked_members")
 check(st == 200 and not ({u1, u2, u3} & {int(r["id"]) for r in j["rows"]}), "unlinked list empties after linking")
-st, j = api(sa, "attach_batch", cursor=0)
+st, j = api(sa, "attach_batch", cursor=0, confirm_phrase="LINK ALL")
 check(st == 200 and j["done"] and j["created"] == 0 and j["matched"] == 0, "attach_batch re-run is a no-op")
 
 # relation / primary

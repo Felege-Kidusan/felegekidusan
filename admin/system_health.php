@@ -458,7 +458,7 @@ $healthLabel = $healthScore >= 80 ? 'Healthy' : ($healthScore >= 60 ? 'Warning' 
                         <span style="font-weight: 700;">Error Log (Last 50 lines)</span>
                     </div>
                     <?php if (hasRole('super_admin') && $health['error_log_exists']): ?>
-                        <form method="POST" style="display:inline;" onsubmit="return confirm('Clear error log?')">
+                        <form method="POST" style="display:inline;" data-dc-low="Clear the error log?" data-dc-summary="The server error log file is emptied. New errors are logged again from now on." data-dc-label="Clear log">
                             <?= csrfField() ?>
                             <input type="hidden" name="action" value="clear_error_log">
                             <button class="btn btn-red" style="font-size: 11px; padding: 4px 10px;"><i class="fas fa-trash"></i> Clear</button>
@@ -529,7 +529,7 @@ $healthLabel = $healthScore >= 80 ? 'Healthy' : ($healthScore >= 60 ? 'Warning' 
             </div>
             <div class="card-body">
                 <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                    <form method="POST" style="display:inline;" onsubmit="return confirm('Clear all rate limits?')">
+                    <form method="POST" style="display:inline;" data-dc-low="Clear all rate limits?" data-dc-summary="Login and request counters are reset, so people blocked for too many attempts can try again right away." data-dc-label="Clear rate limits">
                         <?= csrfField() ?>
                         <input type="hidden" name="action" value="clear_rate_limits">
                         <button class="btn btn-blue"><i class="fas fa-unlock"></i> Clear Rate Limits</button>
@@ -550,5 +550,14 @@ $healthLabel = $healthScore >= 80 ? 'Healthy' : ($healthScore >= 60 ? 'Warning' 
             <?= SCHOOL_NAME ?> • System Health Dashboard • <?= DEVELOPER_SHOW_CREDIT ? 'Built by ' . DEVELOPER_NAME : '' ?>
         </div>
     </div>
+<script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+<script>
+// Danger confirmation (LOW) for the maintenance forms on this page.
+document.querySelectorAll('form[data-dc-low]').forEach(function (f) {
+    if (window.DangerConfirm && window.DangerConfirm.guardForm) {
+        window.DangerConfirm.guardForm(f, { tier: 'low', title: f.dataset.dcLow, summary: f.dataset.dcSummary || '', confirmLabel: f.dataset.dcLabel || 'Continue' });
+    }
+});
+</script>
 </body>
 </html>

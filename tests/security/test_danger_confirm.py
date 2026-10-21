@@ -25,6 +25,25 @@ MIGRATED = [
     'admin/dashboards/school_admin.php',
     'frontend/js/education_teachers.js',
     'frontend/js/education_assignments.js',
+    # DC-3 Super Admin / HR / Information
+    'admin/dashboards/super-admin.php',
+    'admin/users.php',
+    'admin/js/danger_user_forms.js',
+    'admin/js/app_release.js',
+    'admin/system_health.php',
+    'admin/dashboards/sections/identity_codes_section.php',
+    'admin/dashboards/ai_assistant.php',
+    'admin/dashboards/ai_chatbot_widget.php',
+    'admin/dashboards/hr-dept.php',
+    'admin/dashboards/info-dept.php',
+    'admin/js/hr_data_sync.js',
+    'admin/js/family_link.js',
+    'admin/js/new-members.js',
+    'admin/js/id-card-directory.js',
+    'admin/id_cards/view_id_card.php',
+    'admin/components/profile_tab_section.php',
+    'admin/js/reports/reports_v2.js',
+    'admin/js/attendance_analytics_hub.js',
 ]
 
 # (endpoint file, phrase key) — HIGH actions that must be enforced server-side.
@@ -38,6 +57,14 @@ SERVER_ENFORCED = [
     ('admin/api_education.php', 'education.sync_types'),
     ('admin/api_subjects.php', 'subjects.delete_subject'),
     ('admin/api_subjects.php', 'subjects.apply_template'),
+    # DC-3
+    ('admin/backend/user-delete.php', 'users.delete'),
+    ('admin/api_test_seed.php', 'test_seed.clear'),
+    ('admin/api_app_release.php', 'app_release.delete_apk'),
+    ('admin/api_app_release.php', 'app_release.force_update'),
+    ('admin/api_import_members.php', 'members.import'),
+    ('admin/api_guardians.php', 'guardians.link_all'),
+    ('admin/api_identity_migration.php', 'identity.renumber'),
 ]
 
 NATIVE = re.compile(r'(?<![\w.$])(?:window\.)?(confirm|prompt)\s*\(')
@@ -94,7 +121,9 @@ class DangerConfirmMigration(unittest.TestCase):
             for p in (ROOT / base).rglob('*.js'):
                 if 'vendor' in p.parts or p.name.endswith('.min.js') or p.name == 'danger_confirm.js':
                     continue
-                if 'DangerConfirm' in p.read_text(encoding='utf-8', errors='replace'):
+                txt = p.read_text(encoding='utf-8', errors='replace')
+                # scripts that load the component themselves on demand are fine anywhere
+                if 'DangerConfirm' in txt and 'danger_confirm.js' not in txt:
                     users.add(p.name)
         self.assertTrue(users, 'no module uses DangerConfirm')
         missing = []
@@ -105,8 +134,16 @@ class DangerConfirmMigration(unittest.TestCase):
             loads = [u for u in users if re.search(r'src="[^"]*/' + re.escape(u) + r'[?"]', src)]
             inline = 'DangerConfirm.ask' in src
             if (loads or inline) and 'danger_confirm.js' not in src:
-                missing.append(str(p.relative_to(ROOT)))
-        self.assertEqual(missing, [])
+                missing.append(p)
+        # Partials (sections/components) are fine when every page that includes
+        # them loads the component.
+        still = []
+        for p in missing:
+            includers = [q for q in (ROOT / 'admin').rglob('*.php')
+                         if q != p and re.search(r"include[^;]*['\"/]" + re.escape(p.name) + r"['\"]", q.read_text(encoding='utf-8', errors='replace'))]
+            if not includers or any('danger_confirm.js' not in q.read_text(encoding='utf-8', errors='replace') for q in includers):
+                still.append(str(p.relative_to(ROOT)) + ' (included by: ' + ', '.join(str(q.relative_to(ROOT)) for q in includers) + ')')
+        self.assertEqual(still, [])
 
     def test_js_phrases_match_server(self):
         ph = php_phrases()
@@ -120,6 +157,22 @@ class DangerConfirmMigration(unittest.TestCase):
                     'frontend/js/finance.js', 'admin/dashboards/groups.php', 'admin/groups.php')
                 if (ROOT / p).exists()])
             self.assertTrue(found, f'{key}: dialog phrase {phrase!r} not found in any page')
+
+    def test_dc3_user_delete_forms_carry_csrf(self):
+        # F9: both delete-user forms post to backend/user-delete.php, which calls
+        # requireCsrf(); without the token every delete was refused.
+        for rel in ('admin/dashboards/super-admin.php', 'admin/users.php'):
+            src = read(rel)
+            i = src.index('user-delete.php')
+            self.assertIn('csrfField()', src[i:i + 900], rel)
+
+    def test_dc3_conditional_server_rules(self):
+        rel = read('admin/api_app_release.php')
+        self.assertIn('$__risky', rel)            # force update only when force/min changes
+        imp = read('admin/api_import_members.php')
+        self.assertRegex(imp, r"if \(!\$dryRun\) \{\s*dc_require_phrase\('members.import'\)")
+        mig = read('admin/api_identity_migration.php')
+        self.assertRegex(mig, r"if \(\$mode === 'execute'\) \{[^}]*dc_require_phrase\('identity.renumber'\)")
 
     def test_frontend_shell_loads_component(self):
         # frontend/js/*.js page scripts are loaded by name through the shared layout
@@ -142,7 +195,7 @@ class DangerConfirmMigration(unittest.TestCase):
         for rel, key in SERVER_ENFORCED:
             src = read(rel)
             self.assertIn("danger_confirm.php", src, rel)
-            direct = f"dc_require_phrase('{key}'" in src
+            direct = f"dc_require_phrase('{key}'" in src or f"dc_phrase_ok('{key}'" in src
             # or via an action => key map that is passed to dc_require_phrase()
             mapped = re.search(r"=>\s*'" + re.escape(key) + r"'", src) and re.search(r'dc_require_phrase\(\$__dc\w+\[\$action\]\)', src)
             self.assertTrue(direct or mapped, f'{rel} must enforce {key}')

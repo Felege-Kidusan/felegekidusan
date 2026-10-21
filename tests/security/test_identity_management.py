@@ -130,7 +130,11 @@ class IdentityManagementV2Tests(unittest.TestCase):
         self.assertIn("idcModalWrap", self.section)
         self.assertNotIn("confirm(", self.section)
         self.assertNotIn("prompt(", self.section)
-        self.assertIn("expect: 'RENUMBER'", self.section)
+        # Typed confirmation for renumbering: the old "type RENUMBER" modal was
+        # replaced by the shared 3-step danger dialog (DC-3), and the phrase is now
+        # also checked on the server (api_identity_migration.php, identity.renumber).
+        self.assertRegex(self.section, r"phrase:\s*'RENUMBER CODES'")
+        self.assertIn("DangerConfirm", self.section)
 
     def test_shell_js_allowlist_covers_php_sections(self):
         match = re.search(r"var ALLOWED = \{([^}]*)\}", self.js)

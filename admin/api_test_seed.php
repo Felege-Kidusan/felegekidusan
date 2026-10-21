@@ -16,6 +16,7 @@ if (!defined('ENABLE_TEST_DATA_TOOLS') || ENABLE_TEST_DATA_TOOLS !== true) {
 }
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 require_once __DIR__ . '/backend/services/TestMemberSeed.php';
+require_once __DIR__ . '/backend/danger_confirm.php';
 
 if (empty($_SESSION['admin_id'])) {
     http_response_code(401);
@@ -83,6 +84,7 @@ try {
             echo json_encode(['status' => 'error', 'message' => 'POST required.']);
             exit;
         }
+        dc_require_phrase('test_seed.clear');
         $result = TestMemberSeed::clear($conn);
         SecurityAuditService::record($conn, 'Test Data Cleared', [
             'removed' => (int)($result['removed'] ?? 0),

@@ -640,7 +640,12 @@
       showAlert('danger', msg);
     },
 
-    cancelUpload: function () {
+    cancelUpload: function (confirmed) {
+      if (confirmed !== true && window.DangerConfirm && window.DangerConfirm.ask) {
+        window.DangerConfirm.ask({ tier: 'low', title: 'Cancel this APK upload?', summary: 'The parts uploaded so far are discarded. You can start the upload again.', confirmLabel: 'Cancel upload' })
+          .then(function (r) { if (r) AppReleaseUI.cancelUpload(true); });
+        return;
+      }
       currentUpload.aborted = true;
       if (currentUpload.xhr) {
         try { currentUpload.xhr.abort(); } catch (e) {}
@@ -802,6 +807,7 @@
         if (el) el.checked = !!checked;
       };
 
+      AppReleaseUI._cfg = { min_version: String(data.min_version || ''), min_build: parseInt(data.min_build, 10) || 0, force_update: !!data.force_update };
       setVal('cfg-latest-version', data.latest_version);
       setVal('cfg-latest-build', data.latest_build);
       setVal('cfg-min-version', data.min_version);
@@ -813,8 +819,33 @@
       setChecked('cfg-drains-enabled', data.background_drains_enabled !== false);
     },
 
-    saveConfig: function (e) {
+    saveConfig: function (e, phrase) {
       if (e) e.preventDefault();
+      // Danger confirmation (HIGH, conditional) — same rule as the server.
+      if (phrase === undefined) {
+        var cur = AppReleaseUI._cfg || {};
+        var gv = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+        var fEl = document.getElementById('cfg-force-update');
+        var force = !!(fEl && fEl.checked);
+        var minV = String(gv('cfg-min-version')).replace(/[^0-9.]/g, '') || '1.0.0';
+        var minB = Math.max(1, parseInt(gv('cfg-min-build'), 10) || cur.min_build || 1);
+        var forceOn = force && !cur.force_update;
+        var minCh = minV !== cur.min_version || minB !== cur.min_build;
+        if (forceOn || minCh) {
+          if (!(window.DangerConfirm && window.DangerConfirm.ask)) { showAlert('danger', 'The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.'); return; }
+          var cons = [];
+          if (forceOn) cons.push('FORCE UPDATE is switched ON: every phone running an app older than the minimum version is BLOCKED until it installs the new APK.');
+          if (minCh) cons.push('The minimum supported app becomes v' + minV + ' (build ' + minB + '), was v' + (cur.min_version || '?') + ' (build ' + (cur.min_build || '?') + ').');
+          cons.push('Teachers and staff who cannot download the new APK right away cannot use the app.');
+          window.DangerConfirm.ask({
+            tier: 'high', title: 'Change which app versions are allowed?', object: 'Mobile app v' + minV + ' (build ' + minB + ')',
+            summary: 'This changes which installed apps keep working.', intent: 'I want to change the app update rule',
+            consequences: cons, keeps: ['Data on the server is not changed.', 'You can switch Force update off again later.'],
+            phrase: 'FORCE UPDATE', confirmLabel: 'Save update rule'
+          }).then(function (r) { if (r) AppReleaseUI.saveConfig(null, r.phrase); });
+          return;
+        }
+      }
       var btn = document.getElementById('btn-save-cfg');
       if (btn) {
         btn.disabled = true;
@@ -824,6 +855,7 @@
       var form = document.getElementById('form-release-config');
       var formData = new FormData(form);
       formData.append('action', 'save_config');
+      if (phrase) formData.append('confirm_phrase', phrase);
 
       fetch(API_URL, {
         method: 'POST',
@@ -854,13 +886,22 @@
       });
     },
 
-    deleteApk: function (abi) {
-      if (!confirm('Are you sure you want to remove the ' + abi + ' APK artifact?')) {
+    deleteApk: function (abi, phrase) {
+      if (phrase === undefined) {
+        if (!(window.DangerConfirm && window.DangerConfirm.ask)) { showAlert('danger', 'The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.'); return; }
+        window.DangerConfirm.ask({
+          tier: 'high', title: 'Delete the ' + abi + ' APK?', object: abi + ' APK',
+          summary: 'The downloadable app file is deleted from the server.', intent: 'I want to delete this APK',
+          consequences: ['Nobody can download or update the app from this file any more.', 'Phones told to update (Force update) may have nothing to download until a new APK is uploaded.'],
+          keeps: ['Apps already installed on phones keep working.'],
+          irreversible: true, phrase: 'DELETE APK', confirmLabel: 'Delete APK'
+        }).then(function (r) { if (r) AppReleaseUI.deleteApk(abi, r.phrase); });
         return;
       }
 
       var formData = new FormData();
       formData.append('action', 'delete_apk');
+      formData.append('confirm_phrase', phrase);
       formData.append('abi', abi);
       formData.append('csrf_token', getCsrfToken());
 

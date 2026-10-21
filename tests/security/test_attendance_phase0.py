@@ -110,7 +110,8 @@ class Phase0StaticGuards(unittest.TestCase):
     def test_info_dashboard_quick_change_offers_active_inactive_only(self):
         src = read("admin/dashboards/info-dept.php")
         start = src.index("function quickStatusChange(")
-        body = code_lines(src[start : start + 1800])
+        # whole function (it grew when the danger-confirmation dialog replaced prompt())
+        body = code_lines(src[start : src.index("\n}\n", start)])
         self.assertNotIn("'warning'", body)
         self.assertIn("['active','inactive']", body)
         self.assertIn("csrf_token", body)

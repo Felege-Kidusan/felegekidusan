@@ -558,7 +558,7 @@ class AuditHttpTests(unittest.TestCase):
         shared=int(sql("INSERT INTO notifications (type,title,message,target_user_id,target_roles) VALUES ('general','Audit shared deletion','SHARED AUDIT',?,'finance_dept')",[target])['id'])
         try:
             response=self.clients['super_admin'].post('/admin/backend/user-delete.php',
-                {'delete_user_id':target,'superadmin_password':'AuditTest#2026'})
+                {'delete_user_id':target,'superadmin_password':'AuditTest#2026','confirm_phrase':'DELETE USER'})
             self.assertEqual(response['status'],302,response['body'][:180])
             self.assertIn('/admin/users.php?success=',response['headers']['Location'])
             self.assertEqual(sql('SELECT id FROM users WHERE id=?',[target])['rows'],[])

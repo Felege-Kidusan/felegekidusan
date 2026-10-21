@@ -279,8 +279,10 @@ const AttendanceHub = (function () {
     }
 
     // ── admin-only rollup refresh ──────────────────────────────
-    function refresh() {
-        if (!confirm('Rebuild the analytics rollup from the Education and Mezmur attendance sources?')) return;
+    // Danger confirmation (LOW). Loads admin/js/danger_confirm.js on demand.
+    var dcAskLazy = function (o) { return new Promise(function (res) { function go() { window.DangerConfirm.ask(o).then(res); } if (window.DangerConfirm && window.DangerConfirm.ask) return go(); var sc = document.createElement('script'); sc.src = '/admin/js/danger_confirm.js?v=20261022dc'; sc.onload = function () { window.DangerConfirm ? go() : res(false); }; sc.onerror = function () { res(false); }; document.head.appendChild(sc); }); };
+    async function refresh() {
+        if (!(await dcAskLazy({ tier: 'low', title: 'Rebuild the analytics rollup?', summary: 'The analytics totals are recalculated from the Education and Mezmur attendance records. Attendance itself is not changed. This can take a moment.', confirmLabel: 'Rebuild' }))) return;
         const fd = new FormData();
         fd.append('action', 'refresh');
         fd.append('csrf_token', (typeof CSRF_TOKEN !== 'undefined') ? CSRF_TOKEN : '');

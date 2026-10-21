@@ -346,9 +346,42 @@
     });
   }
 
+  /**
+   * guardForm(form, optsOrBuilder) — protect a classic HTML <form> post.
+   * On submit the dialog runs first; when confirmed, the typed phrase is
+   * added as a hidden "confirm_phrase" field (and "dc_reason" when a reason
+   * was asked) and the form is submitted for real. optsOrBuilder may be a
+   * function(form) returning the options, or null when no confirmation is
+   * needed for this particular submit (e.g. nothing risky changed).
+   */
+  function guardForm(form, build) {
+    if (!form || form.__dcGuard) return;
+    form.__dcGuard = true;
+    form.addEventListener('submit', function (ev) {
+      if (form.__dcOk) { form.__dcOk = false; return; }
+      var opts = typeof build === 'function' ? build(form) : build;
+      if (!opts) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      ask(opts).then(function (r) {
+        if (!r) return;
+        function hidden(name, val) {
+          var h = form.querySelector('input[type=hidden][name="' + name + '"]');
+          if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = name; form.appendChild(h); }
+          h.value = val;
+        }
+        if (r.phrase) hidden('confirm_phrase', r.phrase);
+        if (r.reason) hidden('dc_reason', r.reason);
+        form.__dcOk = true;
+        if (typeof form.requestSubmit === 'function') form.requestSubmit(); else { form.__dcOk = false; form.submit(); }
+      });
+    }, true);
+  }
+
   global.DangerConfirm = {
-    __v: '20261021dc',
+    __v: '20261022dc',
     ask: ask,
+    guardForm: guardForm,
     normalize: normalize,
     isOpen: function () { return open; }
   };

@@ -31,6 +31,12 @@ if (!validateCsrf($_POST['csrf_token'] ?? '')) {
 }
 
 $mode = ($_POST['mode'] ?? '') === 'execute' ? 'execute' : 'dry_run';
+if ($mode === 'execute') {
+    // Danger confirmation (HIGH): re-issuing every member's identity code
+    // needs the typed phrase from the 3-step dialog. The preview does not.
+    require_once __DIR__ . '/backend/danger_confirm.php';
+    dc_require_phrase('identity.renumber');
+}
 @set_time_limit(600);
 
 mysqli_report(MYSQLI_REPORT_OFF);

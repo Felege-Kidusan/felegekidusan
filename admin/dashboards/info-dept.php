@@ -226,6 +226,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/admin/js/chart.umd.min.js"></script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha384-/o6I2CkkWC//PSjvWC/eYN7l3xM3tJm8ZzVkCOfp//W05QcE3mlGskpoHB6XqI+B" crossorigin="anonymous"/>
@@ -3265,12 +3266,28 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
         }
     }
     
-    function confirmArchive() {
+    // Danger confirmation dialog (admin/js/danger_confirm.js) — owner decisions 2026-10-21.
+    function dcAsk(o) {
+        if (window.DangerConfirm && window.DangerConfirm.ask) return window.DangerConfirm.ask(o);
+        var m = 'The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.';
+        if (typeof showToast === 'function') showToast(m, 'error'); else console.error(m);
+        return Promise.resolve(false);
+    }
+
+    async function confirmArchive() {
         if (!archiveMemberId) return;
         
         const reason = document.getElementById('archiveReason').value;
         const notes = document.getElementById('archiveNotes').value;
         const btn = document.getElementById('confirmArchiveBtn');
+        const rsel = document.getElementById('archiveReason');
+        const rtxt = rsel && rsel.selectedIndex >= 0 ? rsel.options[rsel.selectedIndex].text : reason;
+        const dc = await dcAsk({tier:'medium', title:'Archive ' + archiveMemberName + '?', object: archiveMemberName,
+            summary:'The member is moved out of the active lists. Reason: ' + rtxt + '.', intent:'I want to archive this member',
+            consequences:['The member disappears from active member lists, class rosters, attendance sheets and new reports.','Teachers and the mobile app no longer show this member.','Family links stay but the member is no longer counted as active.'],
+            keeps:['All history (attendance, marks, documents) is kept.','You can restore the member from the Archive list.'],
+            phrase:'ARCHIVE MEMBER', confirmLabel:'Archive member'});
+        if (!dc) return;
         
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Archiving...';
@@ -3302,8 +3319,8 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
     }
     
     // Restore member from archive
-    function restoreMember(id, name) {
-        if (!confirm('Restore "' + name + '" back to active members?')) return;
+    async function restoreMember(id, name) {
+        if (!(await dcAsk({tier:'low', title:'Restore ' + name + ' to active members?', summary:'The member appears again in active lists, rosters and attendance.', confirmLabel:'Restore member'}))) return;
         
         fetch('/admin/info_restore_member.php', {
             method: 'POST',
@@ -4167,13 +4184,26 @@ function searchForStatus() {
     });
 }
 
-function quickStatusChange(memberId, name, currentStatus) {
+async function quickStatusChange(memberId, name, currentStatus) {
     // Manual status changes: active <-> inactive only (HR / Information). The
     // server enforces the same rule; 'warning' is no longer set by hand.
     const opts = ['active','inactive'].filter(s => s !== currentStatus);
-    const newStatus = prompt('Change status for ' + name + '\\nCurrent: ' + currentStatus + '\\n\\nType new status: ' + opts.join(', '));
-    if (!newStatus || !['active','inactive'].includes(newStatus)) { if (newStatus !== null) attToast('Invalid status', false); return; }
-    const reason = (prompt(newStatus === 'inactive' ? 'Reason for deactivation (required):' : 'Reason for change (optional):') || '').trim();
+    let newStatus = opts.length === 1 ? opts[0] : null;
+    const toInactive = newStatus === 'inactive';
+    const dc = await dcAsk(newStatus === 'active'
+        ? {tier:'low', title:'Make ' + name + ' active again?', summary:'Current status: ' + currentStatus + '. The member is counted as active in attendance and reports again.',
+           reason:{label:'Reason for the change', required:false, maxLength:500}, confirmLabel:'Make active'}
+        : {tier:'medium', title: toInactive ? 'Deactivate ' + name + '?' : 'Change the status of ' + name + '?', object: name,
+           summary:'Current status: ' + currentStatus + '.', intent: toInactive ? 'I want to deactivate this member' : 'I want to change this status',
+           consequences:['An INACTIVE member is left out of attendance warnings, active counts and class follow-up.','HR and Information see the reason in the member history.'],
+           keeps:['The member record and history are kept.','You can make the member active again later.'],
+           choice: toInactive ? null : {label:'New status', options:opts.map(o => ({value:o, label:o})), value:opts[0]},
+           reason:{label: 'Reason (at least 3 letters)', required:true, maxLength:500},
+           phrase: toInactive ? 'DEACTIVATE MEMBER' : 'CHANGE STATUS', confirmLabel: toInactive ? 'Deactivate member' : 'Change status'});
+    if (!dc) return;
+    if (!newStatus) newStatus = dc.choice;
+    const reason = String(dc.reason || '').trim();
+    if (!['active','inactive'].includes(newStatus)) { attToast('Invalid status', false); return; }
     if (newStatus === 'inactive' && reason.length < 3) { attToast('A reason is required to deactivate a member', false); return; }
     fetch('/admin/api_attendance_info.php?action=update_status', {
         method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
@@ -4307,8 +4337,8 @@ function loadSystemInfo() {
     }).catch(() => { document.getElementById('sysStats').innerHTML = '<p class="text-xs text-red-400">Failed to load</p>'; });
 }
 
-function clearCache() {
-    if (!confirm('Clear all cache files?')) return;
+async function clearCache() {
+    if (!(await dcAsk({tier:'low', title:'Clear all cache files?', summary:'Saved report and statistics caches are removed and rebuilt the next time they are needed. Pages may load slower for a moment.', confirmLabel:'Clear cache'}))) return;
     sApiPost('clear_cache', {}).then(d => { settingsToast(d.message, d.status === 'success'); if (d.status === 'success') loadSystemInfo(); }).catch(() => settingsToast('Error', false));
 }
 

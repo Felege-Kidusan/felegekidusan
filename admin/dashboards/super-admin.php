@@ -714,8 +714,8 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                     <?php endif; ?>
                     <div id="testSeedMsg" style="font-size:.78rem;color:#F0C000;margin:0 0 .75rem;min-height:1.1em"></div>
                     <div style="display:flex;flex-wrap:wrap;gap:.6rem">
-                        <button type="button" class="btn btn-primary" id="testSeedLoadBtn" onclick="runTestSeed('load')"><i class="fa-solid fa-cloud-arrow-up"></i> Load all 224 now</button>
-                        <button type="button" class="btn btn-outline" id="testSeedClearBtn" onclick="if(confirm('Remove every TEST-FKSS practice member? Real members stay.'))runTestSeed('clear')"><i class="fa-solid fa-trash"></i> Remove practice members</button>
+                        <button type="button" class="btn btn-primary" id="testSeedLoadBtn" onclick="dcTestSeed('load')"><i class="fa-solid fa-cloud-arrow-up"></i> Load all 224 now</button>
+                        <button type="button" class="btn btn-outline" id="testSeedClearBtn" onclick="dcTestSeed('clear')"><i class="fa-solid fa-trash"></i> Remove practice members</button>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -746,10 +746,11 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 <div class="card" style="border-color:rgba(239,68,68,.3)">
                     <h3 class="card-title" style="color:#f87171"><i class="fa-solid fa-trash"></i> Delete User: <?= e($deleteUser['username']) ?></h3>
                     <p style="font-size:.8rem;color:#94a3b8;margin-bottom:1rem">This will permanently delete user <strong><?= e($deleteUser['full_name']) ?></strong> (<?= e($deleteUser['role']) ?>)</p>
-                    <form method="post" action="/admin/backend/user-delete.php">
+                    <form method="post" action="/admin/backend/user-delete.php" id="dcDeleteUserForm" data-username="<?= e($deleteUser['username']) ?>" data-fullname="<?= e($deleteUser['full_name']) ?>" data-role="<?= e($deleteUser['role']) ?>">
+                        <?= csrfField() ?>
                         <input type="hidden" name="delete_user_id" value="<?= (int)$deleteUser['id'] ?>">
                         <div class="form-group"><label class="form-label">Your Password (confirm)</label>
-                            <div class="pw-wrap"><input type="password" name="superadmin_password" class="form-input" placeholder="Enter your password"><button type="button" class="pw-toggle" data-toggle>Show</button></div>
+                            <div class="pw-wrap"><input type="password" name="superadmin_password" class="form-input" placeholder="Enter your password" required autocomplete="current-password"><button type="button" class="pw-toggle" data-toggle>Show</button></div>
                         </div>
                         <div style="display:flex;gap:.5rem">
                             <button type="submit" class="btn btn-danger"><i class="fa-solid fa-trash"></i> Delete</button>
@@ -762,7 +763,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 <div class="grid-2">
                     <div class="card">
                         <h3 class="card-title"><i class="fa-solid fa-<?= $editUser ? 'edit' : 'user-plus' ?>"></i> <?= $editUser ? 'Edit User' : 'Create User' ?></h3>
-                        <form method="post" action="/admin/backend/user-save.php">
+                        <form method="post" action="/admin/backend/user-save.php" id="dcUserSaveForm"<?php if ($editUser): ?> data-orig-role="<?= e($editUser['role']) ?>" data-orig-active="<?= (int)$editUser['is_active'] ?>" data-username="<?= e($editUser['username']) ?>"<?php endif; ?>>
                             <?= csrfField() ?>
                             <input type="hidden" name="user_id" value="<?= $editUser ? (int)$editUser['id'] : '' ?>">
                             <div class="form-group"><label class="form-label">Full Name</label><input type="text" name="full_name" class="form-input" value="<?= e(fv('full_name', $editUser, $oldForm)) ?>" placeholder="Full name"></div>
@@ -1057,7 +1058,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
                             <h3 class="card-title" style="margin:0"><i class="fa-solid fa-bug"></i> Error Log <?php if($errorLogSize > 0):?><span style="font-size:.7rem;color:#7c8aa5;font-weight:400;margin-left:.5rem">(<?=$errorLogSize > 1024*1024 ? round($errorLogSize/1024/1024,1).' MB' : round($errorLogSize/1024,1).' KB'?>)</span><?php endif;?></h3>
                             <?php if (!empty($errorLogLines)): ?>
-                            <form method="POST" style="display:inline"><?=csrfField()?><input type="hidden" name="section" value="health"><button type="submit" name="clear_error_log_inline" class="btn btn-sm btn-danger" onclick="return confirm('Clear error log?')"><i class="fa-solid fa-trash"></i> Clear</button></form>
+                            <form method="POST" style="display:inline"><?=csrfField()?><input type="hidden" name="section" value="health"><button type="submit" name="clear_error_log_inline" class="btn btn-sm btn-danger" data-dc-clear-log="1"><i class="fa-solid fa-trash"></i> Clear</button></form>
                             <?php endif; ?>
                         </div>
                         <?php if (empty($errorLogLines)): ?>
@@ -1485,7 +1486,9 @@ require __DIR__ . '/../components/bottom_nav.php';
     </script>
 
     <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
-    <script src="/admin/js/app_release.js?v=20261017b"></script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+    <script src="/admin/js/danger_user_forms.js?v=20261022dc"></script>
+    <script src="/admin/js/app_release.js?v=20261022dc"></script>
     <script src="/admin/js/app_telemetry.js?v=20260928b"></script>
     <script src="/admin/js/failure_intelligence.js?v=20261006b"></script>
     <script src="/admin/js/super_admin.js?v=20261006a"></script>
@@ -1615,7 +1618,10 @@ require __DIR__ . '/../components/bottom_nav.php';
 
         // ── Remove asset ──
         async function brandRemove(key){
-            if(!confirm('Remove this image? It will be deleted from the server.'))return;
+            const dc=await dcAsk({tier:'medium',title:'Remove this image?',object:key,summary:'The image file is deleted from the server.',intent:'I want to remove this image',
+                consequences:['The image disappears from every page, report and ID card that uses it.','The default image (or nothing) is shown until you upload a new one.'],
+                keeps:['Other branding settings stay.'],irreversible:true,phrase:'REMOVE IMAGE',confirmLabel:'Remove image'});
+            if(!dc)return;
             const fd=new FormData();fd.append('action','delete_asset');fd.append('asset_key',key);fd.append('csrf_token',CSRF);
             try{
                 const r=await fetch('/admin/api_branding.php',{method:'POST',body:fd,credentials:'same-origin'});
@@ -1710,7 +1716,28 @@ require __DIR__ . '/../components/bottom_nav.php';
         switchSection=function(id){_origSwitch(id);if(id==='branding'){loadBranding();if(typeof bootIdDesigner==='function'&&!document.getElementById('idcFrame'))bootIdDesigner();}};
         if(<?= json_encode($activeSection) ?>==='branding')setTimeout(function(){loadBranding();if(typeof bootIdDesigner==='function')bootIdDesigner();},150);
 
-        async function runTestSeed(action){
+        // ── Danger confirmation (admin/js/danger_confirm.js) — owner decisions 2026-10-21 ──
+        function dcFail(){const d=document.createElement('div');d.setAttribute('role','alert');d.style.cssText='position:fixed;left:50%;top:1rem;transform:translateX(-50%);z-index:99999;background:#7f1d1d;color:#fff;padding:.6rem 1rem;border-radius:8px;font-size:.85rem';d.textContent='The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.';document.body.appendChild(d);setTimeout(()=>d.remove(),6000);}
+        function dcAsk(o){if(window.DangerConfirm&&window.DangerConfirm.ask)return window.DangerConfirm.ask(o);dcFail();return Promise.resolve(false);}
+        async function dcTestSeed(action){
+            const dc=await dcAsk(action==='clear'
+                ?{tier:'high',title:'Remove all practice members?',object:'TEST-FKSS',summary:'Every member marked TEST-FKSS is deleted from the database.',intent:'I want to remove the practice members',
+                  consequences:['All TEST-FKSS practice members are deleted, with their enrolments, attendance, marks and family links.','Reports and counts change right away.'],
+                  keeps:['Real members are not touched.'],irreversible:true,phrase:'REMOVE PRACTICE MEMBERS',confirmLabel:'Remove practice members'}
+                :{tier:'medium',title:'Load the 224 practice members?',object:'TEST-FKSS',summary:'224 practice children are added so the whole system can be tested.',intent:'I want to load practice members',
+                  consequences:['224 members marked TEST-FKSS are added and enrolled in classes.','They appear in lists, attendance, marks and reports until you remove them.'],
+                  keeps:['Real members are not changed.','You can remove them later with Remove practice members.'],phrase:'LOAD PRACTICE MEMBERS',confirmLabel:'Load practice members'});
+            if(!dc)return;
+            runTestSeed(action,dc.phrase);
+        }
+        document.addEventListener('DOMContentLoaded',function(){
+            if(!(window.DangerConfirm&&window.DangerConfirm.guardForm))return;
+            document.querySelectorAll('[data-dc-clear-log]').forEach(function(b){const f=b.form;if(!f)return;
+                window.DangerConfirm.guardForm(f,{tier:'low',title:'Clear the error log?',summary:'The server error log file is emptied. New errors will be logged again from now on.',confirmLabel:'Clear log'});
+                f.addEventListener('submit',function(){if(!f.querySelector('input[type=hidden][name=clear_error_log_inline]')){const h=document.createElement('input');h.type='hidden';h.name='clear_error_log_inline';h.value='1';f.appendChild(h);}});
+            });
+        });
+        async function runTestSeed(action,phrase){
             const msg=document.getElementById('testSeedMsg');
             const loadBtn=document.getElementById('testSeedLoadBtn');
             const clearBtn=document.getElementById('testSeedClearBtn');
@@ -1720,6 +1747,7 @@ require __DIR__ . '/../components/bottom_nav.php';
             try{
                 const fd=new FormData();
                 fd.append('action',action);
+                if(phrase)fd.append('confirm_phrase',phrase);
                 fd.append('csrf_token','<?= $csrfToken ?>');
                 const r=await fetch('/admin/api_test_seed.php',{method:'POST',body:fd,credentials:'same-origin'});
                 const d=await r.json();

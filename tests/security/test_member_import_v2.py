@@ -262,7 +262,10 @@ class HrSession:
     def upload(self, xlsx, tier="permanent", dry=False):
         boundary = "----imp" + uuid.uuid4().hex
         parts = []
-        for k, v in (("csrf_token", self.csrf), ("tier", tier), ("dry_run", "1" if dry else "0")):
+        fields = [("csrf_token", self.csrf), ("tier", tier), ("dry_run", "1" if dry else "0")]
+        if not dry:
+            fields.append(("confirm_phrase", "IMPORT MEMBERS"))  # typed confirmation (danger-confirm DC-3)
+        for k, v in fields:
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
         parts.append(
             f'--{boundary}\r\nContent-Disposition: form-data; name="import_file"; filename="m.xlsx"\r\n'
@@ -481,7 +484,7 @@ class ImportLive(unittest.TestCase):
         self.assertTrue(res["success"], res)
         cursor = 0
         for _ in range(50):
-            status, body = self.s.post("/admin/api_guardians.php", {"action": "attach_batch", "cursor": cursor, "csrf_token": self.s.csrf})
+            status, body = self.s.post("/admin/api_guardians.php", {"action": "attach_batch", "cursor": cursor, "confirm_phrase": "LINK ALL", "csrf_token": self.s.csrf})
             r = json.loads(body.decode("utf-8"))
             if r.get("done"):
                 break
@@ -518,7 +521,7 @@ class ImportLive(unittest.TestCase):
         self.assertTrue(res["success"], res)
         cursor, steps = 0, 0
         while steps < 50:
-            status, body = self.s.post("/admin/api_guardians.php", {"action": "attach_batch", "cursor": cursor, "csrf_token": self.s.csrf})
+            status, body = self.s.post("/admin/api_guardians.php", {"action": "attach_batch", "cursor": cursor, "confirm_phrase": "LINK ALL", "csrf_token": self.s.csrf})
             r = json.loads(body.decode("utf-8"))
             steps += 1
             if r.get("done") or int(r.get("processed", 0)) == 0:  # same stop rule as family_link.js

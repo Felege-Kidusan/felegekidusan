@@ -97,12 +97,27 @@
             : 'px-3 py-1.5 rounded-lg bg-slate-100 text-slate-500 font-bold text-[11px] transition';
         promoteBtn.innerHTML = '<i class="fa-solid fa-arrow-up mr-1" aria-hidden="true"></i> Promote';
         promoteBtn.addEventListener('click', function () {
-            if (!eligible) {
-                if (!confirm('This member has not yet reached 6 months. Promote anyway?')) return;
+            function open(reason) {
+                if (typeof window.openUpgradeModal === 'function') {
+                    window.openUpgradeModal(id, memberCache.get(id), eligible, reason || '');
+                }
             }
-            if (typeof window.openUpgradeModal === 'function') {
-                window.openUpgradeModal(id, memberCache.get(id), eligible);
+            if (eligible) { open(''); return; }
+            // Danger confirmation (MEDIUM): early promotion, reason recorded in the audit.
+            if (!(window.DangerConfirm && window.DangerConfirm.ask)) {
+                if (typeof window.showToast === 'function') window.showToast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', 'error');
+                return;
             }
+            var m = memberCache.get(id) || {};
+            var nm = [m.student_name, m.father_name].filter(Boolean).join(' ') || 'this member';
+            window.DangerConfirm.ask({
+                tier: 'medium', title: 'Promote ' + nm + ' before 6 months?', object: nm,
+                summary: 'This temporary member has not yet reached the 6-month waiting period.', intent: 'I want to promote early',
+                consequences: ['The member becomes a PERMANENT member before the normal 6 months.', 'A permanent member code is issued and the member moves to the permanent lists.'],
+                keeps: ['The registration form still opens for you to check and upload the document.', 'Your reason is recorded in the audit log.'],
+                reason: { label: 'Reason for early promotion, recorded in the audit', required: false, maxLength: 500 },
+                phrase: 'PROMOTE EARLY', confirmLabel: 'Continue to promotion'
+            }).then(function (r) { if (r) open(r.reason || ''); });
         });
         actions.appendChild(promoteBtn);
         ac.appendChild(actions);

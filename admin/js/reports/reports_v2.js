@@ -523,7 +523,15 @@
     viewsApi('opened', { id: v.id }, true).catch(() => {});
   }
   async function deleteView(v) {
-    if (!confirm('Delete the view “' + v.name + '”' + (v.scope !== 'private' ? ' for everyone who can see it' : '') + '?')) return;
+    // Danger confirmation: MEDIUM when the view is shared, LOW when private.
+    if (!(window.DangerConfirm && window.DangerConfirm.ask)) { toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', true); return; }
+    const shared = v.scope !== 'private';
+    const ok = await window.DangerConfirm.ask(shared
+      ? { tier: 'medium', title: 'Delete the shared view “' + v.name + '”?', object: v.name, summary: 'This saved view is shared with other people.', intent: 'I want to delete this view',
+          consequences: ['The view disappears for EVERYONE who can see it.', 'Links that point to this view stop opening it.'], keeps: ['No member or attendance data is changed.'],
+          irreversible: true, phrase: 'DELETE VIEW', confirmLabel: 'Delete view' }
+      : { tier: 'low', title: 'Delete your view “' + v.name + '”?', summary: 'Only your saved filters are removed. No data is changed.', confirmLabel: 'Delete view' });
+    if (!ok) return;
     try {
       await viewsApi('delete', { id: v.id }, true);
       if (state.view === v.id) { state.view = null; writeState(); }
@@ -894,7 +902,12 @@
     $('#rc-saveview').addEventListener('click', (e) => { if (e.target.id === 'rc-saveview') e.currentTarget.hidden = true; });
     $('#rc-copy-link').addEventListener('click', () => {
       const url = window.location.origin + window.location.pathname + encodeState();
-      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('Link copied — anyone with reporting access opens the same population.')).catch(() => prompt('Copy this link:', url));
+      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('Link copied — anyone with reporting access opens the same population.')).catch(() => {
+        // Fallback without a browser prompt(): copy through a hidden textarea.
+        const ta = document.createElement('textarea'); ta.value = url; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+        document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; } ta.remove();
+        toast(ok ? 'Link copied — anyone with reporting access opens the same population.' : 'Could not copy automatically. Copy the address from the browser bar.', !ok);
+      });
     });
     $$('.rc-tabs [data-tab]').forEach((b) => b.addEventListener('click', () => { switchTab(b.dataset.tab); }));
     $$('.rc-seg [data-lang]').forEach((b) => b.addEventListener('click', () => {

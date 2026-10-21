@@ -26,6 +26,7 @@ require_once __DIR__ . '/backend/services/EnrollmentService.php';
 require_once __DIR__ . '/backend/services/MemberCategory.php';
 require_once __DIR__ . '/backend/services/MemberImportService.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+require_once __DIR__ . '/backend/danger_confirm.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use App\Services\ExcelColumnMap;
@@ -120,6 +121,11 @@ if (!in_array($tier, ['temporary', 'permanent'], true)) {
     $tier = 'permanent';
 }
 $dryRun = in_array(strtolower((string)($_POST['dry_run'] ?? '')), ['1', 'true', 'yes'], true);
+// Danger confirmation (HIGH): a real import writes many members at once and
+// needs the typed phrase from the 3-step dialog. "Check file" (dry run) does not.
+if (!$dryRun) {
+    dc_require_phrase('members.import');
+}
 
 if (!isset($conn) || !($conn instanceof mysqli) || $conn->connect_error) {
     import_json(['success' => false, 'message' => 'Database connection error.'], 503);

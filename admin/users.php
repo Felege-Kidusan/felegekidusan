@@ -467,7 +467,7 @@ $currentStatus = (int) field_value('is_active', $editUser, $oldForm, 1);
                     For password reset, select a user to edit and enter a new password.
                 </p>
 
-                <form method="post" action="backend/user-save.php">
+                <form method="post" action="backend/user-save.php" id="dcUserSaveForm"<?php if ($editUser): ?> data-orig-role="<?= e($editUser['role']) ?>" data-orig-active="<?= (int)$editUser['is_active'] ?>" data-username="<?= e($editUser['username']) ?>"<?php endif; ?>>
                     <?= csrfField() ?>
                     <input type="hidden" name="user_id" value="<?php echo $editUser ? (int)$editUser['id'] : ($oldForm['user_id'] ?? ''); ?>">
 
@@ -652,7 +652,8 @@ $currentStatus = (int) field_value('is_active', $editUser, $oldForm, 1);
                         To confirm, enter <strong>your</strong> super admin password.
                     </p>
 
-                    <form method="post" action="backend/user-delete.php" style="margin-top:0.75rem;">
+                    <form method="post" action="backend/user-delete.php" style="margin-top:0.75rem;" id="dcDeleteUserForm" data-username="<?= e($deleteUser['username'] ?? '') ?>" data-fullname="<?= e($deleteUser['full_name'] ?? '') ?>" data-role="<?= e($deleteUser['role'] ?? '') ?>">
+                        <?= csrfField() ?>
                         <input type="hidden" name="delete_user_id" value="<?php echo (int)$deleteUser['id']; ?>">
 
                         <div class="form-group">
@@ -662,6 +663,7 @@ $currentStatus = (int) field_value('is_active', $editUser, $oldForm, 1);
                                     type="password"
                                     id="superadmin_password"
                                     name="superadmin_password"
+                                    required autocomplete="current-password"
                                     placeholder="Enter your super admin password"
                                 >
                                 <button
@@ -697,6 +699,8 @@ $currentStatus = (int) field_value('is_active', $editUser, $oldForm, 1);
             });
         });
     </script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+    <script src="/admin/js/danger_user_forms.js?v=20261022dc"></script>
     <?php include __DIR__ . '/components/account_link.php'; ?>
 </body>
 </html>

@@ -30,9 +30,12 @@
             });
         var btn = document.createElement('button');
         btn.type = 'submit'; btn.className = className; btn.textContent = label;
-        if (action === 'renew') form.addEventListener('submit', function (e) {
-            if (!window.confirm('Renew this ID card and reset its issue date?')) e.preventDefault();
-        });
+        // Danger confirmation (LOW) via the shared dialog.
+        if (action === 'renew' && window.DangerConfirm && window.DangerConfirm.guardForm) {
+            window.DangerConfirm.guardForm(form, { tier: 'low', title: 'Renew this ID card?', summary: 'The issue date is set to today and a new expiry date is calculated. Re-print the card afterwards.', confirmLabel: 'Renew card' });
+        } else if (action === 'renew') {
+            form.addEventListener('submit', function (e) { e.preventDefault(); });
+        }
         form.appendChild(btn);
         return form;
     }

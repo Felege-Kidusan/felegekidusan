@@ -324,6 +324,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/admin/js/chart.umd.min.js"></script>
     <script src="/admin/js/request-id.js"></script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha384-/o6I2CkkWC//PSjvWC/eYN7l3xM3tJm8ZzVkCOfp//W05QcE3mlGskpoHB6XqI+B" crossorigin="anonymous"/>
 
@@ -3246,7 +3247,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         return true;
     }
 
-    function openUpgradeModal(memberId, memberData, eligible) {
+    function openUpgradeModal(memberId, memberData, eligible, overrideReason) {
         eligible = (eligible !== false);
         // Open the form immediately (never block promotion on data loading)
         toggleMemberRegistrationForm(true, 'permanent', 'Upgrade to Permanent Member');
@@ -3257,8 +3258,8 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         var existingReason = document.getElementById('promotion_override_reason');
         if (existingReason) existingReason.remove();
         if (!eligible) {
-            var reason = '';
-            try { reason = window.prompt('This member has not reached 6 months. Reason for early promotion (optional, recorded in audit):') || ''; } catch (e) { reason = ''; }
+            // Reason comes from the early-promotion confirmation dialog (new-members.js).
+            var reason = String(overrideReason || '');
             var hidden = document.createElement('input');
             hidden.type = 'hidden';
             hidden.id = 'promotion_override_reason';
@@ -3762,12 +3763,28 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         }
     }
     
-    function confirmArchive() {
+    // Danger confirmation dialog (admin/js/danger_confirm.js) — owner decisions 2026-10-21.
+    function dcAsk(o) {
+        if (window.DangerConfirm && window.DangerConfirm.ask) return window.DangerConfirm.ask(o);
+        var m = 'The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.';
+        if (typeof showToast === 'function') showToast(m, 'error'); else console.error(m);
+        return Promise.resolve(false);
+    }
+
+    async function confirmArchive() {
         if (!archiveMemberId) return;
         
         const reason = document.getElementById('archiveReason').value;
         const notes = document.getElementById('archiveNotes').value;
         const btn = document.getElementById('confirmArchiveBtn');
+        const rsel = document.getElementById('archiveReason');
+        const rtxt = rsel && rsel.selectedIndex >= 0 ? rsel.options[rsel.selectedIndex].text : reason;
+        const dc = await dcAsk({tier:'medium', title:'Archive ' + archiveMemberName + '?', object: archiveMemberName,
+            summary:'The member is moved out of the active lists. Reason: ' + rtxt + '.', intent:'I want to archive this member',
+            consequences:['The member disappears from active member lists, class rosters, attendance sheets and new reports.','Teachers and the mobile app no longer show this member.','Family links stay but the member is no longer counted as active.'],
+            keeps:['All history (attendance, marks, documents) is kept.','You can restore the member from the Archive list.'],
+            phrase:'ARCHIVE MEMBER', confirmLabel:'Archive member'});
+        if (!dc) return;
         
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Archiving...';
@@ -3799,8 +3816,8 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     }
     
     // Restore member from archive
-    function restoreMember(id, name) {
-        if (!confirm('Restore "' + name + '" back to active members?')) return;
+    async function restoreMember(id, name) {
+        if (!(await dcAsk({tier:'low', title:'Restore ' + name + ' to active members?', summary:'The member appears again in active lists, rosters and attendance.', confirmLabel:'Restore member'}))) return;
         
         fetch('/admin/info_restore_member.php', {
             method: 'POST',
@@ -4616,8 +4633,8 @@ function loadSystemInfo() {
     }).catch(() => { document.getElementById('sysStats').innerHTML = '<p class="text-xs text-red-400">Failed to load</p>'; });
 }
 
-function clearCache() {
-    if (!confirm('Clear all cache files?')) return;
+async function clearCache() {
+    if (!(await dcAsk({tier:'low', title:'Clear all cache files?', summary:'Saved report and statistics caches are removed and rebuilt the next time they are needed. Pages may load slower for a moment.', confirmLabel:'Clear cache'}))) return;
     sApiPost('clear_cache', {}).then(d => { settingsToast(d.message, d.status === 'success'); if (d.status === 'success') loadSystemInfo(); }).catch(() => settingsToast('Error', false));
 }
 

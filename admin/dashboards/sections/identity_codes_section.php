@@ -319,7 +319,12 @@ async function renderDepartments(){
             f.code.focus();
         });
         if (deactBtn) deactBtn.addEventListener('click', () => busy(deactBtn, async () => {
-            const ok = await modal({title:'Deactivate department', body:'Deactivate ' + (d.name_en || d.name_am) + ' (' + d.code + ')? Existing member codes keep working.', confirmLabel:'Deactivate'});
+            const nm = (d.name_en || d.name_am) + ' (' + d.code + ')';
+            const ok = (window.DangerConfirm && window.DangerConfirm.ask) ? await window.DangerConfirm.ask({tier:'medium', title:'Deactivate department ' + nm + '?', object: nm,
+                summary:'The department is hidden from new codes and position lists.', intent:'I want to deactivate this department',
+                consequences:['New identity codes and positions can no longer use this department.','It disappears from the department and position pickers.'],
+                keeps:['Existing member codes that contain it keep working.','You can activate it again by editing it.'],
+                phrase:'DEACTIVATE DEPARTMENT', confirmLabel:'Deactivate department'}) : (toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', false), false);
             if (!ok) return;
             const r2 = await apiPost('delete_department', {id: d.id});
             toast(r2.message, r2.status === 'success');
@@ -433,17 +438,19 @@ async function renderTypes(){
 async function runMigration(mode, btn){
     await busy(btn, async () => {
         if (mode === 'execute'){
-            const word = await modal({
-                title: 'Execute renumbering',
-                body: 'This permanently re-issues identity codes for every member (old codes kept as legacy, QR regenerated).',
-                confirmLabel: 'Execute',
-                input: {expect: 'RENUMBER', placeholder: 'Type RENUMBER to confirm'}
-            });
-            if (!word) { msg($('idcMigMsg'), 'Aborted — confirmation word not entered.', false); return; }
+            if (!(window.DangerConfirm && window.DangerConfirm.ask)) { toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', false); return; }
+            const dc = await window.DangerConfirm.ask({tier:'high', title:'Renumber every member identity code?', object:'All members',
+                summary:'Every member gets a NEW identity code. Run "Preview" first to see how many change.', intent:'I want to renumber all codes',
+                consequences:['Every member\'s identity code is re-issued with the current numbering rules.','All QR codes are regenerated: printed ID cards show the OLD code and should be re-printed.','People and lists that use the old codes must switch to the new ones.'],
+                keeps:['Old codes are kept as legacy codes, so scanning an old card still finds the member.','Member records themselves are not changed.'],
+                irreversible:true, phrase:'RENUMBER CODES', confirmLabel:'Renumber all codes'});
+            if (!dc) { msg($('idcMigMsg'), 'Cancelled — nothing was changed.', false); return; }
+            window.__idcPhrase = dc.phrase;
         }
         msg($('idcMigMsg'), mode === 'dry_run' ? 'Running preview…' : 'Executing… this may take a while.', true);
         $('idcMigLog').textContent = '';
         const fd = new URLSearchParams(); fd.set('mode', mode); fd.set('csrf_token', CSRF);
+        if (mode === 'execute' && window.__idcPhrase) { fd.set('confirm_phrase', window.__idcPhrase); window.__idcPhrase = null; }
         const res = await fetch(MIG, {method:'POST', credentials:'same-origin', body: fd});
         const r = await res.json();
         if (r.status !== 'success'){ msg($('idcMigMsg'), r.message || 'Migration failed.', false); toast(r.message || 'Migration failed.', false); }

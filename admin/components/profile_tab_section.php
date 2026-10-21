@@ -580,8 +580,11 @@ if (!function_exists('renderProfileTabSection')) {
                 }
             });
 
+            // Danger confirmation (LOW). Loads admin/js/danger_confirm.js on demand.
+            const _dcAskLazy = function (o) { return new Promise(function (res) { function go() { window.DangerConfirm.ask(o).then(res); } if (window.DangerConfirm && window.DangerConfirm.ask) return go(); var sc = document.createElement('script'); sc.src = '/admin/js/danger_confirm.js?v=20261022dc'; sc.onload = function () { window.DangerConfirm ? go() : res(false); }; sc.onerror = function () { res(false); }; document.head.appendChild(sc); }); };
             document.getElementById('tabProfileRemoveBtn')?.addEventListener('click', async () => {
-                if (!_profData || !confirm('Remove your profile photo?')) return;
+                if (!_profData) return;
+                if (!(await _dcAskLazy({ tier: 'low', title: 'Remove your profile photo?', summary: 'Your photo is deleted. Your initials are shown instead until you upload a new one.', confirmLabel: 'Remove photo' }))) return;
                 const token = getCsrf();
                 const headers = {
                     'Content-Type': 'application/json',

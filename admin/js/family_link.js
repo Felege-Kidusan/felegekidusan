@@ -55,6 +55,12 @@
     });
   }
   function fail(e) { toast((e && e.message) || 'Network error', 'error'); }
+  // Danger confirmation dialog (admin/js/danger_confirm.js) — owner decisions 2026-10-21.
+  function dcAsk(o) {
+    if (window.DangerConfirm && window.DangerConfirm.ask) return window.DangerConfirm.ask(o);
+    toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', 'error');
+    return Promise.resolve(false);
+  }
   function fmtDate(s) {
     if (!s) return '—';
     var d = new Date(String(s).replace(' ', 'T'));
@@ -248,8 +254,10 @@
     return false;
   }
   function removeAlias(gid, alias) {
-    if (!confirm('Remove alias "' + alias + '"?')) return;
-    post('remove_alias', { guardian_id: gid, alias_name: alias }).then(function () { refresh(); }).catch(fail);
+    dcAsk({ tier: 'low', title: 'Remove the alias "' + alias + '"?', summary: 'This spelling will no longer find this guardian when matching or searching.', confirmLabel: 'Remove alias' }).then(function (ok) {
+      if (!ok) return;
+      post('remove_alias', { guardian_id: gid, alias_name: alias }).then(function () { refresh(); }).catch(fail);
+    });
   }
   function setRelation(gid, mid, rel, prim) {
     var p = { guardian_id: gid, member_id: mid };
@@ -258,8 +266,14 @@
     post('set_relation', p).then(function () { toast('Link updated.'); refresh(); }).catch(function (e) { fail(e); refresh(); });
   }
   function unlink(gid, mid, name) {
-    if (!confirm('Remove ' + name + ' from this guardian?\n\nThe member record itself is untouched; if another guardian is linked it becomes the primary contact.')) return;
-    post('unlink', { guardian_id: gid, member_id: mid }).then(function () { toast('Unlinked.'); refresh(); }).catch(fail);
+    dcAsk({ tier: 'medium', title: 'Remove ' + name + ' from this guardian?', object: name,
+      summary: 'The family link between this member and this guardian is removed.', intent: 'I want to remove this link',
+      consequences: ['This guardian no longer sees ' + name + ' (Parent app, family lists and contact).', 'If another guardian is linked, that guardian becomes the primary contact; otherwise the member has no guardian.'],
+      keeps: ['The member record itself is not changed.', 'You can link them again at any time.'],
+      phrase: 'UNLINK CHILD', confirmLabel: 'Remove link' }).then(function (ok) {
+      if (!ok) return;
+      post('unlink', { guardian_id: gid, member_id: mid }).then(function () { toast('Unlinked.'); refresh(); }).catch(fail);
+    });
   }
   function attachKidTypeahead(gid) {
     var input = $('famKidQ'), list = $('famKidL'); if (!input || !list) return;
@@ -299,8 +313,15 @@
             var other = parseInt(b.getAttribute('data-gid'), 10);
             var name = b.querySelector('b').textContent;
             list.style.display = 'none'; input.value = '';
-            if (!confirm('Merge "' + name + '" INTO "' + (state.guardian ? state.guardian.display_name : 'this guardian') + '"?\n\nTheir children move here, their spelling is kept as an alias, and the merge can be reversed by HR.')) return;
-            post('merge', { from_id: other, into_id: gid }).then(function () { toast('Merged.'); refresh(); loadStats(); }).catch(fail);
+            var into = state.guardian ? state.guardian.display_name : 'this guardian';
+            dcAsk({ tier: 'medium', title: 'Merge "' + name + '" into "' + into + '"?', object: name + '  \u2192  ' + into,
+              summary: 'Two guardian records become one.', intent: 'I want to merge these guardians',
+              consequences: ['All children of "' + name + '" move to "' + into + '".', 'The "' + name + '" record is closed; its spelling is kept as an alias.'],
+              keeps: ['No member record is changed.', 'HR can reverse the merge.'],
+              phrase: 'MERGE GUARDIANS', confirmLabel: 'Merge guardians' }).then(function (ok) {
+              if (!ok) return;
+              post('merge', { from_id: other, into_id: gid }).then(function () { toast('Merged.'); refresh(); loadStats(); }).catch(fail);
+            });
           });
         });
       }).catch(function () { list.style.display = 'none'; });
@@ -356,13 +377,22 @@
       post('reject_suggestion', { suggestion_id: sid }).then(function () { toast('Kept as separate guardians.'); loadQueue(); loadStats(); }).catch(fail);
       return;
     }
-    if (!confirm('Merge these two guardian records? Children move to the kept record; the other spelling stays as an alias. HR can reverse a merge.')) return;
-    post('merge_suggestion', { suggestion_id: sid, keep: how }).then(function () { toast('Merged.'); loadQueue(); loadStats(); }).catch(function (e) { fail(e); loadQueue(); });
+    dcAsk({ tier: 'medium', title: 'Merge these two guardian records?', summary: 'Two guardian records become one.', intent: 'I want to merge these guardians',
+      consequences: ['All children move to the record you chose to keep.', 'The other record is closed; its spelling stays as an alias.'],
+      keeps: ['No member record is changed.', 'HR can reverse the merge.'],
+      phrase: 'MERGE GUARDIANS', confirmLabel: 'Merge guardians' }).then(function (ok) {
+      if (!ok) return;
+      post('merge_suggestion', { suggestion_id: sid, keep: how }).then(function () { toast('Merged.'); loadQueue(); loadStats(); }).catch(function (e) { fail(e); loadQueue(); });
+    });
   }
   function runRematch(cursor, acc) {
-    cursor = cursor || 0; acc = acc || { scanned: 0, filed: 0 };
+    if (!cursor && !acc) {
+      dcAsk({ tier: 'low', title: 'Scan all guardians for probable duplicates?', summary: 'Runs in short steps. Nothing is merged automatically: findings appear in this queue for you to decide.', confirmLabel: 'Start scan' })
+        .then(function (ok) { if (ok) runRematch(0, { scanned: 0, filed: 0 }); });
+      return;
+    }
+    cursor = cursor || 0;
     var btn = $('famRematchBtn'), bar = $('famRematchBar');
-    if (cursor === 0 && !confirm('Scan all guardians for probable duplicates?\n\nRuns in short steps (safe on shared hosting). Nothing is merged automatically — findings appear in this queue.')) return;
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scanning… ' + acc.scanned + ' checked, ' + acc.filed + ' found'; }
     if (bar) bar.style.display = '';
     post('run_rematch', { cursor: cursor }).then(function (d) {
@@ -409,9 +439,23 @@
   function linkAll(cursor, acc) {
     cursor = cursor || 0; acc = acc || { processed: 0, created: 0, matched: 0, failed: 0 };
     var btn = $('famLinkAllBtn');
-    if (cursor === 0 && !confirm('Link all ' + ((state.stats && state.stats.members_unlinked) || '') + ' members now?\n\nEach member is matched to an existing guardian (same phone / near-identical name) or gets a new guardian record. Runs in short steps; nothing is merged automatically.')) return;
+    if (!acc || !acc.phrase) {
+      var n = (state.stats && state.stats.members_unlinked) || 0;
+      dcAsk({ tier: 'high', title: 'Link all ' + (n || '') + ' unlinked members to guardians?', object: (n || 'All') + ' unlinked member(s)',
+        summary: 'Every member without a guardian is linked in one run.', intent: 'I want to link all members',
+        consequences: [
+          (n ? n + ' member(s)' : 'Every unlinked member') + ' is matched to an existing guardian (same phone or near-identical name) or gets a NEW guardian record.',
+          'New guardians become visible to Family Link and the Parent app.',
+          'Wrong matches have to be fixed one by one afterwards (unlink or merge).'
+        ],
+        keeps: ['Members that already have a guardian are not touched.', 'Nothing is merged automatically.'],
+        phrase: 'LINK ALL', confirmLabel: 'Link all members' }).then(function (r) {
+        if (r) linkAll(0, { processed: 0, created: 0, matched: 0, failed: 0, phrase: r.phrase });
+      });
+      return;
+    }
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Linking… ' + acc.processed + ' done'; }
-    post('attach_batch', { cursor: cursor }).then(function (d) {
+    post('attach_batch', { cursor: cursor, confirm_phrase: acc.phrase }).then(function (d) {
       acc.processed += d.processed; acc.created += d.created; acc.matched += d.matched; acc.failed += d.failed;
       if (!d.done && d.processed > 0) { linkAll(d.next_cursor, acc); return; }
       if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Link all'; }

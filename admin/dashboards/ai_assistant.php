@@ -504,8 +504,10 @@ async function generateReport(type) {
 //  AI Setup panel: loadAiConfig / saveAiConfig / testConnection above.)
 
 // ── Clear chat ──
+// Danger confirmation (LOW). Loads admin/js/danger_confirm.js on demand.
+const dcAskLazy = function(o){return new Promise(function(res){function go(){window.DangerConfirm.ask(o).then(res);}if(window.DangerConfirm&&window.DangerConfirm.ask)return go();var sc=document.createElement('script');sc.src='/admin/js/danger_confirm.js?v=20261022dc';sc.onload=function(){window.DangerConfirm?go():res(false);};sc.onerror=function(){res(false);};document.head.appendChild(sc);});};
 async function clearChat() {
-    if (!confirm('Clear all chat history?')) return;
+    if (!(await dcAskLazy({tier:'low', title:'Clear all chat history?', summary:'Your saved conversation with the AI assistant is deleted. Settings and API keys stay.', confirmLabel:'Clear history'}))) return;
     try {
         const form = new FormData();
         form.append('action', 'clear_history');
