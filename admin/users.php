@@ -699,7 +699,7 @@ $currentStatus = (int) field_value('is_active', $editUser, $oldForm, 1);
             });
         });
     </script>
-    <script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
     <script src="/admin/js/danger_user_forms.js?v=20261022dc"></script>
     <?php include __DIR__ . '/components/account_link.php'; ?>
 </body>

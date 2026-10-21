@@ -44,6 +44,20 @@ MIGRATED = [
     'admin/components/profile_tab_section.php',
     'admin/js/reports/reports_v2.js',
     'admin/js/attendance_analytics_hub.js',
+    # DC-4 Finance, Material, Groups, Mezmur, CMS, teachers/takers, shared
+    'admin/dashboards/finance_department.php',
+    'frontend/js/finance.js',
+    'admin/dashboards/material_department.php',
+    'admin/groups.php',
+    'admin/dashboards/groups.php',
+    'frontend/js/mezmur.js',
+    'admin/js/content_editor.js',
+    'admin/lesson_attendance.php',
+    'admin/dashboards/teacher.php',
+    'admin/dashboards/attendance_taker.php',
+    'admin/js/attendance-sheet.js',
+    'admin/js/department_status.js',
+    'admin/js/comm.js',
 ]
 
 # (endpoint file, phrase key) — HIGH actions that must be enforced server-side.
@@ -65,6 +79,9 @@ SERVER_ENFORCED = [
     ('admin/api_import_members.php', 'members.import'),
     ('admin/api_guardians.php', 'guardians.link_all'),
     ('admin/api_identity_migration.php', 'identity.renumber'),
+    # DC-4
+    ('admin/api_finance.php', 'finance.delete_transaction'),
+    ('admin/backend/groups_api.php', 'groups.delete_group'),
 ]
 
 NATIVE = re.compile(r'(?<![\w.$])(?:window\.)?(confirm|prompt)\s*\(')
@@ -173,6 +190,38 @@ class DangerConfirmMigration(unittest.TestCase):
         self.assertRegex(imp, r"if \(!\$dryRun\) \{\s*dc_require_phrase\('members.import'\)")
         mig = read('admin/api_identity_migration.php')
         self.assertRegex(mig, r"if \(\$mode === 'execute'\) \{[^}]*dc_require_phrase\('identity.renumber'\)")
+
+    def test_dc4_no_native_popups_anywhere(self):
+        # After DC-4 no web screen uses the browser's confirm()/prompt().
+        bad = []
+        for base in ('admin', 'frontend'):
+            for p in (ROOT / base).rglob('*'):
+                if p.suffix not in ('.php', '.js') or 'vendor' in p.parts or p.name.endswith('.min.js') or p.name == 'danger_confirm.js':
+                    continue
+                for i, line in enumerate(p.read_text(encoding='utf-8', errors='replace').splitlines(), 1):
+                    t = line.strip()
+                    if t.startswith(('//', '*', '/*', '<!--')):
+                        continue
+                    if re.search(r"(^|[^.\w$])(window\.)?(confirm|prompt)\s*\(", line):
+                        bad.append(f'{p.relative_to(ROOT)}:{i}')
+        self.assertEqual(bad, [])
+
+    def test_dc4_group_delete_is_atomic_and_previewed(self):
+        api = read('admin/backend/groups_api.php')
+        i = api.index("$action === 'delete_group'")
+        body = api[i:i + 2600]
+        self.assertIn('begin_transaction', body)
+        self.assertIn('rollback', body)
+        self.assertIn("$action === 'impact_delete_group'", api)
+
+    def test_dc4_attendance_resave_guard(self):
+        sheet = read('admin/js/attendance-sheet.js')
+        self.assertIn('confirmReplace', sheet)
+        self.assertIn("phrase: 'REPLACE ATTENDANCE'", sheet)
+        for rel in ('admin/dashboards/teacher.php', 'admin/dashboards/attendance_taker.php'):
+            src = read(rel)
+            self.assertIn('AttendanceSheet.snapshot(', src, rel)
+            self.assertIn('AttendanceSheet.confirmReplace(', src, rel)
 
     def test_frontend_shell_loads_component(self):
         # frontend/js/*.js page scripts are loaded by name through the shared layout

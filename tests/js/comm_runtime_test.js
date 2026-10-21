@@ -994,7 +994,18 @@ const sleep = (ms) => new Promise((r) => nativeSetTimeout(r, ms));
     fire(qs(delMsg, '[data-msg-menu]'), 'click');
     fire(qs(delMsg, '[data-msg-del]'), 'click');
     check('MGMT: Delete asks for inline confirmation first', qs(delMsg, '[data-msg-del-yes]').hidden === false);
+    // Danger confirmation (DC-4): "Yes" opens the shared MEDIUM dialog first.
+    const dcCalls = [];
+    windowShim.DangerConfirm = { ask: (o) => { dcCalls.push(o); return Promise.resolve(false); } };
     fire(qs(delMsg, '[data-msg-del-yes]'), 'click');
+    await sleep(5);
+    check('MGMT: delete-for-everyone opens the MEDIUM danger dialog (DELETE MESSAGE)',
+        dcCalls.length === 1 && dcCalls[0].tier === 'medium' && dcCalls[0].phrase === 'DELETE MESSAGE');
+    check('MGMT: cancelling the danger dialog deletes nothing',
+        !fetchLog.some((e) => e.includes('action=message_delete')) && !delMsg.classList.contains('nc-msg--deleted'));
+    windowShim.DangerConfirm = { ask: (o) => { dcCalls.push(o); return Promise.resolve({ phrase: o.phrase }); } };
+    fire(qs(delMsg, '[data-msg-del-yes]'), 'click');
+    await sleep(5);
     const delPost = fetchLog.filter((e) => e.includes('action=message_delete')).pop();
     check('MGMT: confirmed delete posts + tombstones optimistically',
         !!delPost && delPost.includes('message_id=9')

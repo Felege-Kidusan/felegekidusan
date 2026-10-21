@@ -550,7 +550,7 @@ $healthLabel = $healthScore >= 80 ? 'Healthy' : ($healthScore >= 60 ? 'Warning' 
             <?= SCHOOL_NAME ?> • System Health Dashboard • <?= DEVELOPER_SHOW_CREDIT ? 'Built by ' . DEVELOPER_NAME : '' ?>
         </div>
     </div>
-<script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+<script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
 <script>
 // Danger confirmation (LOW) for the maintenance forms on this page.
 document.querySelectorAll('form[data-dc-low]').forEach(function (f) {

@@ -192,6 +192,10 @@ $id = Input::integer($_POST['id'] ?? 0, 'Transaction ID', 1);
     break;
 
 case 'delete_transaction':
+    // Danger confirmation (HIGH): a money record is hard-deleted; the 3-step
+    // dialog sends the typed phrase and the server checks it.
+    require_once __DIR__ . '/backend/danger_confirm.php';
+    dc_require_phrase('finance.delete_transaction');
 $id = Input::integer($_POST['id'] ?? 0, 'Transaction ID', 1);
     // Capture the row before it disappears so the audit trail keeps the facts.
     $find = $conn->prepare('SELECT type, amount, description, receipt_number, transaction_date, status FROM finance_transactions WHERE id=?');

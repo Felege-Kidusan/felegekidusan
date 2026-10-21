@@ -270,9 +270,19 @@ var Finance = (function() {
         .finally(function() { setSaving('saveTxn', false); }); });
     }
 
-    function deleteTxn(id, type) {
-        if (!confirm('Delete this transaction?')) return;
-        window.api.post('finance.php', { action: 'delete_transaction', id: id })
+    // Danger confirmation (HIGH): a money record is deleted with no undo.
+    async function deleteTxn(id, type) {
+        var t = (txns[type] || []).find(function (x) { return String(x.id) === String(id); }) || {};
+        var amt = (t.amount != null ? Number(t.amount).toLocaleString() : '?') + ' ETB';
+        if (!(window.DangerConfirm && window.DangerConfirm.ask)) { toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', 'e'); return; }
+        var dc = await window.DangerConfirm.ask({ tier: 'high', title: 'Delete this ' + type + ' record?',
+            object: (type === 'income' ? 'Income ' : 'Expense ') + amt + (t.transaction_date ? ' on ' + t.transaction_date : '') + (t.receipt_number ? ' · receipt ' + t.receipt_number : ''),
+            summary: 'A money record is removed from the books.', intent: 'I want to delete this transaction',
+            consequences: ['The record is deleted permanently. There is no undo or recycle bin.', 'Totals, balances and finance reports change immediately.', 'Only a short audit note stays (amount, date, receipt).'],
+            keeps: ['Other transactions, categories and member fees are not touched.', 'If this was a mistake in the amount, use Edit instead of Delete.'],
+            irreversible: true, phrase: 'DELETE TRANSACTION', confirmLabel: 'Delete transaction' });
+        if (!dc) return;
+        window.api.post('finance.php', { action: 'delete_transaction', id: id, confirm_phrase: dc.phrase })
             .then(function(d) {
                 if (d.status === 'success') {
                     toast('Deleted', 's');

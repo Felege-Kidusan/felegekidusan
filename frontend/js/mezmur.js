@@ -94,7 +94,17 @@
     // ── in-system confirm dialog (P31: the system never uses browser
     //    popups — confirm/prompt/alert are replaced by styled UI) ──
     var sysDialogCb = null;
-    function sysConfirm(body, onYes) {
+    // Danger confirmation (DC-4): routed through the shared 3-step dialog
+    // (admin/js/danger_confirm.js). `opts` sets the tier; without it the call
+    // is LOW. HIGH/MEDIUM never fall back to a weaker one-click dialog.
+    function sysConfirm(body, onYes, opts) {
+        if (window.DangerConfirm && window.DangerConfirm.ask) {
+            var o = opts || { tier: 'low', title: body, confirmLabel: 'Continue' };
+            if (!o.title) o.title = body;
+            window.DangerConfirm.ask(o).then(function (r) { if (r && onYes) onYes(r); });
+            return;
+        }
+        if (opts && opts.tier && opts.tier !== 'low') { window.toast('The confirmation dialog did not load. Refresh the page (Ctrl+F5) and try again.', 'e'); return; }
         var el = $('mzSysDialog');
         if (!el) { window.toast('Confirmation is unavailable. Please refresh the page.', 'e'); return; }
         $('mzSysDialogBody').textContent = body;
@@ -137,7 +147,8 @@
 
     // ── schema reconciliation (one-click migration) ──────────
     function migrateSchema() {
-        sysConfirm('Align the mezmur database schema with the current code? This is safe to run at any time.', migrateRun);
+        sysConfirm('Align the mezmur database schema with the current code? This is safe to run at any time.', migrateRun,
+            { tier: 'low', title: 'Update the mezmur database structure?', summary: 'Aligns the mezmur tables with the current code. Safe to run at any time; no hymns are removed.', confirmLabel: 'Run update' });
     }
     function migrateRun() {
         apiPost({ action: 'migrate' }).then(function (d) {
@@ -743,7 +754,9 @@
             var hymnId = sync.id;
             sysConfirm('No lines are timed. Remove synced lyrics and fall back to static lyrics?', function () {
                 if (sync.id === hymnId) syncSave(true);
-            });
+            }, { tier: 'medium', title: 'Remove the synced lyrics?', summary: 'No lines are timed, so saving removes the timings.', intent: 'I want to remove the timings',
+                 consequences: ['The saved line timings for this hymn are removed from the server.', 'The app shows plain lyrics instead of synced (karaoke-style) lyrics.'],
+                 keeps: ['The lyrics text itself is kept.', 'You can time the lines again later.'], phrase: 'REMOVE TIMINGS', confirmLabel: 'Remove timings' });
             return;
         }
         var lrc = timed
@@ -1522,7 +1535,7 @@
             mgrTab(kind || 'categories');
         };
         if (hymnFormHasDraft()) {
-            sysConfirm('Leave the hymn form? Unsaved changes will be lost.', go);
+            sysConfirm('Leave the hymn form? Unsaved changes will be lost.', go, { tier: 'low', title: 'Leave the hymn form?', summary: 'Unsaved changes will be lost.', confirmLabel: 'Leave without saving' });
         } else {
             go();
         }
@@ -1803,7 +1816,14 @@
         var payload = isZem
             ? { action: 'zemarian_status', id: id, active: active ? 0 : 1 }
             : { action: 'category_status', id: id, active: active ? 0 : 1 };
-        mgrMutate(null, payload, active ? 'Hidden.' : 'Shown.');
+        if (!active) { mgrMutate(null, payload, 'Shown.'); return; }
+        // Danger confirmation (MEDIUM) when hiding; showing again needs none.
+        var what = isZem ? 'singer' : 'category';
+        var nm = (found && found.name) || ('this ' + what);
+        sysConfirm('Hide ' + nm + '?', function () { mgrMutate(null, payload, 'Hidden.'); },
+            { tier: 'medium', title: 'Hide the ' + what + ' \u201c' + nm + '\u201d?', object: nm, summary: 'It is hidden, not deleted.', intent: 'I want to hide this ' + what,
+              consequences: ['It disappears from the mobile app and the public hymn lists.', isZem ? 'Hymns by this singer are no longer grouped under them in the app.' : 'Hymns in this category are no longer listed under it in the app.'],
+              keeps: ['No hymns are deleted.', 'You can show it again at any time.'], phrase: isZem ? 'HIDE SINGER' : 'HIDE CATEGORY', confirmLabel: 'Hide ' + what });
     }
     function mgrSort(id, dir) {
         // swap sort_order with the adjacent sibling in the same level
@@ -1836,7 +1856,7 @@
                 window.toast(d.message || 'Cover art removed.', 's');
                 refreshAfterArtChange(id);
             }).catch(function () { window.toast('Connection error.', 'e'); });
-        });
+        }, { tier: 'low', title: 'Remove this hymn\'s cover art?', summary: 'The app shows the default artwork instead.', confirmLabel: 'Remove cover art' });
     }
 
     /** One refresh point after any art mutation: reload the hymn
@@ -1857,7 +1877,7 @@
                 window.toast(d.message || 'Cover image removed.', 's');
                 loadCatalog();
             }).catch(function () {});
-        });
+        }, { tier: 'low', title: 'Remove the singer\'s cover image?', summary: 'The default image is shown instead.', confirmLabel: 'Remove image' });
     }
 
     function mgrImage(id, zem, art) {
@@ -2052,7 +2072,7 @@
                     window.toast(d.message || 'Cover image removed.', 's');
                     loadCatalog();
                 }).catch(function () {});
-            });
+            }, { tier: 'low', title: 'Remove the cover image?', summary: 'The colour gradient is shown instead.', confirmLabel: 'Remove image' });
         });
     }
 
@@ -2348,13 +2368,18 @@
 
     function setHymnStatus(id, status) {
         var label = status === 'archived' ? 'archive' : 'restore';
+        var dcOpts = status === 'archived'
+            ? { tier: 'medium', title: 'Archive this hymn?', summary: 'The hymn is taken out of use.', intent: 'I want to archive this hymn',
+                consequences: ['The hymn is hidden from the mobile app, hymn lists and playlists.', 'Singers and members can no longer find or play it.'],
+                keeps: ['Lyrics, audio and timings are kept.', 'You can restore it later from the Archived filter.'], phrase: 'ARCHIVE HYMN', confirmLabel: 'Archive hymn' }
+            : { tier: 'low', title: 'Restore this hymn?', summary: 'The hymn appears again in the app and the hymn lists.', confirmLabel: 'Restore hymn' };
         sysConfirm('Are you sure you want to ' + label + ' this hymn?', function () {
         apiPost({ action: 'set_status', id: id, status: status }).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Action failed.', 'e'); return; }
             window.toast(d.message || 'Done.', 's');
             loadStats(); loadList();
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
-        });
+        }, dcOpts);
     }
 
     // ══════════════════════════════════════════════════════════
@@ -2677,6 +2702,19 @@
         // return) goes through the review modal so a note explains
         // the decision to the taker.
         if (decision !== 'approved') { openReview(id); return; }
+        sysConfirm('Approve this attendance packet?', function () { quickApprove(id, decision); }, reviewOpts('approved'));
+    }
+    // Danger confirmation tiers for review decisions (MEDIUM approve/reject, LOW return).
+    function reviewOpts(decision) {
+        if (decision === 'approved') return { tier: 'medium', title: 'Approve this attendance packet?', summary: 'Approval makes the packet final.', intent: 'I want to approve this packet',
+            consequences: ['The attendance in this packet becomes FINAL and counts in reports and warnings.', 'The taker can no longer edit it.'],
+            keeps: ['Other packets are not affected.'], phrase: 'APPROVE', confirmLabel: 'Approve packet' };
+        if (decision === 'rejected') return { tier: 'medium', title: 'Reject this attendance packet?', summary: 'Rejecting dismisses the packet.', intent: 'I want to reject this packet',
+            consequences: ['The packet is dismissed and its attendance is not used.', 'The taker sees your reason.'],
+            keeps: ['The packet stays in the history.'], phrase: 'REJECT', confirmLabel: 'Reject packet' };
+        return { tier: 'low', title: 'Return this packet for correction?', summary: 'The taker can edit it again and sees your reason.', confirmLabel: 'Return for correction' };
+    }
+    function quickApprove(id, decision) {
         apiPost({ action: 'submission_review', submission_id: id, new_status: decision, notes: '' }).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Unable to record the decision.', 'e'); return; }
             window.toast(d.message || 'Approved.', 's');
@@ -2811,7 +2849,7 @@
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
     }
 
-    function submitReview() {
+    function submitReview(confirmed) {
         var id = parseInt($('mzRvId').value, 10);
         var decision = $('mzRvDecision').value;
         var notes = $('mzRvNotes').value.trim();
@@ -2821,6 +2859,7 @@
             $('mzRvNotes').focus();
             return;
         }
+        if (confirmed !== true) { sysConfirm('Record this decision?', function () { submitReview(true); }, reviewOpts(decision)); return; }
         var btn = $('mzRvSaveBtn');
         btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Recording…';
         apiPost({ action: 'submission_review', submission_id: id, new_status: decision, notes: notes }).then(function (d) {
@@ -3035,6 +3074,7 @@
                 return;
             }
             var items = d.items || [];
+            takersCache = items;
             if (!items.length) {
                 tb.innerHTML = '<tr><td colspan="6">' + emptyState('fa-user-shield', 'No mezmur takers yet', 'Create a mezmur attendance taker so a trusted member can record section attendance from the mobile app. These accounts belong to the mezmur department only.', '<button class="btn-primary btn-sm" onclick="Mezmur.openTakerModal()"><i class="fa-solid fa-user-plus"></i> Add Taker</button>') + '</td></tr>';
                 return;
@@ -3085,7 +3125,18 @@
         });
     }
 
-    function toggleTaker(id) {
+    var takersCache = [];
+    function toggleTaker(id, confirmed) {
+        if (confirmed !== true) {
+            var t = takersCache.filter(function (x) { return Number(x.id) === Number(id); })[0] || {};
+            var nm = t.full_name || t.username || 'this taker';
+            sysConfirm(t.is_active ? 'Disable ' + nm + '?' : 'Enable ' + nm + '?', function () { toggleTaker(id, true); }, t.is_active
+                ? { tier: 'medium', title: 'Disable the attendance taker ' + nm + '?', object: nm, summary: 'The account is switched off, not deleted.', intent: 'I want to disable this taker',
+                    consequences: ['This person can no longer log in or record Mezmur attendance.', 'Packets they already submitted stay for review.'],
+                    keeps: ['The account and its history are kept.', 'You can enable it again at any time.'], phrase: 'DISABLE TAKER', confirmLabel: 'Disable taker' }
+                : { tier: 'low', title: 'Enable ' + nm + '?', summary: 'This person can log in and record Mezmur attendance again.', confirmLabel: 'Enable taker' });
+            return;
+        }
         window.api.post('/admin/api_dept_takers.php', { action: 'toggle', user_id: id }).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Action failed.', 'e'); return; }
             window.toast(d.message || 'Done.', 's');
@@ -3332,6 +3383,9 @@
 
     function removeAudio() {
         if (!audioMgr.id) return;
+        var dcAudio = { tier: 'medium', title: 'Remove the audio from this hymn?', summary: 'The recording is deleted, not just hidden.', intent: 'I want to remove the audio',
+            consequences: ['The audio file is DELETED from the media CDN. This cannot be undone.', 'The hymn returns to lyrics-only in the app; playing and downloading stop.'],
+            keeps: ['Lyrics and timings are kept.', 'You can upload a new audio file later.'], irreversible: true, phrase: 'REMOVE AUDIO', confirmLabel: 'Remove audio' };
         sysConfirm('Remove the audio from this hymn? The file is deleted from the media CDN and the hymn returns to lyrics-only.', function () {
             apiPost({ action: 'audio_remove', hymn_id: audioMgr.id }).then(function (d) {
                 if (d.status !== 'success') { window.toast(d.message || 'Could not remove audio.', 'e'); return; }
@@ -3339,7 +3393,7 @@
                 loadList(); loadStats();
                 openAudio(audioMgr.id);
             }).catch(function () {});
-        });
+        }, dcAudio);
     }
 
     document.addEventListener('DOMContentLoaded', function () {

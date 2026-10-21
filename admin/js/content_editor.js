@@ -151,8 +151,16 @@ function viewSub(index){
   `;
   document.getElementById('modalBg').classList.add('open');
 }
+
+// Danger confirmation (DC-4): MEDIUM 3-step dialog for deleting public website
+// content. Uses admin/js/danger_confirm.js (loaded by content_editor.php).
+async function ceAsk(o){
+  if(!(window.DangerConfirm&&window.DangerConfirm.ask)){toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.','error');return false;}
+  return window.DangerConfirm.ask(Object.assign({tier:'medium',irreversible:true},o));
+}
+const CE_KEEP_SITE='The rest of the website is not changed.';
 async function deleteSub(id){
-  if(!confirm('Delete this submission permanently?'))return;
+  if(!(await ceAsk({title:'Delete this registration submission?',summary:'A form someone sent from the website is removed.',intent:'I want to delete this submission',consequences:['The submission and its contact details are deleted permanently.','It disappears from the Registrations list and its counts.'],keeps:['Members already registered in the system are not affected.'],phrase:'DELETE SUBMISSION',confirmLabel:'Delete submission'})))return;
   const fd=new FormData();fd.append('id',id);
   const d=await api('sub_delete',fd);
   if(d&&d.status==='success'){toast(d.message);closeModal();loadRegistrations(currentRegFilter);}
@@ -229,7 +237,7 @@ function editPhoto(p){
   document.getElementById('modalBg').classList.add('open');
 }
 async function deletePhoto(id){
-  if(!confirm('Delete this photo?'))return;
+  if(!(await ceAsk({title:'Delete this photo?',summary:'The photo is removed from the website gallery.',intent:'I want to delete this photo',consequences:['The photo is deleted permanently from the gallery.','Visitors no longer see it on the website.'],keeps:['Other photos and albums are not changed.'],phrase:'DELETE PHOTO',confirmLabel:'Delete photo'})))return;
   const fd=new FormData();fd.append('id',id);
   const d=await api('photo_delete',fd);
   if(d&&d.status==='success'){toast(d.message);loadPhotos(currentGalCat);}
@@ -258,7 +266,7 @@ function editCat(c){
   document.getElementById('modalBg').classList.add('open');
 }
 async function deleteCat(id){
-  if(!confirm('Delete this album? Photos inside become uncategorized.'))return;
+  if(!(await ceAsk({title:'Delete this album?',summary:'The album is removed from the website gallery.',intent:'I want to delete this album',consequences:['The album is deleted permanently.','Photos inside it become uncategorized and lose this grouping.'],keeps:['The photos themselves are NOT deleted.'],phrase:'DELETE ALBUM',confirmLabel:'Delete album'})))return;
   const fd=new FormData();fd.append('id',id);
   const d=await api('cat_delete',fd);
   if(d&&d.status==='success'){toast(d.message);closeModal();currentGalCat=0;loadGallery();}
@@ -307,7 +315,7 @@ function teacherForm(t){
 }
 function openTeacherModal(){modalMode={type:'teacher_new'};document.getElementById('modalTitle').textContent='Add Teacher';document.getElementById('modalBody').innerHTML=teacherForm();document.getElementById('modalBg').classList.add('open');}
 function editTeacher(t){modalMode={type:'teacher_edit',id:t.id};document.getElementById('modalTitle').textContent='Edit Teacher';document.getElementById('modalBody').innerHTML=teacherForm(t);document.getElementById('modalBg').classList.add('open');}
-async function deleteTeacher(id){if(!confirm('Delete this teacher?'))return;const fd=new FormData();fd.append('id',id);const d=await api('teacher_delete',fd);if(d&&d.status==='success'){toast(d.message);loadTeachers();}else if(d)toast(d.message,true);}
+async function deleteTeacher(id){if(!(await ceAsk({title:'Delete this teacher profile from the website?',summary:'Only the public website card is removed.',intent:'I want to delete this profile',consequences:['The teacher card is deleted permanently from the public website.'],keeps:['The teacher\u2019s staff account, classes and attendance are NOT affected.',CE_KEEP_SITE],phrase:'DELETE PROFILE',confirmLabel:'Delete profile'})))return;const fd=new FormData();fd.append('id',id);const d=await api('teacher_delete',fd);if(d&&d.status==='success'){toast(d.message);loadTeachers();}else if(d)toast(d.message,true);}
 
 /* ════════ SCHEDULE ════════ */
 let schedules=[];
@@ -351,7 +359,7 @@ function scheduleForm(s){
 }
 function openScheduleModal(){modalMode={type:'schedule_new'};document.getElementById('modalTitle').textContent='Add Schedule Entry';document.getElementById('modalBody').innerHTML=scheduleForm();document.getElementById('modalBg').classList.add('open');}
 function editSchedule(s){modalMode={type:'schedule_edit',id:s.id};document.getElementById('modalTitle').textContent='Edit Schedule Entry';document.getElementById('modalBody').innerHTML=scheduleForm(s);document.getElementById('modalBg').classList.add('open');}
-async function deleteSchedule(id){if(!confirm('Delete this schedule entry?'))return;const fd=new FormData();fd.append('id',id);const d=await api('schedule_delete',fd);if(d&&d.status==='success'){toast(d.message);loadSchedule();}else if(d)toast(d.message,true);}
+async function deleteSchedule(id){if(!(await ceAsk({title:'Delete this schedule entry?',summary:'The entry is removed from the public schedule.',intent:'I want to delete this entry',consequences:['The schedule entry is deleted permanently from the website.'],keeps:['The internal class timetable is NOT affected.',CE_KEEP_SITE],phrase:'DELETE ENTRY',confirmLabel:'Delete entry'})))return;const fd=new FormData();fd.append('id',id);const d=await api('schedule_delete',fd);if(d&&d.status==='success'){toast(d.message);loadSchedule();}else if(d)toast(d.message,true);}
 
 /* ════════ PROGRAMS ════════ */
 let programs=[];
@@ -392,7 +400,7 @@ function programForm(p){
 }
 function openProgramModal(){modalMode={type:'program_new'};document.getElementById('modalTitle').textContent='Add Program';document.getElementById('modalBody').innerHTML=programForm();document.getElementById('modalBg').classList.add('open');}
 function editProgram(p){modalMode={type:'program_edit',id:p.id};document.getElementById('modalTitle').textContent='Edit Program';document.getElementById('modalBody').innerHTML=programForm(p);document.getElementById('modalBg').classList.add('open');}
-async function deleteProgram(id){if(!confirm('Delete this program?'))return;const fd=new FormData();fd.append('id',id);const d=await api('program_delete',fd);if(d&&d.status==='success'){toast(d.message);loadPrograms();}else if(d)toast(d.message,true);}
+async function deleteProgram(id){if(!(await ceAsk({title:'Delete this program?',summary:'The program is removed from the public website.',intent:'I want to delete this program',consequences:['The program card is deleted permanently from the website.'],keeps:[CE_KEEP_SITE],phrase:'DELETE PROGRAM',confirmLabel:'Delete program'})))return;const fd=new FormData();fd.append('id',id);const d=await api('program_delete',fd);if(d&&d.status==='success'){toast(d.message);loadPrograms();}else if(d)toast(d.message,true);}
 
 /* ════════ SOCIAL ════════ */
 let socialLinks=[];
@@ -438,7 +446,7 @@ function bindSocialPlatform(){
 }
 function openSocialModal(){modalMode={type:'social_new'};document.getElementById('modalTitle').textContent='Add Social Link';document.getElementById('modalBody').innerHTML=socialForm();bindSocialPlatform();document.getElementById('modalBg').classList.add('open');}
 function editSocial(s){modalMode={type:'social_edit',id:s.id};document.getElementById('modalTitle').textContent='Edit Social Link';document.getElementById('modalBody').innerHTML=socialForm(s);bindSocialPlatform();document.getElementById('modalBg').classList.add('open');}
-async function deleteSocial(id){if(!confirm('Delete this social link?'))return;const fd=new FormData();fd.append('id',id);const d=await api('social_delete',fd);if(d&&d.status==='success'){toast(d.message);loadSocial();}else if(d)toast(d.message,true);}
+async function deleteSocial(id){if(!(await ceAsk({tier:'low',title:'Delete this social link?',summary:'The link disappears from the website footer. You can add it again later.',confirmLabel:'Delete link'})))return;const fd=new FormData();fd.append('id',id);const d=await api('social_delete',fd);if(d&&d.status==='success'){toast(d.message);loadSocial();}else if(d)toast(d.message,true);}
 
 /* Generated CMS records use array indexes instead of serializing database objects into
  * executable HTML attributes. This delegated handler keeps rendering declarative and
@@ -518,6 +526,10 @@ async function saveModal(){
     fd.append('platform',val('m_platform'));fd.append('url',val('m_url'));fd.append('icon_class',val('m_icon_class'));fd.append('label',val('m_label'));fd.append('sort_order',val('m_sort_order'));if(checked('m_active'))fd.append('is_active','1');
   }
   else if(m.type==='sub'){
+    // Danger confirmation (LOW) only when a submission is set to rejected.
+    if(val('m_status')==='rejected'&&m.status!=='rejected'&&window.DangerConfirm&&window.DangerConfirm.ask){
+      if(!(await window.DangerConfirm.ask({tier:'low',title:'Mark this submission as rejected?',summary:'It moves to the Rejected filter. You can change the status again later.',confirmLabel:'Mark rejected'})))return;
+    }
     action='sub_update_status';fd.append('id',m.id);fd.append('status',val('m_status'));fd.append('admin_notes',val('m_notes'));
   }
 

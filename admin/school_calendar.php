@@ -189,7 +189,7 @@ $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
   };
 </script>
 <script src="/admin/js/wbws-calendar.js?v=<?= $assetVer ?>"></script>
-<script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+<script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
 <script src="/admin/js/school_calendar.js?v=<?= $assetVer ?>"></script>
 </body>
 </html>

@@ -269,7 +269,7 @@ $assetVer = '20261019b';
 <?php if (function_exists('wbws_calendar_scripts')) { echo wbws_calendar_scripts(); } // calendar mode is fixed to Ethiopian; no DB access from this shell ?>
 <script src="/admin/js/vendor/tabulator/tabulator.min.js?v=<?= $assetVer ?>"></script>
 <script src="/admin/js/vendor/echarts/echarts.min.js?v=<?= $assetVer ?>"></script>
-<script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+<script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
 <script src="/admin/js/reports/reports_v2.js?v=<?= $assetVer ?>"></script>
 </body>
 </html>

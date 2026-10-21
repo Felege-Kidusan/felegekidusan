@@ -112,6 +112,7 @@ $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/d
 </div>
 
 <script>window.LA_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
+<script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
 <script>
 (function () {
   'use strict';
@@ -159,13 +160,23 @@ $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/d
   }
   $('la-list').addEventListener('click', function (e) {
     var b = e.target.closest('[data-cancel]'); if (!b) return;
-    var reason = window.prompt('Reason for cancelling this lesson (kept in history; the day result is recalculated):');
-    if (reason === null) return;
-    var fd = new FormData(); fd.append('action', 'cancel'); fd.append('session_id', b.getAttribute('data-cancel')); fd.append('reason', reason); fd.append('csrf_token', cfg.csrf);
+    // Danger confirmation (MEDIUM) with the required reason (was window.prompt).
+    if (!(window.DangerConfirm && window.DangerConfirm.ask)) { toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', false); return; }
+    var cells = b.closest('tr') ? b.closest('tr').children : [];
+    var label = [0, 1, 2].map(function (i) { return cells[i] ? cells[i].textContent.trim() : ''; }).filter(Boolean).join(' · ');
+    window.DangerConfirm.ask({ tier: 'medium', title: 'Cancel this lesson?', object: label || 'This lesson', summary: 'The lesson no longer counts for this member.',
+      intent: 'I want to cancel this lesson',
+      consequences: ['The lesson is marked CANCELLED and does not count in attendance.', 'The member\u2019s day result is recalculated.'],
+      keeps: ['The original record and your reason stay in the history.'],
+      reason: { label: 'Reason for cancelling (at least 3 letters)', required: true, minLength: 3, maxLength: 500 },
+      phrase: 'CANCEL LESSON', confirmLabel: 'Cancel lesson' }).then(function (dc) { if (dc) sendCancel(b.getAttribute('data-cancel'), dc.reason); });
+  });
+  function sendCancel(sessionId, reason) {
+    var fd = new FormData(); fd.append('action', 'cancel'); fd.append('session_id', sessionId); fd.append('reason', reason); fd.append('csrf_token', cfg.csrf);
     fetch(cfg.api, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function (r) { return r.json(); })
       .then(function (d) { toast(d.message || (d.status === 'success' ? 'Done' : 'Failed'), d.status === 'success'); if (d.status === 'success') load(); })
       .catch(function () { toast('Request failed.', false); });
-  });
+  }
   $('la-form').addEventListener('submit', function (e) { e.preventDefault(); memberId = parseInt($('la-member').value, 10) || 0; offset = 0; if (memberId) { history.replaceState(null, '', '?member_id=' + memberId); } load(); });
   $('la-prev').addEventListener('click', function () { offset = Math.max(0, offset - PAGE); load(); });
   $('la-next').addEventListener('click', function () { offset += PAGE; load(); });

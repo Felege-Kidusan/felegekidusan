@@ -26,7 +26,8 @@
  *     phrase        typed phrase (plain English capitals), e.g. "REMOVE DAY"
  *     confirmLabel  final button label       e.g. "Remove Monday"
  *     choice        {label, options:[{value,label}], value}  optional select
- *     reason        {label, required, placeholder, maxLength}  optional textarea
+ *     reason        {label, required, minLength, placeholder, maxLength}  optional textarea
+ *                   (minLength: the final button stays disabled until reached)
  *     onConfirm     optional async (res) => any. Runs while the dialog shows
  *                   "Working…". Throw (or return {error:'msg'}) to keep the
  *                   dialog open with the message; resolve to close.
@@ -233,7 +234,10 @@
         return !!inp && normalize(inp.value) === phrase;
       }
       function reasonOk() {
-        return !(opts.reason && opts.reason.required) || state.reason.trim().length > 0;
+        if (!opts.reason) return true;
+        var len = state.reason.trim().length;
+        if (len === 0) return !opts.reason.required;          // empty: fine only when optional
+        return len >= (opts.reason.minLength || 1);           // typed: must reach minLength
       }
       function refreshFinal() {
         var b = finalBtn();
@@ -379,7 +383,7 @@
   }
 
   global.DangerConfirm = {
-    __v: '20261022dc',
+    __v: '20261022dc4',
     ask: ask,
     guardForm: guardForm,
     normalize: normalize,

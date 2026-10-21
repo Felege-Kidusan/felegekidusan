@@ -226,7 +226,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/admin/js/chart.umd.min.js"></script>
-    <script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha384-/o6I2CkkWC//PSjvWC/eYN7l3xM3tJm8ZzVkCOfp//W05QcE3mlGskpoHB6XqI+B" crossorigin="anonymous"/>
@@ -4198,7 +4198,7 @@ async function quickStatusChange(memberId, name, currentStatus) {
            consequences:['An INACTIVE member is left out of attendance warnings, active counts and class follow-up.','HR and Information see the reason in the member history.'],
            keeps:['The member record and history are kept.','You can make the member active again later.'],
            choice: toInactive ? null : {label:'New status', options:opts.map(o => ({value:o, label:o})), value:opts[0]},
-           reason:{label: 'Reason (at least 3 letters)', required:true, maxLength:500},
+           reason:{label: 'Reason (at least 3 letters)', required:true, minLength:3, maxLength:500},
            phrase: toInactive ? 'DEACTIVATE MEMBER' : 'CHANGE STATUS', confirmLabel: toInactive ? 'Deactivate member' : 'Change status'});
     if (!dc) return;
     if (!newStatus) newStatus = dc.choice;

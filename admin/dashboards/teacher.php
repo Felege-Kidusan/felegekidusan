@@ -702,7 +702,8 @@ $csrfToken = generateCsrfToken();
     
     <div id="toastContainer"></div>
     <script src="/admin/js/report_card.js?v=20261009b"></script>
-    <script src="/admin/js/attendance-sheet.js?v=20260824"></script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
+    <script src="/admin/js/attendance-sheet.js?v=20261022dc4"></script>
     <script>
         let currentAssessment = null;
         
@@ -1057,6 +1058,7 @@ $csrfToken = generateCsrfToken();
                         document.getElementById('attTitle').textContent = `${subjName} — Lesson ${lesson.lessonNo}`;
                         document.getElementById('attSubtitle').textContent = `Date: ${dateLabel} | ${data.students.length} students` + (data.session ? ` | saved by ${data.session.teacher_name || 'teacher'} (${data.session.updated_at_ec})` : ' | not saved yet');
                         attendanceData = data.students;
+                        attSaved = AttendanceSheet.snapshot(data.students); // T1: what is already saved
                         renderAttendanceTable(data.students);
                         if (window.SchoolCalendarWidget) SchoolCalendarWidget.render('scDayBanner', data.date_status);
                         attSetLocked(data.session && data.session.status === 'cancelled',
@@ -1076,6 +1078,7 @@ $csrfToken = generateCsrfToken();
                         document.getElementById('attTitle').textContent = data.class_name || 'Attendance';
                         document.getElementById('attSubtitle').textContent = `Date: ${dateLabel} | ${data.students.length} students`;
                         attendanceData = data.students;
+                        attSaved = AttendanceSheet.snapshot(data.students); // T1: what is already saved
                         renderAttendanceTable(data.students);
                         if (window.SchoolCalendarWidget) SchoolCalendarWidget.render('scDayBanner', data.date_status);
                         const lessons = data.lessons || [];
@@ -1129,7 +1132,13 @@ $csrfToken = generateCsrfToken();
             attendanceData.forEach(s => s.status = status);
         }
         
-        function saveAttendance() {
+        // Danger confirmation (T1): saved statuses at load time; changing them asks first.
+        let attSaved = {};
+        function attNameOf(mid) {
+            const s = attendanceData.find(x => (x.member_id || x.id) == mid);
+            return s ? ((s.student_name || '') + ' ' + (s.father_name || '')).trim() : '';
+        }
+        async function saveAttendance() {
             const classId = document.getElementById('attClassSelect').value;
             const date = document.getElementById('attDateInput').value;
             if (!classId) return;
@@ -1144,6 +1153,9 @@ $csrfToken = generateCsrfToken();
                 return;
             }
             
+            const saveBtnPre = document.getElementById('attSaveBtn');
+            if (saveBtnPre && saveBtnPre.disabled) return;
+            if (!(await AttendanceSheet.confirmReplace(sheet.records, attSaved, attNameOf))) return;
             const lesson = attSelectedLesson();
             const formData = new FormData();
             formData.append('action', lesson ? 'save' : 'save_attendance');
@@ -1311,7 +1323,7 @@ $csrfToken = generateCsrfToken();
                 });
         }
         
-        function submitMarklist() {
+        async function submitMarklist() {
             if (!submitAssessmentData) return;
             const combo = document.getElementById('submitAssignmentSelect').value;
             if (!combo) return showToast('Select class and subject', 'error');
@@ -1325,7 +1337,18 @@ $csrfToken = generateCsrfToken();
             });
             
             if (grades.filter(g => g.score !== '').length === 0) return showToast('Enter at least one score', 'error');
-            
+
+            // Danger confirmation (T2, MEDIUM): submitting locks the marks for review.
+            if (!(window.DangerConfirm && window.DangerConfirm.ask)) return showToast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', 'error');
+            const filled = grades.filter(g => g.score !== '').length, blank = grades.length - filled;
+            const selEl = document.getElementById('submitAssignmentSelect');
+            const what = (selEl && selEl.selectedIndex >= 0 ? selEl.options[selEl.selectedIndex].text : '') + (submitAssessmentData.name ? ' · ' + submitAssessmentData.name : '');
+            const dc = await window.DangerConfirm.ask({ tier: 'medium', title: 'Submit this mark list to the Education department?', object: what || 'This mark list',
+                summary: 'The marks go to Education for review.', intent: 'I want to submit these marks',
+                consequences: [filled + ' score(s) are submitted' + (blank ? '; ' + blank + ' student(s) have NO score.' : '.'), 'The mark list is LOCKED while Education reviews it. You can only change it if they return it.'],
+                keeps: ['Education can return the list to you for correction.'], phrase: 'SUBMIT MARKS', confirmLabel: 'Submit to Education' });
+            if (!dc) return;
+
             const fd = new FormData();
             fd.append('action', 'submit_marklist');
             fd.append('class_id', cid);

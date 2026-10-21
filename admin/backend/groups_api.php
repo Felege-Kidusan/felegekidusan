@@ -427,7 +427,26 @@ if ($action === 'save_group' && $method === 'POST') {
     }
 }
 
+// Danger confirmation: read-only impact preview for the delete-group dialog.
+if ($action === 'impact_delete_group') {
+    $id = cleanInt($_GET['id'] ?? 0, 1);
+    if ($id <= 0) apiResponse(false, null, 'Invalid group ID');
+    $stmt = $conn->prepare("SELECT group_name,
+            (SELECT COUNT(*) FROM wbws_group_leaders WHERE group_id = g.id) AS leaders,
+            (SELECT COUNT(*) FROM wbws_group_members WHERE group_id = g.id) AS members
+        FROM wbws_groups g WHERE g.id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $imp = $stmt->get_result()->fetch_assoc();
+    if (!$imp) apiResponse(false, null, 'Group not found');
+    apiResponse(true, ['group_name' => $imp['group_name'], 'leaders' => (int)$imp['leaders'], 'members' => (int)$imp['members']]);
+}
+
 if ($action === 'delete_group' && $method === 'POST') {
+    // Danger confirmation (HIGH): deletes the group with all its leaders and
+    // members; the 3-step dialog sends the typed phrase.
+    require_once __DIR__ . '/danger_confirm.php';
+    dc_require_phrase('groups.delete_group');
     $id = cleanInt($_POST['id'] ?? 0, 1);
     if ($id <= 0) apiResponse(false, null, 'Invalid group ID');
     
@@ -435,28 +454,34 @@ if ($action === 'delete_group' && $method === 'POST') {
     $stmt->bind_param("i", $id);
     $stmt->execute();
     $group = $stmt->get_result()->fetch_assoc();
+    if (!$group) apiResponse(false, null, 'Group not found');
     $groupName = $group['group_name'] ?? 'Unknown';
-    
-    // Delete leaders first (no FK constraint in older versions)
-    $stmt = $conn->prepare("DELETE FROM wbws_group_leaders WHERE group_id = ?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    
-    // Delete members
-    $stmt = $conn->prepare("DELETE FROM wbws_group_members WHERE group_id = ?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    
-    // Delete group
-    $stmt = $conn->prepare("DELETE FROM wbws_groups WHERE id = ?");
-    $stmt->bind_param("i", $id);
-    
-    if ($stmt->execute()) {
-        logAudit($conn, 'delete', 'group', $id, "Deleted group: $groupName");
-        apiResponse(true, null, 'Group deleted successfully');
-    } else {
-        apiResponse(false, null, 'Failed to delete group');
+
+    // One transaction: leaders, members and the group go together or not at all.
+    try {
+        $conn->begin_transaction();
+        // Delete leaders first (no FK constraint in older versions)
+        $stmt = $conn->prepare("DELETE FROM wbws_group_leaders WHERE group_id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $leadersGone = $stmt->affected_rows;
+        // Delete members
+        $stmt = $conn->prepare("DELETE FROM wbws_group_members WHERE group_id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $membersGone = $stmt->affected_rows;
+        // Delete group
+        $stmt = $conn->prepare("DELETE FROM wbws_groups WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $conn->commit();
+    } catch (Throwable $e) {
+        $conn->rollback();
+        reportInternalError('Group delete failed', $e);
+        apiResponse(false, null, 'Failed to delete group. Nothing was removed.');
     }
+    logAudit($conn, 'delete', 'group', $id, "Deleted group: $groupName ($leadersGone leaders, $membersGone members)");
+    apiResponse(true, null, 'Group deleted successfully');
 }
 
 if ($action === 'get_stats') {

@@ -1486,7 +1486,7 @@ require __DIR__ . '/../components/bottom_nav.php';
     </script>
 
     <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
-    <script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
     <script src="/admin/js/danger_user_forms.js?v=20261022dc"></script>
     <script src="/admin/js/app_release.js?v=20261022dc"></script>
     <script src="/admin/js/app_telemetry.js?v=20260928b"></script>

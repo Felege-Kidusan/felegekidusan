@@ -93,7 +93,7 @@ $mStroke=round($mPct*3.14);$fStroke=round($fPct*3.14);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" integrity="sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3" crossorigin="anonymous"></script>
 <script src="/admin/js/request-id.js"></script>
 <script src="/admin/js/report-format.js"></script>
-<script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+<script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;500;600;700&family=Noto+Serif+Ethiopic:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}

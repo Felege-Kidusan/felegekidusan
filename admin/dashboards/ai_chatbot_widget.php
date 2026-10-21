@@ -199,7 +199,7 @@ $_aiCsrf = generateCsrfToken();
   window.aipMinimize=()=>{ $('ai-win').classList.toggle('min'); };
 
   // Danger confirmation (LOW). Loads admin/js/danger_confirm.js on demand.
-  const dcAskLazy=function(o){return new Promise(function(res){function go(){window.DangerConfirm.ask(o).then(res);}if(window.DangerConfirm&&window.DangerConfirm.ask)return go();var sc=document.createElement('script');sc.src='/admin/js/danger_confirm.js?v=20261022dc';sc.onload=function(){window.DangerConfirm?go():res(false);};sc.onerror=function(){res(false);};document.head.appendChild(sc);});};
+  const dcAskLazy=function(o){return new Promise(function(res){function go(){window.DangerConfirm.ask(o).then(res);}if(window.DangerConfirm&&window.DangerConfirm.ask)return go();var sc=document.createElement('script');sc.src='/admin/js/danger_confirm.js?v=20261022dc4';sc.onload=function(){window.DangerConfirm?go():res(false);};sc.onerror=function(){res(false);};document.head.appendChild(sc);});};
   window.aipClear=async()=>{
     if(!(await dcAskLazy({tier:'low',title:'Start a new chat?',summary:'The current conversation history is cleared.',confirmLabel:'Start new chat'}))) return;
     try{const f=new FormData();f.append('action','clear_history');f.append('csrf_token',CSRF);

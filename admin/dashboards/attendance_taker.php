@@ -382,7 +382,8 @@ $csrfToken = generateCsrfToken();
     
     <div id="toastContainer"></div>
     
-    <script src="/admin/js/attendance-sheet.js?v=20260824"></script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
+    <script src="/admin/js/attendance-sheet.js?v=20261022dc4"></script>
     <script>
         function showSection(name) {
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -448,6 +449,7 @@ $csrfToken = generateCsrfToken();
                         document.getElementById('attTitle').textContent = data.class_name || 'Attendance';
                         document.getElementById('attSubtitle').textContent = `Date: ${(typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(date,'long'):date} | ${data.students.length} students`;
                         attendanceData = data.students;
+                        attSaved = AttendanceSheet.snapshot(data.students); // T1: what is already saved
                         renderAttendanceTable(data.students);
                         if (window.SchoolCalendarWidget) SchoolCalendarWidget.render('scDayBanner', data.date_status);
                         updateSummary();
@@ -467,6 +469,7 @@ $csrfToken = generateCsrfToken();
                         document.getElementById('attTitle').textContent = 'Attendance';
                         document.getElementById('attSubtitle').textContent = `Date: ${(typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(date,'long'):date} | ${data.students.length} students`;
                         attendanceData = data.students.map(s => ({...s, status: '', note: ''}));
+                        attSaved = {};
                         renderAttendanceTable(attendanceData);
                         updateSummary();
                     }
@@ -539,7 +542,13 @@ $csrfToken = generateCsrfToken();
                 info.style.display = locked ? 'block' : 'none';
             }
         }
-        function saveAttendance() {
+        // Danger confirmation (T1): saved statuses at load time; changing them asks first.
+        let attSaved = {};
+        function attNameOf(mid) {
+            const s = attendanceData.find(x => (x.member_id || x.id) == mid);
+            return s ? ((s.student_name || '') + ' ' + (s.father_name || '')).trim() : '';
+        }
+        async function saveAttendance() {
             const classId = document.getElementById('attClassSelect').value;
             const date = document.getElementById('attDateInput').value;
             if (!classId) return;
@@ -556,6 +565,7 @@ $csrfToken = generateCsrfToken();
                 return;
             }
             
+            if (!(await AttendanceSheet.confirmReplace(sheet.records, attSaved, attNameOf))) return;
             const formData = new FormData();
             formData.append('action', 'save_attendance');
             formData.append('class_id', classId);
@@ -569,6 +579,7 @@ $csrfToken = generateCsrfToken();
                 .then(data => {
                     if (saveBtn) saveBtn.disabled = false;
                     showToast(data.message || (data.status === 'success' ? 'Saved.' : 'Could not save attendance.'), data.status === 'success' ? 'success' : 'error');
+                    if (data.status === 'success') attSaved = AttendanceSheet.snapshot(sheet.records); // now saved
                     if (data.code === 'LESSON_DAY') loadStudentsForAttendance();
                 })
                 .catch(() => { if (saveBtn) saveBtn.disabled = false; showToast('Attendance could not be saved. Check your connection and retry.', 'error'); });

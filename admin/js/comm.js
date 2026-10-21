@@ -1169,17 +1169,38 @@
             if (t.closest('[data-msg-del-yes]')) {
                 var node = t.closest('.nc-msg');
                 node.classList.remove('is-open');
-                var mid = node.dataset.mid;
-                tombstone(node);   // optimistic — reverted by refetch on failure
-                post('message_delete', { message_id: mid }).then(function (d) {
-                    if (d && d.status === 'success') { loadThreads(true); }
-                    else { refreshOpenThread(); toast((d && d.message) || 'Could not delete the message.', 'err'); }
-                }).catch(function () { refreshOpenThread(); toast('Network error — not deleted.', 'err'); });
+                // Danger confirmation (DC-4, MEDIUM): the message disappears for
+                // everyone in the conversation and cannot be brought back.
+                dcAskLazy({ tier: 'medium', title: 'Delete this message for everyone?', summary: 'Everyone in this conversation loses the message.',
+                    intent: 'I want to delete this message',
+                    consequences: ['The message is removed for EVERY person in this conversation, not only for you.', 'It is replaced by \u201cmessage deleted\u201d and cannot be restored.'],
+                    keeps: ['The rest of the conversation is kept.'], irreversible: true, phrase: 'DELETE MESSAGE', confirmLabel: 'Delete for everyone'
+                }).then(function (ok) { if (ok) deleteMsgNow(node); });
                 return;
             }
             // any other click closes open menus
             mEls.msgs.querySelectorAll('.nc-msg.is-open').forEach(function (n) { n.classList.remove('is-open'); });
         });
+    }
+
+    function dcAskLazy(o) {
+        return new Promise(function (res) {
+            function go() { window.DangerConfirm.ask(o).then(res); }
+            if (window.DangerConfirm && window.DangerConfirm.ask) return go();
+            var sc = document.createElement('script');
+            sc.src = '/admin/js/danger_confirm.js?v=20261022dc4';
+            sc.onload = function () { if (window.DangerConfirm) go(); else { toast('The confirmation dialog did not load. Reload the page.', 'err'); res(false); } };
+            sc.onerror = function () { toast('The confirmation dialog did not load. Reload the page.', 'err'); res(false); };
+            document.head.appendChild(sc);
+        });
+    }
+    function deleteMsgNow(node) {
+        var mid = node.dataset.mid;
+        tombstone(node);   // optimistic — reverted by refetch on failure
+        post('message_delete', { message_id: mid }).then(function (d) {
+            if (d && d.status === 'success') { loadThreads(true); }
+            else { refreshOpenThread(); toast((d && d.message) || 'Could not delete the message.', 'err'); }
+        }).catch(function () { refreshOpenThread(); toast('Network error — not deleted.', 'err'); });
     }
 
     /* Optimistic send (P73 Phase 3, fixes D11): the bubble appears

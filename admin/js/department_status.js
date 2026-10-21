@@ -173,7 +173,49 @@
         }).catch(function () { el.innerHTML = ''; });
     }
 
-    function openModal(box, memberId, dept, to) {
+    // Danger confirmation (DC-4, MEDIUM): deactivating in a department removes
+    // the member from that department's sheets. Uses the shared dialog
+    // (loaded on demand); reactivation keeps the simple dialog below.
+    function dcLoad() {
+        return new Promise(function (res) {
+            if (window.DangerConfirm && window.DangerConfirm.ask) return res(true);
+            var sc = document.createElement('script');
+            sc.src = '/admin/js/danger_confirm.js?v=20261022dc4';
+            sc.onload = function () { res(!!window.DangerConfirm); };
+            sc.onerror = function () { res(false); };
+            document.head.appendChild(sc);
+        });
+    }
+    function sendSet(box, memberId, dept, to, reason) {
+        return fetchJson(API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
+            body: JSON.stringify({ action: 'set', member_id: memberId, department: dept, status: to, reason: reason, csrf_token: csrf() })
+        }).then(function (d) {
+            if (d.status === 'success') {
+                toast(d.message || 'Saved', true);
+                load(box, memberId);
+                document.dispatchEvent(new CustomEvent('deptstatus:changed', { detail: { member_id: memberId, department: dept, status: to } }));
+            } else {
+                toast(d.message || 'Could not change status', false);
+            }
+        }).catch(function () { toast('Network error', false); });
+    }
+    function openModal(box, memberId, dept, to, plain) {
+        if (to === 'inactive' && !plain) {
+            dcLoad().then(function (ok) {
+                if (!ok) { toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', false); return; }
+                window.DangerConfirm.ask({
+                    tier: 'medium', title: 'Deactivate this member in ' + LABELS[dept] + '?', object: LABELS[dept],
+                    summary: 'The member is switched off in this department only. Nothing is deleted.', intent: 'I want to deactivate this member here',
+                    consequences: ['From today the member no longer appears on ' + LABELS[dept] + ' attendance sheets or grade lists.', 'Open attendance warnings in this department stop growing.'],
+                    keeps: ['All history (attendance, marks, warnings) is kept.', 'Other departments are not affected.', 'You can reactivate the member later.'],
+                    reason: { label: 'Reason (at least 3 letters)', required: true, minLength: 3, maxLength: 500, placeholder: 'e.g. Travelled abroad for 3 months' },
+                    phrase: 'DEACTIVATE MEMBER', confirmLabel: 'Deactivate'
+                }).then(function (r) { if (r) sendSet(box, memberId, dept, to, r.reason); });
+            });
+            return;
+        }
         var bg = document.createElement('div');
         bg.className = 'ds-modal-bg';
         var verb = to === 'inactive' ? 'Deactivate' : 'Reactivate';

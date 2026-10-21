@@ -104,7 +104,7 @@ const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSO
 <script src="/admin/js/education_analytics_hub.js?v=20260927"></script>
 <script src="/admin/js/academic_intelligence.js?v=20261003"></script>
 <script src="/admin/js/academic_tracking.js?v=20261003"></script>
-<script src="/admin/js/danger_confirm.js?v=20261022dc"></script>
+<script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
 <script src="/admin/js/edu_timetable.js?v=20261021dc"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');

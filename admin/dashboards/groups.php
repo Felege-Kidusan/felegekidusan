@@ -48,6 +48,7 @@ if (isset($conn)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Groups Management - <?= SCHOOL_NAME_SHORT ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha384-/o6I2CkkWC//PSjvWC/eYN7l3xM3tJm8ZzVkCOfp//W05QcE3mlGskpoHB6XqI+B" crossorigin="anonymous"/>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600&family=Inter:wght@300;400;500;600;700&display=swap');
@@ -487,6 +488,7 @@ if (isset($conn)) {
 
     <script>
     const API = '../backend/groups_api.php';
+    const GROUPS_CSRF = <?= json_encode((string)($_SESSION['csrf_token'] ?? '')) ?>;
     let currentGroupId = null;
 
     // Group CRUD
@@ -529,11 +531,16 @@ if (isset($conn)) {
 
     function editGroup(id) { openGroupModal(id); }
 
-    function deleteGroup(id, name) {
-        if (!confirm(`Delete group "${name}"? This will also delete all leaders and members.`)) return;
+    // Danger confirmation (HIGH). Also sends the CSRF token the API requires.
+    async function deleteGroup(id, name) {
+        if (!(window.DangerConfirm && window.DangerConfirm.ask)) { alert('The confirmation dialog did not load. Reload the page and try again.'); return; }
+        const dc = await window.DangerConfirm.ask({tier:'high',title:'Delete the group \u201c'+name+'\u201d?',object:name,summary:'The group is removed together with everyone listed in it.',intent:'I want to delete this group',consequences:function(){return fetch(API+'?action=impact_delete_group&id='+id,{credentials:'same-origin'}).then(function(x){return x.json();}).then(function(r){var d=(r&&r.data)||{};if(!(r&&r.success))throw new Error('x');return ['The group \u201c'+name+'\u201d is deleted permanently.', (d.leaders||0)+' leader record(s) are deleted.', (d.members||0)+' member record(s) in this group are deleted.','Group reports and exports no longer include it.'];});},fallbackConsequences:['The group is deleted permanently.','ALL its leader records are deleted.','ALL its member records are deleted.'],keeps:['The people themselves stay in the member database; only their group listing is removed.'],irreversible:true,phrase:'DELETE GROUP',confirmLabel:'Delete group'});
+        if (!dc) return;
         const form = new FormData();
         form.append('action', 'delete_group');
         form.append('id', id);
+        form.append('confirm_phrase', dc.phrase);
+        form.append('csrf_token', GROUPS_CSRF);
         fetch(API, { method: 'POST', body: form }).then(r => r.json()).then(d => {
             if (d.success) location.reload();
             else alert(d.message || 'Error');
@@ -643,10 +650,12 @@ if (isset($conn)) {
         });
     }
 
-    function deleteLeader(id) {
-        if (!confirm('Remove this leader?')) return;
+    async function deleteLeader(id) {
+        if (!(window.DangerConfirm && window.DangerConfirm.ask)) { alert('The confirmation dialog did not load. Reload the page and try again.'); return; }
+        if (!(await window.DangerConfirm.ask({tier:'medium',title:'Remove this leader from the group?',summary:'Only the group listing is removed.',intent:'I want to remove this leader',consequences:['The leader is removed from this group permanently.','Group counts and exports change.'],keeps:['The person stays in the member database and in other groups.','You can add them again later.'],irreversible:true,phrase:'REMOVE LEADER',confirmLabel:'Remove leader'}))) return;
         const form = new FormData();
         form.append('action', 'delete_leader');
+        form.append('csrf_token', GROUPS_CSRF);
         form.append('id', id);
         fetch(API, { method: 'POST', body: form }).then(r => r.json()).then(d => {
             if (d.success) viewGroup(currentGroupId);
@@ -675,10 +684,12 @@ if (isset($conn)) {
         });
     }
 
-    function deleteMember(id) {
-        if (!confirm('Remove this member?')) return;
+    async function deleteMember(id) {
+        if (!(window.DangerConfirm && window.DangerConfirm.ask)) { alert('The confirmation dialog did not load. Reload the page and try again.'); return; }
+        if (!(await window.DangerConfirm.ask({tier:'medium',title:'Remove this member from the group?',summary:'Only the group listing is removed.',intent:'I want to remove this member',consequences:['The member is removed from this group permanently.','Group counts and exports change.'],keeps:['The person stays in the member database and in other groups.','You can add them again later.'],irreversible:true,phrase:'REMOVE MEMBER',confirmLabel:'Remove member'}))) return;
         const form = new FormData();
         form.append('action', 'delete_member');
+        form.append('csrf_token', GROUPS_CSRF);
         form.append('id', id);
         fetch(API, { method: 'POST', body: form }).then(r => r.json()).then(d => {
             if (d.success) viewGroup(currentGroupId);

@@ -30,9 +30,9 @@
             });
         var btn = document.createElement('button');
         btn.type = 'submit'; btn.className = className; btn.textContent = label;
-        // Danger confirmation (LOW) via the shared dialog.
+        // Danger confirmation (MEDIUM, plan U6) via the shared dialog.
         if (action === 'renew' && window.DangerConfirm && window.DangerConfirm.guardForm) {
-            window.DangerConfirm.guardForm(form, { tier: 'low', title: 'Renew this ID card?', summary: 'The issue date is set to today and a new expiry date is calculated. Re-print the card afterwards.', confirmLabel: 'Renew card' });
+            window.DangerConfirm.guardForm(form, { tier: 'medium', title: 'Renew this ID card?', summary: 'A renewed card replaces the current one.', intent: 'I want to renew this card', consequences: ['The issue date is reset to TODAY and a new expiry date is calculated.', 'The card that was printed before shows old dates; print and hand out the new card.'], keeps: ['The member code and QR code stay the same.', 'Member data is not changed.'], phrase: 'RENEW CARD', confirmLabel: 'Renew card' });
         } else if (action === 'renew') {
             form.addEventListener('submit', function (e) { e.preventDefault(); });
         }
