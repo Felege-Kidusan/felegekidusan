@@ -52,7 +52,11 @@ if (!function_exists('dc_phrases')) {
             return false;
         }
         $src = $src ?? $_POST;
-        return hash_equals($map[$key], dc_normalize($src['confirm_phrase'] ?? ''));
+        $given = $src['confirm_phrase'] ?? '';
+        if (!is_string($given)) {
+            return false; // e.g. confirm_phrase[]=… — refuse cleanly (409), never a PHP TypeError (500)
+        }
+        return hash_equals($map[$key], dc_normalize($given));
     }
 
     /** JSON body returned when the phrase is missing/wrong. */

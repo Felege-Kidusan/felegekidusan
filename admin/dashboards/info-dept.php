@@ -4445,7 +4445,7 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 <script src="/admin/js/member_nav.js?v=<?= SSMS_ASSET_VER ?>"></script>
-<script src="/admin/js/department_status.js?v=<?= SSMS_ASSET_VER ?>"></script>
+<script src="/admin/js/department_status.js?v=<?= SSMS_ASSET_VER ?>-20261022r"></script>
 <script>
 // Explain a permission bounce (access_control.php → index.php → dashboard.php?error=access_denied).
 (function () {

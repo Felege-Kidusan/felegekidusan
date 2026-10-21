@@ -44,7 +44,7 @@ $cfg = [
     'today'      => $todayFormatted,
     'schoolName' => defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS',
 ];
-$assetVer = '20261019b';
+$assetVer = '20261022r';
 ?>
 <!DOCTYPE html>
 <html lang="en">

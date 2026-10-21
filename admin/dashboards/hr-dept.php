@@ -2339,12 +2339,12 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 <script src="/admin/js/manage-members.js" defer></script>
 <script src="/admin/js/guardian_picker.js?v=<?= SSMS_ASSET_VER ?>"></script>
 <script src="/admin/js/member_nav.js?v=<?= SSMS_ASSET_VER ?>"></script>
-<script src="/admin/js/department_status.js?v=<?= SSMS_ASSET_VER ?>"></script>
-<script src="/admin/js/family_link.js?v=<?= SSMS_ASSET_VER ?>"></script>
+<script src="/admin/js/department_status.js?v=<?= SSMS_ASSET_VER ?>-20261022r"></script>
+<script src="/admin/js/family_link.js?v=<?= SSMS_ASSET_VER ?>-20261022r"></script>
 
-<script src="/admin/js/new-members.js" defer></script>
+<script src="/admin/js/new-members.js?v=20261022r" defer></script>
 <script src="/frontend/js/member-picker.js" defer></script>
-<script src="/admin/js/id-card-directory.js" defer></script>
+<script src="/admin/js/id-card-directory.js?v=20261022r" defer></script>
 <script src="/admin/js/archive-members.js" defer></script>
 
             <!-- ARCHIVE -->
@@ -4908,7 +4908,7 @@ const HrReports = (function () {
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
-<script src="/admin/js/hr_data_sync.js?v=20261021"></script>
+<script src="/admin/js/hr_data_sync.js?v=20261022r"></script>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 <script>
 // Explain a permission bounce (access_control.php → index.php → dashboard.php?error=access_denied).

@@ -251,6 +251,21 @@ class DangerConfirmMigration(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which('php'), 'php CLI not installed')
+class DeployCacheBust(unittest.TestCase):
+    # Audit 2026-10-22: scripts changed for the danger dialogs must load under a
+    # NEW URL, or browsers keep the old script (1 h cache) that sends no phrase.
+    def test_changed_scripts_have_new_versions(self):
+        hr = read('admin/dashboards/hr-dept.php')
+        info = read('admin/dashboards/info-dept.php')
+        for tag in ['department_status.js?v=<?= SSMS_ASSET_VER ?>-20261022r', 'family_link.js?v=<?= SSMS_ASSET_VER ?>-20261022r',
+                    'new-members.js?v=20261022r', 'id-card-directory.js?v=20261022r', 'hr_data_sync.js?v=20261022r']:
+            self.assertIn(tag, hr)
+        self.assertIn('department_status.js?v=<?= SSMS_ASSET_VER ?>-20261022r', info)
+        self.assertIn("return '73.7';", read('admin/components/notification_center.php'))
+        self.assertIn("$assetVer = '20261022r';", read('admin/reports_v2.php'))
+        self.assertIn("-20261022r", read('admin/dashboards/sections/attendance_analytics_hub.php'))
+
+
 class DangerConfirmPhp(unittest.TestCase):
     def run_php(self, code):
         out = subprocess.run(['php', '-r', code], capture_output=True, text=True, cwd=str(ROOT))
@@ -266,6 +281,13 @@ class DangerConfirmPhp(unittest.TestCase):
         self.assertNotIn('NOT-REACHED', body)
         self.assertIn('confirm_phrase_required', body)
         self.assertIn('DELETE CLASS', body)
+
+    def test_array_phrase_is_refused_not_a_type_error(self):
+        # Audit 2026-10-22: confirm_phrase[]=... must give a clean refusal (409),
+        # never a PHP TypeError (500).
+        inc = "require 'admin/backend/danger_confirm.php';"
+        out = self.run_php(inc + "try { echo dc_phrase_ok('groups.delete_group',['confirm_phrase'=>['DELETE GROUP']]) ? 'Y':'N'; } catch (Throwable $e) { echo 'ERR'; }")
+        self.assertEqual(out, 'N')
 
     def test_php_lint(self):
         for rel in ['admin/backend/danger_confirm.php'] + sorted({r for r, _ in SERVER_ENFORCED}):

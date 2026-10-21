@@ -828,7 +828,7 @@ class CommPhase5PerformanceTests(unittest.TestCase):
 
     def test_view_asset_version_73_6(self):
         with open(self.ROOT / 'admin' / 'components' / 'notification_center.php', encoding='utf-8') as f:
-            self.assertIn("return '73.6'", f.read())
+            self.assertIn("return '73.7'", f.read())
 
     # ── e2e runner exposes the Phase 5 scenarios ──
     def test_e2e_runner_has_phase5_scenarios(self):
