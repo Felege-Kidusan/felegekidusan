@@ -10,7 +10,7 @@
   var EC = window.WBWSCalendar;
   var state = {
     year: 0, month: 1, classId: 0,
-    yearHolidays: [], yearDayOffs: [], unconfigured: [], schoolDays: {}, weekdayCounts: {};
+    yearHolidays: [], yearDayOffs: [], unconfigured: [], schoolDays: {}, weekdayCounts: {},
     classDays: null, classes: []
   };
 
@@ -26,6 +26,28 @@
     return dt.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
   }
   function ecDateOf(y, m, d) { return ymd(EC.toGregorian(y, m, d)); }
+  // Shared danger dialog (admin/js/danger_confirm.js); refuse if missing.
+  function danger(opts) {
+    if (window.DangerConfirm && typeof window.DangerConfirm.ask === 'function') return window.DangerConfirm.ask(opts);
+    window.alert('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.');
+    return Promise.resolve(false);
+  }
+  function longDate(greg) { return EC.formatDate(new Date(greg + 'T12:00:00'), 'long'); }
+  function dayCount(from, to) {
+    var a = new Date(from + 'T12:00:00'), b = new Date((to || from) + 'T12:00:00');
+    return Math.max(1, Math.round((b - a) / 86400000) + 1);
+  }
+  function holidayRange(h) {
+    return longDate(h.date_from) + (h.date_to && h.date_to !== h.date_from ? ' → ' + longDate(h.date_to) : '');
+  }
+  function confirmReopen(greg) {
+    return danger({
+      tier: 'low',
+      title: 'Reopen ' + longDate(greg) + '?',
+      summary: 'The Day Off is removed. Classes can hold again on this day and teachers can take attendance.',
+      confirmLabel: 'Reopen this day'
+    });
+  }
   function toast(msg, ok) {
     var host = $('sc-toast-host');
     host.innerHTML = '<div class="nc-toast ' + (ok ? 'nc-ok' : 'nc-err') + '">' + esc(msg) + '</div>';
@@ -206,9 +228,31 @@
       }).join('');
       Array.prototype.forEach.call(hol.querySelectorAll('.sc-del-hol'), function (b) {
         b.addEventListener('click', function () {
-          if (!window.confirm('Delete this holiday?')) return;
-          call('delete_holiday', { id: b.getAttribute('data-id') }, 'POST').then(function (r) {
-            toast(r.body.message || (r.body.status === 'success' ? 'Deleted.' : 'Failed.'), r.body.status === 'success');
+          var id = b.getAttribute('data-id');
+          var h = state.yearHolidays.filter(function (x) { return String(x.id) === String(id); })[0] || {};
+          var name = h.title_am || h.title || 'this holiday';
+          var n = h.date_from ? dayCount(h.date_from, h.date_to) : 0;
+          danger({
+            tier: 'medium',
+            title: 'Delete the holiday “' + name + '”?',
+            object: name + (h.date_from ? ' · ' + holidayRange(h) : ''),
+            summary: 'The holiday is removed from the school calendar.',
+            intent: 'I want to delete this holiday',
+            consequences: [
+              (n ? (n === 1 ? 'This day' : 'These ' + n + ' days') : 'The holiday days') + ' become normal days again.',
+              'Classes that have a working day on those dates will hold, and teachers can take attendance.'
+            ],
+            phrase: 'DELETE HOLIDAY',
+            confirmLabel: 'Delete holiday',
+            onConfirm: function () {
+              return call('delete_holiday', { id: id }, 'POST').then(function (r) {
+                if (r.body.status !== 'success') throw new Error(r.body.message || 'Failed.');
+                return r.body;
+              });
+            }
+          }).then(function (res) {
+            if (!res) return;
+            toast((res.result && res.result.message) || 'Deleted.', true);
             loadYear();
           });
         });
@@ -229,10 +273,13 @@
       }).join('');
       Array.prototype.forEach.call(offs.querySelectorAll('.sc-reopen'), function (b) {
         b.addEventListener('click', function () {
-          if (!window.confirm('Reopen this day? Classes can hold again.')) return;
-          call('reopen_day_off', { date: b.getAttribute('data-date'), reason: '' }, 'POST').then(function (r) {
+          var dt = b.getAttribute('data-date');
+          confirmReopen(dt).then(function (ok) {
+          if (!ok) return;
+          call('reopen_day_off', { date: dt, reason: '' }, 'POST').then(function (r) {
             toast(r.body.message || 'Done.', r.body.status === 'success');
             loadYear().then(loadMonth);
+          });
           });
         });
       });
@@ -278,16 +325,41 @@
       var reason = ($('sc-off-reason').value || '').trim();
       if (!reason) { toast('A reason is required.', false); return; }
       var cancelMakeup = $('sc-off-makeup').checked ? '1' : '0';
-      call('mark_day_off', { date: greg, reason: reason, cancel_makeup: cancelMakeup }, 'POST').then(function (r) {
-        toast(r.body.message || 'Done.', r.body.status === 'success');
-        if (r.body.status === 'success') { host.innerHTML = ''; loadYear().then(loadMonth); }
+      host.innerHTML = '';
+      var cons = ['No class in the whole school holds on ' + label + '.',
+        'Teachers cannot take attendance on ' + label + '.'];
+      cons.push(cancelMakeup === '1' ? 'Makeup classes planned for this day are cancelled.' : 'Makeup classes planned for this day are kept.');
+      danger({
+        tier: 'medium',
+        title: 'Mark ' + label + ' as a Day Off?',
+        object: label + ' · ' + reason,
+        summary: 'The whole school will be closed on this day.',
+        intent: 'I want to mark this day off',
+        consequences: cons,
+        keeps: ['You can reopen it before the day passes, as long as no attendance was saved.'],
+        phrase: 'DAY OFF',
+        confirmLabel: 'Mark as Day Off',
+        onConfirm: function () {
+          return call('mark_day_off', { date: greg, reason: reason, cancel_makeup: cancelMakeup }, 'POST').then(function (r) {
+            if (r.body.status !== 'success') throw new Error(r.body.message || 'Failed.');
+            return r.body;
+          });
+        }
+      }).then(function (res) {
+        if (!res) return;
+        toast((res.result && res.result.message) || 'Done.', true);
+        loadYear().then(loadMonth);
       });
     });
     var doReopen = $('sc-do-reopen');
     if (doReopen) doReopen.addEventListener('click', function () {
-      call('reopen_day_off', { date: greg, reason: '' }, 'POST').then(function (r) {
-        toast(r.body.message || 'Done.', r.body.status === 'success');
-        if (r.body.status === 'success') { host.innerHTML = ''; loadYear().then(loadMonth); }
+      host.innerHTML = '';
+      confirmReopen(greg).then(function (ok) {
+        if (!ok) return;
+        call('reopen_day_off', { date: greg, reason: '' }, 'POST').then(function (r) {
+          toast(r.body.message || 'Done.', r.body.status === 'success');
+          if (r.body.status === 'success') { loadYear().then(loadMonth); }
+        });
       });
     });
   }
@@ -330,18 +402,41 @@
         if (form) {
           form.addEventListener('submit', function (e) {
             e.preventDefault();
-            call('save_holiday', {
+            var payload = {
               title: $('sc-h-title').value,
               title_am: $('sc-h-title-am').value,
               date_from: $('sc-h-from').value,
               date_to: $('sc-h-to').value || $('sc-h-from').value,
               type: $('sc-h-type').value
-            }, 'POST').then(function (r) {
-              toast(r.body.message || 'Done.', r.body.status === 'success');
-              if (r.body.status === 'success') {
-                form.reset();
-                loadYear();
+            };
+            if (!String(payload.title || '').trim() || !payload.date_from) {
+              toast('A title and a start date are required.', false); return;
+            }
+            var n = dayCount(payload.date_from, payload.date_to);
+            var range = holidayRange(payload);
+            var name = payload.title_am || payload.title;
+            danger({
+              tier: 'medium',
+              title: 'Add the holiday “' + name + '”?',
+              object: name + ' · ' + range,
+              summary: (n === 1 ? 'One day' : n + ' days') + ' will be closed for the whole school.',
+              intent: 'I want to add this holiday',
+              consequences: [(n === 1 ? 'No class holds on ' : 'No class holds on any of the ' + n + ' days: ') + range + '.',
+                'Teachers cannot take attendance on ' + (n === 1 ? 'this day.' : 'these days.')],
+              keeps: ['You can delete the holiday later to open the days again.'],
+              phrase: 'SAVE HOLIDAY',
+              confirmLabel: 'Save holiday',
+              onConfirm: function () {
+                return call('save_holiday', payload, 'POST').then(function (r) {
+                  if (r.body.status !== 'success') throw new Error(r.body.message || 'Failed.');
+                  return r.body;
+                });
               }
+            }).then(function (res) {
+              if (!res) return;
+              toast((res.result && res.result.message) || 'Done.', true);
+              form.reset();
+              loadYear();
             });
           });
         }

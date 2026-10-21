@@ -12,6 +12,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/TimetableService.php';
+require_once __DIR__ . '/backend/danger_confirm.php';
 
 use App\Services\TimetableService;
 
@@ -135,6 +136,14 @@ try {
             if (is_string($days)) {
                 $days = $days === '' ? [] : explode(',', $days);
             }
+            // HIGH risk only when a current working day is being removed
+            // (lessons on it are deleted and attendance stops that weekday).
+            $classIdForDays = (int)($_POST['class_id'] ?? 0);
+            $keepDays = array_map('intval', (array)$days);
+            $removingDays = array_diff(TimetableService::workingDays($conn, $classIdForDays, $yearId), $keepDays);
+            if ($removingDays) {
+                dc_require_phrase('timetable.remove_day');
+            }
             echo json_encode(TimetableService::saveWorkingDays($conn, (int)($_POST['class_id'] ?? 0), $yearId, (array)$days, $actor), JSON_UNESCAPED_UNICODE);
             break;
 
@@ -143,10 +152,12 @@ try {
             break;
 
         case 'delete_period':
+            dc_require_phrase('timetable.delete_period');
             echo json_encode(TimetableService::deletePeriod($conn, (int)($_POST['period_id'] ?? 0), (int)($_POST['class_id'] ?? 0), $yearId, $actor), JSON_UNESCAPED_UNICODE);
             break;
 
         case 'copy_bell':
+            dc_require_phrase('timetable.copy_bell');
             echo json_encode(TimetableService::copyBell($conn, (int)($_POST['from_class_id'] ?? 0), (int)($_POST['class_id'] ?? 0), $yearId, $actor), JSON_UNESCAPED_UNICODE);
             break;
 

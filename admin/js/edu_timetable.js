@@ -51,6 +51,15 @@
     if (typeof global.toast === 'function') { try { global.toast(msg, kind === 'err' ? 'err' : (kind === 'warn' ? 'w' : 'ok')); return; } catch (e) { /* fall through */ } }
     if (kind === 'err') alert(msg);
   }
+  // Shared danger dialog (admin/js/danger_confirm.js). If it failed to load
+  // we refuse rather than fall back to a browser popup.
+  function danger(opts) {
+    if (global.DangerConfirm && typeof global.DangerConfirm.ask === 'function') return global.DangerConfirm.ask(opts);
+    notify('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', 'err');
+    return Promise.resolve(false);
+  }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
+  function serverFail(d, fallback) { return new Error((d && d.message) || fallback); }
   function ecDate(iso, fmt) {
     if (!iso) return '';
     try {
@@ -365,12 +374,48 @@
   EduTimetable.prototype.saveDays = function () {
     var self = this, days = this.pendingDays || [];
     var removed = this.setup.working_days.filter(function (d) { return days.indexOf(d) < 0; });
-    var n = this.setup.entries.filter(function (e) { return removed.indexOf(e.day_of_week) >= 0; }).length;
-    if (n > 0 && !confirm('Removing ' + removed.map(function (d) { return DAYS[d]; }).join(', ') + ' will clear ' + n + ' scheduled lesson(s). Continue?')) return;
-    return post('save_days', { class_id: this.classId, days: days }).then(function (d) {
-      if (d.status !== 'success') { notify(d.message || 'Could not save working days.', 'err'); return; }
+    var finish = function (d) {
       self.pendingDays = null; notify(d.message || 'Working days saved.'); return self.loadClass();
-    });
+    };
+    if (!removed.length) {
+      return post('save_days', { class_id: this.classId, days: days }).then(function (d) {
+        if (d.status !== 'success') { notify(d.message || 'Could not save working days.', 'err'); return; }
+        return finish(d);
+      });
+    }
+    var names = removed.map(function (d) { return DAYS[d]; });
+    var list = names.join(', ');
+    var lessons = this.setup.entries.filter(function (e) { return removed.indexOf(e.day_of_week) >= 0; });
+    var cname = className(this.cls());
+    var consequences = [];
+    if (lessons.length) {
+      removed.forEach(function (d) {
+        var k = lessons.filter(function (e) { return e.day_of_week === d; }).length;
+        if (k) consequences.push(plural(k, 'scheduled lesson') + ' on ' + DAYS[d] + ' will be deleted.');
+      });
+    } else {
+      consequences.push('No lessons are scheduled on ' + list + ' yet, so no lessons will be deleted.');
+    }
+    consequences.push('Teachers can no longer take attendance for this class on ' + list + ' (attendance is only allowed on working days).');
+    if (!days.length) consequences.push('This class will have NO working days, so attendance will be blocked for it completely.');
+    return danger({
+      tier: 'high',
+      title: 'Remove ' + list + ' from ' + cname + '?',
+      object: cname,
+      summary: cname + ' will no longer meet on ' + list + '.',
+      intent: removed.length === 1 ? 'I want to remove this day' : 'I want to remove these days',
+      consequences: consequences,
+      keeps: ['Attendance already saved on past ' + list + ' stays in history.', 'You can add the day back later, but deleted lessons must be entered again.'],
+      irreversible: lessons.length > 0,
+      phrase: 'REMOVE DAY',
+      confirmLabel: removed.length === 1 ? 'Remove ' + names[0] : 'Remove ' + removed.length + ' days',
+      onConfirm: function (res) {
+        return post('save_days', { class_id: self.classId, days: days, confirm_phrase: res.phrase }).then(function (d) {
+          if (d.status !== 'success') throw serverFail(d, 'Could not save working days.');
+          return d;
+        });
+      }
+    }).then(function (res) { if (res) return finish(res.result || {}); });
   };
 
   // Bell schedule
@@ -382,20 +427,55 @@
     };
     if (!payload.label || !payload.start_time || !payload.end_time) return this.showErr('tt-perr', 'Label, start and end time are required.');
     if (toMin(payload.end_time) <= toMin(payload.start_time)) return this.showErr('tt-perr', 'End time must be after start time.');
-    return post('save_period', payload).then(function (d) {
-      if (d.status !== 'success') { self.showErr('tt-perr', d.message || 'Could not save period.'); return; }
-      self.periodForm = null; notify(d.message || 'Period saved.'); return self.loadClass();
-    });
+    var send = function () {
+      return post('save_period', payload).then(function (d) {
+        if (d.status !== 'success') { self.showErr('tt-perr', d.message || 'Could not save period.'); return; }
+        self.periodForm = null; notify(d.message || 'Period saved.'); return self.loadClass();
+      });
+    };
+    // LOW: changing the time of a period that already has lessons.
+    var old = payload.id ? this.period(+payload.id) : null;
+    var n = old ? this.setup.entries.filter(function (e) { return e.period_id === old.id; }).length : 0;
+    var timeChanged = !!old && (String(old.start_time).slice(0, 5) !== String(payload.start_time).slice(0, 5)
+      || String(old.end_time).slice(0, 5) !== String(payload.end_time).slice(0, 5));
+    if (!old || !n || !timeChanged) return send();
+    return danger({
+      tier: 'low',
+      title: 'Change the time of ' + old.label + '?',
+      summary: old.label + ' moves from ' + old.start_time + '–' + old.end_time + ' to ' + payload.start_time + '–' + payload.end_time + '.',
+      consequences: [plural(n, 'scheduled lesson') + ' in this period will use the new time.'],
+      confirmLabel: 'Save new time'
+    }).then(function (res) { if (res) return send(); });
   };
   EduTimetable.prototype.deletePeriod = function (id) {
     var self = this, p = this.period(id);
     if (!p) return;
-    var n = this.setup.entries.filter(function (e) { return e.period_id === id; }).length;
-    if (!confirm('Delete ' + p.label + '?' + (n ? ' This also removes ' + n + ' scheduled lesson(s).' : ''))) return;
-    return post('delete_period', { class_id: this.classId, period_id: id }).then(function (d) {
-      if (d.status !== 'success') { notify(d.message || 'Could not delete period.', 'err'); return; }
-      notify(d.message || 'Period deleted.'); return self.loadClass();
-    });
+    var lessons = this.setup.entries.filter(function (e) { return e.period_id === id; });
+    var cname = className(this.cls());
+    var consequences = ['“' + p.label + '” (' + p.start_time + '–' + p.end_time + ') is removed from the bell schedule of ' + cname + '.'];
+    if (lessons.length) {
+      var dayNames = lessons.map(function (e) { return DAYS[e.day_of_week]; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+      consequences.push(plural(lessons.length, 'scheduled lesson') + ' in this period will be deleted (' + dayNames.join(', ') + ').');
+    } else {
+      consequences.push('No lessons are scheduled in this period.');
+    }
+    return danger({
+      tier: lessons.length ? 'high' : 'medium',
+      title: 'Delete ' + p.label + ' from ' + cname + '?',
+      object: p.label + ' · ' + p.start_time + '–' + p.end_time,
+      summary: 'This removes the period from the class bell schedule.',
+      intent: 'I want to delete this period',
+      consequences: consequences,
+      irreversible: true,
+      phrase: 'DELETE PERIOD',
+      confirmLabel: 'Delete ' + p.label,
+      onConfirm: function (res) {
+        return post('delete_period', { class_id: self.classId, period_id: id, confirm_phrase: res.phrase }).then(function (d) {
+          if (d.status !== 'success') throw serverFail(d, 'Could not delete period.');
+          return d;
+        });
+      }
+    }).then(function (res) { if (res) { notify((res.result && res.result.message) || 'Period deleted.'); return self.loadClass(); } });
   };
   EduTimetable.prototype.copyBellDialog = function () {
     var self = this;
@@ -403,12 +483,36 @@
     if (!others.length) { notify('There is no other class to copy from.', 'err'); return; }
     this.modal('<h4>Copy bell schedule</h4><span class="sub">Copies the working days and periods of another class into ' + esc(className(this.cls())) + '. Existing periods and lessons of this class will be replaced.</span>'
       + '<label>From class<select id="tt-cf">' + others.map(function (x) { return '<option value="' + x.id + '">' + esc(className(x)) + '</option>'; }).join('') + '</select></label><div id="tt-cferr"></div>'
-      + '<div class="foot"><span></span><span><button class="tt-btn ghost" data-m="close">Cancel</button> <button class="tt-btn p" data-m="ok">Copy</button></span></div>',
+      + '<div class="foot"><span></span><span><button class="tt-btn ghost" data-m="close">Cancel</button> <button class="tt-btn p" data-m="ok">Continue</button></span></div>',
       function () {
-        return post('copy_bell', { class_id: self.classId, from_class_id: self.val('tt-cf') }).then(function (d) {
-          if (d.status !== 'success') { self.showErr('tt-cferr', d.message || 'Could not copy.'); return false; }
-          notify(d.message || 'Copied.'); self.loadClass(); return true;
-        });
+        var fromId = +self.val('tt-cf');
+        var from = others.filter(function (x) { return x.id === fromId; })[0];
+        var cname = className(self.cls()), fname = className(from);
+        var nP = (self.setup.periods || []).length, nE = (self.setup.entries || []).length;
+        var consequences = [];
+        consequences.push(nP ? 'All ' + plural(nP, 'period') + ' of ' + cname + ' will be replaced by the periods of ' + fname + '.' : cname + ' gets the periods of ' + fname + '.');
+        consequences.push(nE ? 'All ' + plural(nE, 'scheduled lesson') + ' of ' + cname + ' will be deleted. You must enter the lessons again.' : 'No lessons are scheduled for ' + cname + ' yet.');
+        consequences.push('The working days of ' + cname + ' become the same as ' + fname + '. Attendance follows the new working days.');
+        self.closeModal();
+        danger({
+          tier: 'high',
+          title: 'Replace the timetable of ' + cname + '?',
+          object: fname + '  →  ' + cname,
+          summary: 'Copies the bell schedule and working days of ' + fname + ' into ' + cname + '.',
+          intent: 'I want to replace this schedule',
+          consequences: consequences,
+          keeps: [fname + ' itself is not changed.'],
+          irreversible: nE > 0,
+          phrase: 'REPLACE SCHEDULE',
+          confirmLabel: 'Replace schedule',
+          onConfirm: function (res) {
+            return post('copy_bell', { class_id: self.classId, from_class_id: fromId, confirm_phrase: res.phrase }).then(function (d) {
+              if (d.status !== 'success') throw serverFail(d, 'Could not copy.');
+              return d;
+            });
+          }
+        }).then(function (res) { if (res) { notify((res.result && res.result.message) || 'Copied.'); self.loadClass(); } });
+        return Promise.resolve(false);
       });
   };
 
@@ -432,9 +536,18 @@
         });
       },
       function () {
-        return post('clear_entry', { class_id: self.classId, period_id: pid, day_of_week: day }).then(function (d) {
-          if (d.status !== 'success') { self.showErr('tt-cerr', d.message || 'Could not clear lesson.'); return false; }
-          notify('Lesson cleared.'); self.loadClass(); return true;
+        var subj = self.subject(e.subject_id);
+        return danger({
+          tier: 'low',
+          title: 'Clear this lesson?',
+          summary: DAYS[day] + ' · ' + p.label + ' (' + p.start_time + '–' + p.end_time + ')' + (subj ? ' · ' + subjectLabel(subj) : '') + ' becomes an empty slot.',
+          confirmLabel: 'Clear lesson'
+        }).then(function (res) {
+          if (!res) return false;
+          return post('clear_entry', { class_id: self.classId, period_id: pid, day_of_week: day }).then(function (d) {
+            if (d.status !== 'success') { self.showErr('tt-cerr', d.message || 'Could not clear lesson.'); return false; }
+            notify('Lesson cleared.'); self.loadClass(); return true;
+          });
         });
       });
     // Pre-fill the teacher from teacher_assignments when a subject is chosen.
@@ -464,11 +577,26 @@
   };
   EduTimetable.prototype.deleteMakeup = function (id) {
     var self = this;
-    if (!confirm('Remove this makeup class?')) return;
-    return post('delete_makeup', { makeup_id: id }).then(function (d) {
-      if (d.status !== 'success') { notify(d.message || 'Could not remove.', 'err'); return; }
-      notify('Makeup class removed.'); return self.loadClass();
-    });
+    var m = (this.setup.makeups || []).filter(function (x) { return +x.id === +id; })[0] || {};
+    var when = m.lesson_date ? ecDate(m.lesson_date, 'long') : 'this date';
+    return danger({
+      tier: 'medium',
+      title: 'Remove the makeup class on ' + when + '?',
+      object: when + (m.start_time ? ' · ' + m.start_time + '–' + m.end_time : ''),
+      summary: 'The extra class day for ' + className(this.cls()) + ' is cancelled.',
+      intent: 'I want to remove this makeup class',
+      consequences: ['The makeup class on ' + when + ' is removed from the timetable.',
+        'Teachers can no longer take attendance on ' + when + ' unless it is a normal working day.'],
+      keeps: ['Attendance that was already saved is kept.'],
+      phrase: 'REMOVE MAKEUP',
+      confirmLabel: 'Remove makeup class',
+      onConfirm: function () {
+        return post('delete_makeup', { makeup_id: id }).then(function (d) {
+          if (d.status !== 'success') throw serverFail(d, 'Could not remove.');
+          return d;
+        });
+      }
+    }).then(function (res) { if (res) { notify('Makeup class removed.'); return self.loadClass(); } });
   };
 
   // Minimal modal: ok() / clear() return a promise resolving true to close.

@@ -33,7 +33,7 @@ $roleLabels = [
     'hr_dept' => 'HR Department', 'edu_dept' => 'Education Department', 'mezmur_dept' => 'Mezmur Department',
     'teacher' => 'Teacher', 'attendance_taker' => 'Attendance Taker',
 ];
-$assetVer = '20261020p0';
+$assetVer = '20261021dc';
 $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
 ?>
 <!DOCTYPE html>
@@ -189,6 +189,7 @@ $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
   };
 </script>
 <script src="/admin/js/wbws-calendar.js?v=<?= $assetVer ?>"></script>
+<script src="/admin/js/danger_confirm.js?v=20261021dc"></script>
 <script src="/admin/js/school_calendar.js?v=<?= $assetVer ?>"></script>
 </body>
 </html>
