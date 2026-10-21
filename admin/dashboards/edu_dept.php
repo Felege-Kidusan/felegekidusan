@@ -168,7 +168,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </style>
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
-<link rel="stylesheet" href="/admin/css/report_card.css?v=20261009b">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20261021a">
 <?php include __DIR__ . "/../theme.php"; ?>
 <style id="p70-edu-mobile">
 /* ═══════════════════════════════════════════════════════════════════

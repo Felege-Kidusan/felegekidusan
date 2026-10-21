@@ -150,7 +150,7 @@ $csrfToken = generateCsrfToken();
     </style>
 <?= wbws_calendar_scripts($conn ?? null) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
-<link rel="stylesheet" href="/admin/css/report_card.css?v=20261009b">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20261021a">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="min-h-screen">

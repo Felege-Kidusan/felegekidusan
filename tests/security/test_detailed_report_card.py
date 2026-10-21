@@ -175,3 +175,38 @@ class StylesPinned(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class DashboardScreenStyles(unittest.TestCase):
+    """Report Cards dashboards (Education #sec-reportcards, teacher #sec-reports)
+    render .rc-sem / .rc-stat / .rc-subj-card / .rc-items / .rc-print-banner.
+    The 1.6.9 sheet redesign dropped those rules and the page fell back to
+    unstyled text (fixed 2026-10-21). Pin them, scoped to the dashboards."""
+
+    def setUp(self):
+        self.css = read("admin/css/report_card.css")
+        self.edu = read("admin/dashboards/edu_dept.php")
+        self.teacher = read("admin/dashboards/teacher.php")
+
+    def test_every_dashboard_class_is_styled(self):
+        for cls in ("rc-sem", "rc-sem-title", "rc-sem-nums", "rc-stat", "rc-donebar",
+                    "rc-done-lbl", "rc-done-miss", "rc-items", "rc-subj-card"):
+            self.assertIn("#sec-reportcards .%s" % cls, self.css, cls)
+            self.assertIn("#sec-reports .%s" % cls, self.css, cls)
+
+    def test_print_banner_is_paper_only(self):
+        self.assertIn(".rc-print-banner{display:none}", self.css)
+        self.assertIn("body:not(.rc-print-mode) .rc-print-banner{", self.css)
+
+    def test_print_list_shows_only_the_report_section(self):
+        self.assertIn("body:has(#sec-reportcards.act) .sec:not(#sec-reportcards)", self.css)
+
+    def test_dashboard_rules_never_touch_the_booklet(self):
+        block = self.css[self.css.index("Report Cards DASHBOARD screen"):]
+        for line in block.splitlines():
+            s = line.strip()
+            if s.startswith(".rc-") and "{" in s:
+                self.assertTrue(s.startswith(".rc-print-banner"), s)
+
+    def test_stylesheet_cache_busted_on_both_pages(self):
+        self.assertIn("/admin/css/report_card.css?v=20261021a", self.edu)
+        self.assertIn("/admin/css/report_card.css?v=20261021a", self.teacher)
