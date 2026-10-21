@@ -213,7 +213,7 @@ class TimetableLive(unittest.TestCase):
         self.assertEqual(d["lessons"][0]["room"] or d["lessons"][1]["room"], "Room 1")
 
         # removing Sunday from class A clears its Sunday lesson
-        st, d = self.post(edu, "save_days", {"class_id": A, "days[]": [3]})
+        st, d = self.post(edu, "save_days", {"class_id": A, "days[]": [3], "confirm_phrase": "REMOVE DAY"})  # removing a day needs the typed phrase (DC-1)
         self.assertEqual(d["status"], "success", d); self.assertEqual(d["cleared"], 1)
         self.assertEqual(db(f"SELECT COUNT(*) FROM timetable_entries WHERE class_id={A}"), "0")
 

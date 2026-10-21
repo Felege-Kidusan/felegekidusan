@@ -173,12 +173,23 @@ var Teachers = (function () {
             }).join('') + '</div>';
     }
 
+    function dcAsk(o) {
+        if (window.DangerConfirm && window.DangerConfirm.ask) return window.DangerConfirm.ask(o);
+        toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', 'e');
+        return Promise.resolve(false);
+    }
     function removeAssign(assignmentId) {
-        if (!confirm('Remove this class assignment? Their login stays. Grades already entered stay.')) return;
+        dcAsk({ tier: 'medium', title: 'Remove this class assignment?', summary: 'The teacher stops teaching this class/subject.',
+            intent: 'I want to remove this assignment',
+            consequences: ['The teacher no longer sees this class in attendance, grade entry and the timetable.'],
+            keeps: ['The teacher login stays.', 'Grades and attendance already entered stay.'],
+            phrase: 'REMOVE ASSIGNMENT', confirmLabel: 'Remove assignment' }).then(function (ok) {
+        if (!ok) return;
         window.api.post(TAPI, { action: 'remove_assignment', assignment_id: assignmentId }).then(function (d) {
             toast(d.message || 'Removed', d.status === 'success' ? 's' : 'e');
             if (d.status === 'success' && currentId) edit(currentId);
         }).catch(function () { toast('Error', 'e'); });
+        });
     }
 
     function searchMembers(q) {

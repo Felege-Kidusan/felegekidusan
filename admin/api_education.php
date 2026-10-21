@@ -13,6 +13,7 @@ require_once __DIR__ . '/backend/services/AssignmentService.php';
 require_once __DIR__ . '/backend/services/AttendanceRecordService.php';
 require_once __DIR__ . '/backend/services/AttendanceWarningService.php';
 require_once __DIR__ . '/backend/services/LessonAttendanceService.php';
+require_once __DIR__ . '/backend/danger_confirm.php';
 
 use App\Services\AssignmentService;
 use App\Services\AttendanceRecordService;
@@ -78,6 +79,7 @@ if (in_array($action, $__yearLifecycleActions, true)
 // School Admin and Super Admin able to do the same. The year itself (above)
 // remains School-Admin-only.
 $__termActions = ['save_term', 'delete_term', 'set_current_term', 'reopen_term', 'close_term_reopen'];
+$__termActions[] = 'impact_delete_term'; // danger-confirmation impact preview (read-only)
 if (in_array($action, $__termActions, true)
         && !in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
     http_response_code(403);
@@ -89,7 +91,7 @@ if (in_array($action, $__termActions, true)
 $__manageActions = [
     'enroll', 'unenroll_student', 'promote', 'bulk_enroll', 'transfer_student',
     'assign_teacher', 'save_class', 'delete_class', 'toggle_class',
-    'sync_member_types',
+    'sync_member_types', 'impact_delete_class',
 ];
 if (in_array($action, $__manageActions, true)) {
     if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
@@ -257,8 +259,81 @@ if (function_exists('ay_require_writable')) {
     }
 }
 
+// ── Danger confirmation (owner decision D3, 2026-10-21) ─────────────────────
+// HIGH-risk actions need the phrase the user typed in the danger dialog.
+$__dcHigh = [
+    'delete_class'      => 'education.delete_class',
+    'delete_term'       => 'education.delete_term',
+    'sync_member_types' => 'education.sync_types',
+];
+if (isset($__dcHigh[$action])) {
+    dc_require_phrase($__dcHigh[$action]);
+}
+
+/** COUNT(*) helper for the read-only impact previews; 0 when a table is missing. */
+function __edu_dc_count(mysqli $conn, string $sql, array $ids): int
+{
+    try {
+        $st = $conn->prepare($sql);
+        if (!$st) {
+            return 0;
+        }
+        $st->bind_param(str_repeat('i', count($ids)), ...$ids);
+        $st->execute();
+        $row = $st->get_result()->fetch_row();
+        $st->close();
+        return (int)($row[0] ?? 0);
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+/** What deleting a semester would touch (F1 guard + dialog counts). */
+function __edu_term_usage(mysqli $conn, int $tid): array
+{
+    return [
+        'assessments'       => __edu_dc_count($conn, "SELECT COUNT(*) FROM assessments WHERE term_id = ?", [$tid]),
+        'grades'            => __edu_dc_count($conn, "SELECT COUNT(*) FROM academic_records WHERE term_id = ? OR assessment_id IN (SELECT id FROM assessments WHERE term_id = ?)", [$tid, $tid]),
+        'grade_submissions' => __edu_dc_count($conn, "SELECT COUNT(*) FROM grade_submissions WHERE term_id = ?", [$tid]),
+        'class_subjects'    => __edu_dc_count($conn, "SELECT COUNT(*) FROM class_subjects WHERE term_id = ?", [$tid]),
+    ];
+}
+
 try {
 switch ($action) {
+
+    // Read-only preview for the "Delete class" danger dialog.
+    case 'impact_delete_class':
+        $id = (int)($_GET['class_id'] ?? $_POST['class_id'] ?? 0);
+        if (!$id) { echo json_encode(['status' => 'error', 'message' => 'ID required']); break; }
+        $active = __edu_dc_count($conn, "SELECT COUNT(*) FROM class_enrollments WHERE class_id = ? AND status = 'active'", [$id]);
+        $history = class_exists('\\App\\Services\\EnrollmentService') && EnrollmentService::classHasGradeHistory($conn, $id);
+        echo json_encode([
+            'status' => 'success',
+            'mode'   => $active > 0 ? 'blocked' : ($history ? 'deactivate' : 'delete'),
+            'counts' => [
+                'active_enrollments'  => $active,
+                'past_enrollments'    => __edu_dc_count($conn, "SELECT COUNT(*) FROM class_enrollments WHERE class_id = ? AND status <> 'active'", [$id]),
+                'subjects'            => __edu_dc_count($conn, "SELECT COUNT(*) FROM class_subjects WHERE class_id = ?", [$id]),
+                'teacher_assignments' => __edu_dc_count($conn, "SELECT COUNT(*) FROM teacher_assignments WHERE class_id = ?", [$id]),
+                'timetable_lessons'   => __edu_dc_count($conn, "SELECT COUNT(*) FROM timetable_entries WHERE class_id = ?", [$id]),
+                'assessments'         => __edu_dc_count($conn, "SELECT COUNT(*) FROM assessments WHERE class_id = ?", [$id]),
+                'grade_submissions'   => __edu_dc_count($conn, "SELECT COUNT(*) FROM grade_submissions WHERE class_id = ?", [$id]),
+            ],
+        ]);
+        break;
+
+    // Read-only preview for the "Delete semester" danger dialog.
+    case 'impact_delete_term':
+        $tid = (int)($_GET['term_id'] ?? $_POST['term_id'] ?? 0);
+        if (!$tid) { echo json_encode(['status' => 'error', 'message' => 'Term ID required']); break; }
+        $u = __edu_term_usage($conn, $tid);
+        echo json_encode([
+            'status'  => 'success',
+            'blocked' => ($u['assessments'] + $u['grades'] + $u['grade_submissions']) > 0,
+            'counts'  => $u,
+        ]);
+        break;
 
     // ============================================================
     // ENROLL STUDENT IN CLASS
@@ -1587,6 +1662,20 @@ switch ($action) {
                 }
             }
         } catch (Exception $e) { /* status column may not exist yet — allow */ }
+        // F1 (2026-10-21): a semester that already holds assessments, grades or
+        // mark lists is protected — deleting it would orphan that history.
+        $__use = __edu_term_usage($conn, $tid);
+        if (($__use['assessments'] + $__use['grades'] + $__use['grade_submissions']) > 0) {
+            echo json_encode([
+                'status'  => 'error',
+                'code'    => 'term_in_use',
+                'counts'  => $__use,
+                'message' => 'This semester cannot be deleted: it has ' . $__use['assessments'] . ' assessment(s), '
+                    . $__use['grades'] . ' grade record(s) and ' . $__use['grade_submissions'] . ' mark list(s). '
+                    . 'Deleting it would orphan that history. Nothing was changed.',
+            ]);
+            break;
+        }
         $stmt = $conn->prepare("DELETE FROM academic_terms WHERE id = ?");
         $stmt->bind_param("i", $tid);
         $stmt->execute();

@@ -10,6 +10,7 @@ require_once __DIR__ . '/backend/services/AssignmentService.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
 require_once __DIR__ . '/backend/services/SubmissionService.php';
 require_once __DIR__ . '/backend/services/SubjectDurationPolicy.php';
+require_once __DIR__ . '/backend/danger_confirm.php';
 
 use App\Services\AssignmentService;
 use App\Services\SubjectDurationPolicy;
@@ -432,6 +433,7 @@ switch ($action) {
         break;
     
     case 'delete_subject':
+        dc_require_phrase('subjects.delete_subject');
         $id = (int)($_POST['subject_id'] ?? 0);
 
         if (!$id) {
@@ -1278,6 +1280,7 @@ switch ($action) {
         break;
 
     case 'apply_assessment_template':
+        dc_require_phrase('subjects.apply_template');
         $rawItems = $_POST['items'] ?? '[]';
         $items = is_array($rawItems) ? $rawItems : (json_decode($rawItems, true) ?: []);
 

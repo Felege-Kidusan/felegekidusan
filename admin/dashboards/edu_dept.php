@@ -2099,36 +2099,51 @@ async function viewTeacher(id){
         </div>`;
     document.getElementById('viewTeacherModal').classList.add('show');}}catch(e){toast(friendlyNetError(e),'err');}
 }
-async function toggleTeacher(id,cur){const act=cur==1?'deactivate':'activate';if(!confirm(act+' this teacher?'))return;const fd=new FormData();fd.append('action','toggle_status');fd.append('teacher_id',id);try{const d=await postAPI('/admin/api_teachers.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadTeachers();}catch(e){toast('Error','err');}}
-async function deleteTeacher(id,name){if(!confirm(`Delete teacher "${name}"? This cannot be undone.`))return;const fd=new FormData();fd.append('action','delete_teacher');fd.append('teacher_id',id);try{const d=await postAPI('/admin/api_teachers.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadTeachers();}catch(e){toast('Error','err');}}
+// Danger confirmation dialog (admin/js/danger_confirm.js) — owner decisions 2026-10-21.
+function dcAsk(o){if(window.DangerConfirm&&window.DangerConfirm.ask)return window.DangerConfirm.ask(o);toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.','err');return Promise.resolve(false);}
+function dcSelText(id){const el=document.getElementById(id);return el&&el.selectedIndex>=0?(el.options[el.selectedIndex].text||'').trim():'';}
+async function toggleTeacher(id,cur){const act=cur==1?'deactivate':'activate';const dc=await dcAsk(cur==1?{tier:'medium',title:'Deactivate this teacher?',summary:'The teacher account is switched off.',intent:'I want to deactivate this teacher',consequences:['The teacher can no longer log in (web and mobile app).','Their class and subject assignments are suspended, so they stop appearing in timetables, attendance and grade entry.'],keeps:['Grades and attendance they already entered stay.','You can activate the teacher again later; the suspended assignments are restored.'],phrase:'DEACTIVATE TEACHER',confirmLabel:'Deactivate teacher'}:{tier:'low',title:'Activate this teacher?',summary:'The teacher can log in again and their suspended assignments are restored.',confirmLabel:'Activate teacher'});if(!dc)return;const fd=new FormData();fd.append('action','toggle_status');fd.append('teacher_id',id);try{const d=await postAPI('/admin/api_teachers.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadTeachers();}catch(e){toast('Error','err');}}
+async function deleteTeacher(id,name){const dc=await dcAsk({tier:'medium',title:'Remove teacher '+name+'?',object:name,summary:'The teacher is removed from the active teacher list.',intent:'I want to remove this teacher',consequences:['The teacher login is switched off — they can no longer sign in.','All their class and subject assignments are switched off.'],keeps:['Grades, mark lists and attendance they entered stay and keep their name.','A School Admin can restore the account later if needed.'],phrase:'REMOVE TEACHER',confirmLabel:'Remove teacher'});if(!dc)return;const fd=new FormData();fd.append('action','delete_teacher');fd.append('teacher_id',id);try{const d=await postAPI('/admin/api_teachers.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadTeachers();}catch(e){toast('Error','err');}}
 function exportTeachers(){if(!allTeachers.length)return toast('No data','err');const h=['Name','Username','Email','Status','Assignments'];const r=allTeachers.map(t=>[t.full_name,t.username,t.email||'',t.is_active==1?'Active':'Inactive',t.assigned_classes||0]);const ws=XLSX.utils.aoa_to_sheet([h,...r]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Teachers');XLSX.writeFile(wb,'<?= MEMBER_CODE_PREFIX ?>_Teachers.xlsx');}
 
 // ═══ CLASSES ═══
-async function loadClasses(){try{const r=await fetch('/admin/api_education.php?action=get_classes',{credentials:'same-origin'});const txt=await r.text();let d;try{d=JSON.parse(txt);}catch(e){console.error('Classes API parse error:',txt);toast('Error loading classes: invalid response','err');return;}if(d.status==='success'){const cls=d.classes||[];document.getElementById('classBody').innerHTML=cls.length?cls.map(c=>`<tr><td style="font-weight:700">${c.level_order}</td><td class="amharic" style="font-weight:600">${esc(c.class_name)}</td><td>${esc(c.class_name_en||'—')}</td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(c.class_code)}</code></td><td><span class="ch ch-p">${esc(eduSecLabel(c.age_group||eduSecCode(c.section)))}</span></td><td><span class="ch ch-i">${c.student_count||0}</span></td><td><span class="ch ${c.is_active==1?'ch-ok':'ch-d'}">${c.is_active==1?'Active':'Inactive'}</span></td><td><button class="ab" style="background:#dbeafe;color:#2563eb" onclick='editClass(${JSON.stringify(c)})'><i class="fa-solid fa-pen"></i></button> <button class="ab" style="background:${c.is_active==1?'#fef3c7':'#d1fae5'};color:${c.is_active==1?'#92400e':'#065f46'}" onclick="toggleClass(${c.id},${c.is_active},this)" data-name="${esc(c.class_name)}" title="${c.is_active==1?'Deactivate':'Restore'}"><i class="fa-solid fa-${c.is_active==1?'ban':'rotate-left'}"></i></button> <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteClass(${c.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No classes. Click Add Class.</td></tr>';}else{toast(d.message||'Error loading classes','err');}}catch(e){console.error('Classes load error:',e);toast('Error loading classes','err');}}
+async function loadClasses(){try{const r=await fetch('/admin/api_education.php?action=get_classes',{credentials:'same-origin'});const txt=await r.text();let d;try{d=JSON.parse(txt);}catch(e){console.error('Classes API parse error:',txt);toast('Error loading classes: invalid response','err');return;}if(d.status==='success'){const cls=d.classes||[];document.getElementById('classBody').innerHTML=cls.length?cls.map(c=>`<tr><td style="font-weight:700">${c.level_order}</td><td class="amharic" style="font-weight:600">${esc(c.class_name)}</td><td>${esc(c.class_name_en||'—')}</td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(c.class_code)}</code></td><td><span class="ch ch-p">${esc(eduSecLabel(c.age_group||eduSecCode(c.section)))}</span></td><td><span class="ch ch-i">${c.student_count||0}</span></td><td><span class="ch ${c.is_active==1?'ch-ok':'ch-d'}">${c.is_active==1?'Active':'Inactive'}</span></td><td><button class="ab" style="background:#dbeafe;color:#2563eb" onclick='editClass(${JSON.stringify(c)})'><i class="fa-solid fa-pen"></i></button> <button class="ab" style="background:${c.is_active==1?'#fef3c7':'#d1fae5'};color:${c.is_active==1?'#92400e':'#065f46'}" onclick="toggleClass(${c.id},${c.is_active},this)" data-name="${esc(c.class_name)}" title="${c.is_active==1?'Deactivate':'Restore'}"><i class="fa-solid fa-${c.is_active==1?'ban':'rotate-left'}"></i></button> <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteClass(${c.id},this)" data-name="${esc(c.class_name)}" title="Delete"><i class="fa-solid fa-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No classes. Click Add Class.</td></tr>';}else{toast(d.message||'Error loading classes','err');}}catch(e){console.error('Classes load error:',e);toast('Error loading classes','err');}}
 function openClassModal(){document.getElementById('classFormId').value=0;document.getElementById('className').value='';document.getElementById('classNameEn').value='';document.getElementById('classCode').value='';document.getElementById('classLevel').value='1';document.getElementById('classAge').value='';document.getElementById('classDesc').value='';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-school"></i> Add Class';document.getElementById('classModal').classList.add('show');}
 function editClass(c){document.getElementById('classFormId').value=c.id;document.getElementById('className').value=c.class_name||'';document.getElementById('classNameEn').value=c.class_name_en||'';document.getElementById('classCode').value=c.class_code||'';document.getElementById('classLevel').value=c.level_order||1;document.getElementById('classAge').value=c.age_group||eduSecCode(c.section);document.getElementById('classDesc').value=c.description||'';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Class';document.getElementById('classModal').classList.add('show');}
 async function saveClass(){const fd=new FormData();fd.append('action','save_class');fd.append('id',document.getElementById('classFormId').value);fd.append('class_name',document.getElementById('className').value);fd.append('class_name_en',document.getElementById('classNameEn').value);fd.append('class_code',document.getElementById('classCode').value);fd.append('level_order',document.getElementById('classLevel').value);fd.append('age_group',document.getElementById('classAge').value);fd.append('description',document.getElementById('classDesc').value);fd.append('is_active','1');try{const d=await postAPI('/admin/api_education.php',fd);if(d.status==='success'){toast('Class saved!');closeModal('classModal');loadClasses();}else toast(d.message,'err');}catch(e){toast('Error','err');}}
-async function deleteClass(id){if(!confirm('Delete this class?'))return;const fd=new FormData();fd.append('action','delete_class');fd.append('class_id',id);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadClasses();}catch(e){toast('Error','err');}}
+async function deleteClass(id,btn){const name=(btn&&btn.dataset&&btn.dataset.name)||('#'+id);const dc=await dcAsk({tier:'high',title:'Delete class '+name+'?',object:name,summary:'Deleting a class removes its setup. The system first checks what the class still holds.',intent:'I want to delete this class',consequences:()=>getAPI('/admin/api_education.php?action=impact_delete_class&class_id='+id).then(d=>{if(!d||d.status!=='success')throw new Error('x');const c=d.counts||{};if(d.mode==='blocked')return['This class still has '+c.active_enrollments+' enrolled student(s). The system will REFUSE to delete it — move or remove the students first.'];if(d.mode==='deactivate')return['This class has grade history, so it will be DEACTIVATED instead of deleted. All records are kept.',(c.teacher_assignments||0)+' teacher assignment(s) will be switched off.','The class disappears from new enrolments, subject assignment and the timetable class list.'];return['The class is deleted permanently.',(c.subjects||0)+' subject link(s), '+(c.teacher_assignments||0)+' teacher assignment(s) and '+(c.timetable_lessons||0)+' timetable lesson(s) will be deleted.',(c.assessments||0)+' assessment(s) without grades and '+(c.past_enrollments||0)+' old enrolment record(s) will be deleted.'];}),fallbackConsequences:['If students are enrolled, the system refuses.','If the class has grade history, it is deactivated instead of deleted.','Otherwise the class and its subjects, teacher assignments, timetable and assessments are deleted permanently.'],irreversible:true,phrase:'DELETE CLASS',confirmLabel:'Delete class'});if(!dc)return;const fd=new FormData();fd.append('action','delete_class');fd.append('class_id',id);fd.append('confirm_phrase',dc.phrase);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadClasses();}catch(e){toast('Error','err');}}
 
 // ═══ SUBJECTS ═══
 function openSubjectModal(){document.getElementById('subjectForm').reset();document.getElementById('subjectFormId').value='';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-book"></i> Add Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');refreshCounters(['subjectName','subjectNameEn','subjectDesc']);clearFieldErrors(['subjectName','subjectNameEn','subjectDesc']);}
-function deleteSubject(id, grades, btn){
+async function deleteSubject(id, grades, btn){
   const name = btn && btn.dataset ? (btn.dataset.name || ('#'+id)) : ('#'+id);
-  const msg = grades > 0
-    ? 'Deactivate subject "' + name + '"? It has ' + grades + ' grade record(s), so it will be DEACTIVATED (hidden, history preserved) and can be restored later.'
-    : 'Permanently DELETE subject "' + name + '"? It has no grade records, so the subject and all its class/teacher links will be removed for good.';
-  if (!confirm(msg)) return;
+  const dc = await dcAsk(grades > 0 ? {
+    tier:'medium', title:'Deactivate subject ' + name + '?', object:name,
+    summary:'This subject has ' + grades + ' grade record(s), so it will be DEACTIVATED (hidden, history preserved), not deleted.',
+    intent:'I want to deactivate this subject',
+    consequences:['The subject is hidden from classes, teachers, the timetable and new mark entry.'],
+    keeps:['All ' + grades + ' grade record(s) stay in history and report cards.', 'You can restore the subject later.'],
+    phrase:'DELETE SUBJECT', confirmLabel:'Deactivate subject'
+  } : {
+    tier:'high', title:'Permanently delete subject ' + name + '?', object:name,
+    summary:'This subject has no grade records, so it will be removed for good.',
+    intent:'I want to delete this subject',
+    consequences:['The subject is deleted permanently.', 'All its class links and teacher assignments are deleted.', 'Timetable lessons of this subject can no longer be shown.'],
+    irreversible:true, phrase:'DELETE SUBJECT', confirmLabel:'Delete subject'
+  });
+  if (!dc) return;
   const fd = new FormData();
   fd.append('action', 'delete_subject');
   fd.append('subject_id', id);
+  fd.append('confirm_phrase', dc.phrase);
   postAPI('/admin/api_subjects.php', fd).then(d => {
     if (d.status === 'success') { toast(d.message || 'Done'); setTimeout(() => location.reload(), 600); }
     else toast(d.message || 'Delete failed', 'err');
   }).catch(() => toast('Network error', 'err'));
 }
-function restoreSubject(id, btn){
+async function restoreSubject(id, btn){
   const name = btn && btn.dataset ? (btn.dataset.name || ('#'+id)) : ('#'+id);
-  if (!confirm('Restore subject "' + name + '"? It will become active and selectable again.')) return;
+  if (!(await dcAsk({tier:'low', title:'Restore subject ' + name + '?', summary:'It becomes active and selectable again for classes and teachers.', confirmLabel:'Restore subject'}))) return;
   const fd = new FormData();
   fd.append('action', 'restore_subject');
   fd.append('subject_id', id);
@@ -2137,10 +2152,11 @@ function restoreSubject(id, btn){
     else toast(d.message || 'Restore failed', 'err');
   }).catch(() => toast('Network error', 'err'));
 }
-function toggleClass(id, active, btn){
+async function toggleClass(id, active, btn){
   const name = btn && btn.dataset ? (btn.dataset.name || ('#'+id)) : ('#'+id);
   const verb = active == 1 ? 'Deactivate' : 'Restore';
-  if (!confirm(verb + ' class "' + name + '"? ' + (active == 1 ? 'It will be hidden from new enrolments and subject assignment.' : 'It will become active and selectable again.'))) return;
+  const dc = await dcAsk(active == 1 ? {tier:'medium', title:'Deactivate class ' + name + '?', object:name, summary:'The class is hidden but not deleted.', intent:'I want to deactivate this class', consequences:['The class is hidden from new enrolments and subject assignment.', 'Its teacher assignments stop appearing for teachers.'], keeps:['Students, grades and attendance history are kept.', 'You can restore the class later.'], phrase:'DEACTIVATE CLASS', confirmLabel:'Deactivate class'} : {tier:'low', title:'Restore class ' + name + '?', summary:'It becomes active and selectable again.', confirmLabel:'Restore class'});
+  if (!dc) return;
   const fd = new FormData();
   fd.append('action', 'toggle_class');
   fd.append('class_id', id);
@@ -2149,8 +2165,8 @@ function toggleClass(id, active, btn){
     else toast(d.message || 'Update failed', 'err');
   }).catch(() => toast('Network error', 'err'));
 }
-function editSubject(s){document.getElementById('subjectFormId').value=s.id;document.getElementById('subjectName').value=s.subject_name||'';document.getElementById('subjectNameEn').value=s.subject_name_en||'';document.getElementById('subjectDesc').value=s.description||'';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');refreshCounters(['subjectName','subjectNameEn','subjectDesc']);clearFieldErrors(['subjectName','subjectNameEn','subjectDesc']);if(s.id){getAPI('/admin/api_subjects.php?action=get_subject_classes&subject_id='+s.id).then(d=>{const ids=(d.classes||[]).map(c=>String(c.id));document.querySelectorAll('.subj-class-cb').forEach(cb=>{cb.checked=ids.includes(cb.value);});});}}
-document.getElementById('subjectForm')?.addEventListener('submit',function(e){
+function editSubject(s){document.getElementById('subjectFormId').value=s.id;document.getElementById('subjectName').value=s.subject_name||'';document.getElementById('subjectNameEn').value=s.subject_name_en||'';document.getElementById('subjectDesc').value=s.description||'';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');refreshCounters(['subjectName','subjectNameEn','subjectDesc']);clearFieldErrors(['subjectName','subjectNameEn','subjectDesc']);if(s.id){getAPI('/admin/api_subjects.php?action=get_subject_classes&subject_id='+s.id).then(d=>{const ids=(d.classes||[]).map(c=>String(c.id));window._subjOrigIds=ids;document.querySelectorAll('.subj-class-cb').forEach(cb=>{cb.checked=ids.includes(cb.value);});});}}
+document.getElementById('subjectForm')?.addEventListener('submit',async function(e){
     e.preventDefault();
     const sid=document.getElementById('subjectFormId').value;
     const fields={'subjectName':150,'subjectNameEn':150,'subjectDesc':2000};
@@ -2165,6 +2181,7 @@ document.getElementById('subjectForm')?.addEventListener('submit',function(e){
         if(n>max){setFieldError(fid,`Too long: ${n} characters (maximum is ${max}).`);firstBad=firstBad||el;}
     }
     if(firstBad){firstBad.focus();return;}
+    if(sid&&Array.isArray(window._subjOrigIds)){const now=[];document.querySelectorAll('.subj-class-cb:checked').forEach(cb=>now.push(String(cb.value)));const gone=window._subjOrigIds.filter(x=>!now.includes(String(x)));if(gone.length){const names=gone.map(x=>{const cb=document.querySelector('.subj-class-cb[value="'+x+'"]');const l=cb&&cb.closest('label');return l?l.textContent.trim():('#'+x);});const dc=await dcAsk({tier:'medium',title:'Remove this subject from '+gone.length+' class(es)?',object:names.join(', '),summary:'You unticked classes that currently teach this subject.',intent:'I want to remove these classes',consequences:['The subject is no longer offered in: '+names.join(', ')+'.','Teacher assignments and timetable lessons for this subject in those classes stop working.'],keeps:['Grades already entered stay in history.'],phrase:'REMOVE CLASSES',confirmLabel:'Save and remove'});if(!dc)return;}}
     const btn=this.querySelector('button[type="submit"]');if(btn)btn.disabled=true;
     const fd=new FormData();fd.append('action',sid?'update_subject':'create_subject');if(sid)fd.append('subject_id',sid);
     fd.append('subject_name',nameEl.value.trim());
@@ -2275,7 +2292,7 @@ async function rosterBulkEnroll(){
     if(!cls){ setFormAlert('rosterFormAlert','Pick the class these students should join.','err'); toast('Pick a class first.','err'); return; }
     const ids=[]; document.querySelectorAll('.roster-cb:checked').forEach(cb=>ids.push(parseInt(cb.value,10)));
     if(!ids.length){ setFormAlert('rosterFormAlert','Tick at least one student.','err'); toast('Tick at least one student.','err'); return; }
-    if(!confirm('Enroll '+ids.length+' student(s) into the selected class?')) return;
+    const dc=await dcAsk({tier:'medium',title:'Enrol '+ids.length+' student(s) into '+(dcSelText('rosterTargetClass')||'the selected class')+'?',object:dcSelText('rosterTargetClass'),summary:'Each selected student gets an active enrolment in this class for the current year.',intent:'I want to enrol these students',consequences:[ids.length+' student(s) will appear in this class roster, attendance sheets and mark lists.','Students already active in another class are handled by the server rules (it reports any that were skipped).'],keeps:['You can remove a student from the class later; history is kept.'],phrase:'ENROLL STUDENTS',confirmLabel:'Enrol '+ids.length+' student(s)'}); if(!dc) return;
     const fd=new FormData(); fd.append('action','bulk_enroll'); fd.append('class_id',cls); fd.append('member_ids',JSON.stringify(ids));
     try{
         const d=await postAPI('/admin/api_education.php',fd);
@@ -2308,8 +2325,8 @@ async function loadEnrollOverview() {
 }
 
 async function runMemberTypeSync() {
-    if(!confirm('Sync all member types based on their roles? This will auto-fix any mismatched Regular/Special Regular types across departments.')) return;
-    try { const fd=new FormData(); fd.append('action','sync_member_types');
+    const dc=await dcAsk({tier:'high',title:'Sync the member type of every member?',summary:'The system re-checks every member and changes their Regular / Special Regular type to match their roles.',intent:'I want to sync all member types',consequences:['Every member in the system is checked.','Members whose type does not match their roles get their type CHANGED automatically, in every department.','Reports and lists that group by member type will change.'],keeps:['No member is deleted.','The result shows how many members were changed.'],phrase:'SYNC TYPES',confirmLabel:'Sync member types'}); if(!dc) return;
+    try { const fd=new FormData(); fd.append('action','sync_member_types'); fd.append('confirm_phrase',dc.phrase);
     const d=await postAPI('/admin/api_education.php',fd);
     toast(d.message, 'ok'); loadEnrollOverview();
     } catch(e){ toast('Sync error','err'); }
@@ -2421,7 +2438,7 @@ async function loadEnrolled() {
 }
 
 async function enrollStudent(){const cid=document.getElementById('enrollClass').value,mid=document.getElementById('enrollMember')?.value;if(!cid||!mid)return toast('Select class and student','err');const fd=new FormData();fd.append('action','enroll');fd.append('class_id',cid);fd.append('member_id',mid);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success'){loadEnrolled();loadEnrollOverview();}}catch(e){toast('Error','err');}}
-async function unenroll(eid){if(!confirm('Remove student from class?'))return;const fd=new FormData();fd.append('action','unenroll_student');fd.append('enrollment_id',eid);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success'){loadEnrolled();loadEnrollOverview();}}catch(e){toast('Error','err');}}
+async function unenroll(eid){const dc=await dcAsk({tier:'medium',title:'Remove this student from the class?',summary:'The student’s enrolment in this class is closed (withdrawn).',intent:'I want to remove this student',consequences:['The student no longer appears in this class roster, attendance sheets or mark lists.'],keeps:['Past attendance and grades stay in history.','You can enrol the student again later.'],phrase:'REMOVE STUDENT',confirmLabel:'Remove from class'});if(!dc)return;const fd=new FormData();fd.append('action','unenroll_student');fd.append('enrollment_id',eid);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success'){loadEnrolled();loadEnrollOverview();}}catch(e){toast('Error','err');}}
 
 // --- Transfer ---
 function openTransfer(enrollId, name, code) {
@@ -2431,6 +2448,8 @@ function openTransfer(enrollId, name, code) {
     document.getElementById('transferModal').classList.add('show');
 }
 async function executeTransfer() {
+    const who=(document.getElementById('transferStudentInfo')?.textContent||'').trim(), to=dcSelText('transferToClass');
+    const dc=await dcAsk({tier:'medium',title:'Transfer '+(who||'this student')+' to '+(to||'the selected class')+'?',object:(who?who+'  →  ':'')+to,summary:'The current enrolment is closed and a new one is opened in the target class.',intent:'I want to transfer this student',consequences:['The student leaves the current class roster, attendance sheet and mark lists.','The student joins '+(to||'the target class')+' from today.'],keeps:['Attendance and grades from the old class stay in history.'],phrase:'TRANSFER STUDENT',confirmLabel:'Transfer student'}); if(!dc) return;
     const fd=new FormData();
     fd.append('action','transfer_student');
     fd.append('enrollment_id',document.getElementById('transferEnrollmentId').value);
@@ -2522,7 +2541,7 @@ async function bulkEnrollSelected() {
     if(!cls){ setFormAlert('unassignedFormAlert','Pick the class these members should join.','err'); toast('Pick a class first.','err'); return; }
     const ids=[..._bulkSelected];
     if(!ids.length){ setFormAlert('unassignedFormAlert','Tick at least one member.','err'); toast('Tick at least one member.','err'); return; }
-    if(!confirm(`Enroll ${ids.length} student(s) into the selected class?`)) return;
+    const dc=await dcAsk({tier:'medium',title:'Enrol '+ids.length+' student(s) into '+(dcSelText('unassignedTargetClass')||'the selected class')+'?',object:dcSelText('unassignedTargetClass'),summary:'Each selected student gets an active enrolment in this class for the current year.',intent:'I want to enrol these students',consequences:[ids.length+' student(s) will appear in this class roster, attendance sheets and mark lists.','Students already active in another class are handled by the server rules (it reports any that were skipped).'],keeps:['You can remove a student from the class later; history is kept.'],phrase:'ENROLL STUDENTS',confirmLabel:'Enrol '+ids.length+' student(s)'}); if(!dc) return;
     const fd=new FormData(); fd.append('action','bulk_enroll'); fd.append('class_id',cls); fd.append('member_ids',JSON.stringify(ids));
     try {
         const d=await postAPI('/admin/api_education.php',fd);
@@ -3012,7 +3031,7 @@ async function toggleAssessmentType(id){
 }
 
 async function deleteAssessmentType(id){
-    if(!confirm('Are you sure you want to delete or deactivate this assessment type?')) return;
+    const dc=await dcAsk({tier:'medium',title:'Delete this assessment type?',summary:'The system decides between delete and deactivate based on use.',intent:'I want to delete this assessment type',consequences:['If any assessment already uses this type, it is DEACTIVATED (hidden from new assessments) instead of deleted.','If nothing uses it, it is deleted permanently.'],keeps:['Existing grades are never deleted by this action.'],phrase:'DELETE TYPE',confirmLabel:'Delete assessment type'}); if(!dc) return;
     const fd = new FormData();
     fd.append('action', 'delete_assessment_type');
     fd.append('id', id);
@@ -3093,7 +3112,7 @@ async function saveAssessment(){
     }catch(e){toast('Error saving assessment','err');}
 }
 async function deleteAssessment(id){
-    if(!confirm('Delete this assessment?'))return;
+    const dc=await dcAsk({tier:'medium',title:'Delete this assessment?',summary:'The assessment (test, exam or task) is removed from the class.',intent:'I want to delete this assessment',consequences:['The assessment is deleted permanently.','If grades were already entered for it, the system refuses — delete the grades first.'],irreversible:true,phrase:'DELETE ASSESSMENT',confirmLabel:'Delete assessment'}); if(!dc) return;
     const fd=new FormData();
     fd.append('action','delete_assessment');
     fd.append('assessment_id',id);
@@ -3273,15 +3292,22 @@ async function submitAssessmentTemplate(){
         selectedSubjects = subList;
     }
 
-    if(!confirm(`Apply this assessment scheme (${customSchemeItems.map(x=>x.name+' '+x.weight+'%').join(', ')}) across ${selectedClasses.length} selected class(es)?`)){
-        return;
-    }
+    const dcScheme = customSchemeItems.map(x=>x.name+' '+x.weight+'%').join(', ');
+    const dc = await dcAsk({tier:'high', title:'Apply this assessment scheme to ' + selectedClasses.length + ' class(es)?', object:dcScheme,
+        summary:'The scheme is written into every selected class' + (selectedSubjects === 'all' ? ' and all of its subjects' : ' and ' + selectedSubjects.length + ' selected subject(s)') + ' for the current semester.',
+        intent:'I want to apply this scheme',
+        consequences:['In ' + selectedClasses.length + ' class(es), the current semester assessments that have NO grades yet are deleted and replaced by: ' + dcScheme + '.',
+            'Teachers will see the new assessments in grade entry immediately.'],
+        keeps:['Class/subject pairs that already have grades are skipped and kept as they are.', 'The other semester is not touched.'],
+        phrase:'APPLY SCHEME', confirmLabel:'Apply scheme'});
+    if(!dc) return;
 
     const btn = document.getElementById('batchSubmitBtn');
     if(btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Applying Scheme...'; }
 
     const fd = new FormData();
     fd.append('action', 'apply_assessment_template');
+    fd.append('confirm_phrase', dc.phrase);
     fd.append('class_ids', JSON.stringify(selectedClasses));
     fd.append('subject_ids', typeof selectedSubjects === 'string' ? selectedSubjects : JSON.stringify(selectedSubjects));
     fd.append('items', JSON.stringify(customSchemeItems));
@@ -3354,7 +3380,7 @@ async function saveYear(){
     if(d.status==='success'){toast('Academic year saved!');closeModal('yearModal');loadYears();}
     else toast(d.message,'err');}catch(e){toast('Error saving','err');}
 }
-async function setCurrent(id){if(!confirm('Set this as the current academic year?'))return;const fd=new FormData();fd.append('action','set_current_year');fd.append('year_id',id);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadYears();}catch(e){toast('Error','err');}}
+// (removed 2026-10-21: unused setCurrent() — switching the active year is done in School Admin with typed confirmation)
 async function viewYearTerms(yearId,yearName){
     document.getElementById('termArea').innerHTML='<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading semesters...</div>';
     try{const d=await getAPI(`/admin/api_education.php?action=get_terms&year_id=${yearId}`);
@@ -3424,8 +3450,8 @@ async function doSetCurrentTerm(termId){
     const yid=window._currentTermYearId;const yn=window._currentTermYearName||'';
     try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')viewYearTerms(yid,yn);}catch(e){toast('Error','err');}
 }
-async function doDeleteTerm(termId){if(!confirm('Delete this semester? Grades linked to it may be affected.'))return;
-    const fd=new FormData();fd.append('action','delete_term');fd.append('term_id',termId);
+async function doDeleteTerm(termId){const dc=await dcAsk({tier:'high',title:'Delete this semester?',summary:'The semester is removed from the academic year.',intent:'I want to delete this semester',consequences:()=>getAPI('/admin/api_education.php?action=impact_delete_term&term_id='+termId).then(d=>{if(!d||d.status!=='success')throw new Error('x');const c=d.counts||{};if(d.blocked)return['This semester has '+c.assessments+' assessment(s), '+c.grades+' grade record(s) and '+c.grade_submissions+' mark list(s). The system will REFUSE to delete it to protect that history.'];return['The semester is deleted permanently.','It has no assessments, grades or mark lists.',(c.class_subjects||0)+' semester-only subject offering(s) point to it and will need a new semester.'];}),fallbackConsequences:['If the semester has assessments, grades or mark lists, the system refuses.','Otherwise the semester is deleted permanently.'],irreversible:true,phrase:'DELETE SEMESTER',confirmLabel:'Delete semester'});if(!dc)return;
+    const fd=new FormData();fd.append('action','delete_term');fd.append('term_id',termId);fd.append('confirm_phrase',dc.phrase);
     const yid=window._currentTermYearId;const yn=window._currentTermYearName||'';
     try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')viewYearTerms(yid,yn);}catch(e){toast('Error','err');}
 }
@@ -3696,7 +3722,9 @@ function renderReviewRows(){
     }
 }
 async function quickReview(id,status){
-    if(!confirm(`${status==='approved'?'Approve':'Reject'} this submission?`))return;
+    const ap=status==='approved';
+    const dc=await dcAsk({tier:'medium',title:(ap?'Approve':'Reject')+' this mark list?',summary:ap?'The marks are accepted as final for this class and subject.':'The mark list is sent back to the teacher.',intent:ap?'I want to approve this mark list':'I want to reject this mark list',consequences:ap?['The marks are LOCKED — the teacher can no longer change them.','They count in report cards and analytics.']:['The teacher must correct and submit the marks again.','The marks do not count in report cards until approved.'],phrase:ap?'APPROVE':'REJECT',confirmLabel:ap?'Approve mark list':'Reject mark list'});
+    if(!dc)return;
     await doReview(id,status);
 }
 async function doReview(id,status){

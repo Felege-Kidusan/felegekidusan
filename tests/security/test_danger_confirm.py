@@ -20,6 +20,11 @@ def read(rel):
 MIGRATED = [
     'admin/js/edu_timetable.js',
     'admin/js/school_calendar.js',
+    # DC-2 Education + School Admin
+    'admin/dashboards/edu_dept.php',
+    'admin/dashboards/school_admin.php',
+    'frontend/js/education_teachers.js',
+    'frontend/js/education_assignments.js',
 ]
 
 # (endpoint file, phrase key) — HIGH actions that must be enforced server-side.
@@ -27,6 +32,12 @@ SERVER_ENFORCED = [
     ('admin/api_timetable.php', 'timetable.remove_day'),
     ('admin/api_timetable.php', 'timetable.delete_period'),
     ('admin/api_timetable.php', 'timetable.copy_bell'),
+    # DC-2
+    ('admin/api_education.php', 'education.delete_class'),
+    ('admin/api_education.php', 'education.delete_term'),
+    ('admin/api_education.php', 'education.sync_types'),
+    ('admin/api_subjects.php', 'subjects.delete_subject'),
+    ('admin/api_subjects.php', 'subjects.apply_template'),
 ]
 
 NATIVE = re.compile(r'(?<![\w.$])(?:window\.)?(confirm|prompt)\s*\(')
@@ -110,11 +121,31 @@ class DangerConfirmMigration(unittest.TestCase):
                 if (ROOT / p).exists()])
             self.assertTrue(found, f'{key}: dialog phrase {phrase!r} not found in any page')
 
+    def test_frontend_shell_loads_component(self):
+        # frontend/js/*.js page scripts are loaded by name through the shared layout
+        self.assertIn('danger_confirm.js', read('frontend/layouts/base.php'))
+
+    def test_high_dialogs_send_phrase(self):
+        for rel in ('admin/dashboards/edu_dept.php', 'admin/dashboards/school_admin.php'):
+            self.assertIn('confirm_phrase', read(rel), rel)
+
+    def test_dc2_server_guards(self):
+        src = read('admin/api_education.php')
+        for needle in ("case 'impact_delete_class'", "case 'impact_delete_term'", "'term_in_use'"):
+            self.assertIn(needle, src)
+        # impact previews are read-only GET actions, never in the POST-only list
+        post_line = re.search(r'\$requirePostActions\s*=\s*\[(.*?)\];', src, re.S)
+        if post_line:
+            self.assertNotIn('impact_delete', post_line.group(1))
+
     def test_server_enforcement_present(self):
         for rel, key in SERVER_ENFORCED:
             src = read(rel)
             self.assertIn("danger_confirm.php", src, rel)
-            self.assertIn(f"dc_require_phrase('{key}'", src, f'{rel} must enforce {key}')
+            direct = f"dc_require_phrase('{key}'" in src
+            # or via an action => key map that is passed to dc_require_phrase()
+            mapped = re.search(r"=>\s*'" + re.escape(key) + r"'", src) and re.search(r'dc_require_phrase\(\$__dc\w+\[\$action\]\)', src)
+            self.assertTrue(direct or mapped, f'{rel} must enforce {key}')
 
 
 @unittest.skipUnless(shutil.which('php'), 'php CLI not installed')

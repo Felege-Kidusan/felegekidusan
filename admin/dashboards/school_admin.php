@@ -93,6 +93,7 @@ $mStroke=round($mPct*3.14);$fStroke=round($fPct*3.14);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" integrity="sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3" crossorigin="anonymous"></script>
 <script src="/admin/js/request-id.js"></script>
 <script src="/admin/js/report-format.js"></script>
+<script src="/admin/js/danger_confirm.js?v=20261021dc"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;500;600;700&family=Noto+Serif+Ethiopic:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
@@ -555,7 +556,7 @@ renderProfileTabSection('section-profile', 'cs');
 <label style="display:flex;gap:.45rem;align-items:flex-start;font-size:.76rem;cursor:pointer"><input type="radio" name="roMode" value="promote" style="margin-top:.15rem"><span><b>Promote one level</b> — everyone moves up one class level; the top class is marked graduated. Use only if each level has exactly one class.</span></label>
 </div>
 <div id="roPreview" style="font-size:.75rem;color:var(--dim);background:rgba(148,163,184,.08);border-radius:6px;padding:.45rem .6rem">Loading…</div>
-<div><label class="flbl">Type <code style="background:rgba(148,163,184,.18);padding:.05rem .3rem;border-radius:3px">ROLLOVER</code> to confirm</label><input id="roConfirm" class="inp" style="width:100%" placeholder="ROLLOVER" autocomplete="off"></div>
+<div style="font-size:.74rem;color:var(--dim)"><i class="fa-solid fa-shield-halved"></i> After you press Run, a 3-step confirmation explains what will happen and asks you to type <code>ROLLOVER</code>.</div>
 <button class="btn bp" id="roRunBtn" onclick="runRollover()"><i class="fa-solid fa-rotate"></i> Run Year Rollover</button>
 </div>
 </div></div>
@@ -654,7 +655,9 @@ document.addEventListener('click',e=>{if(!e.target.closest('.search-box'))docume
 /* P72: old inline notification bell removed — shared Notification Center in the topbar */
 
 // IMPERSONATE
-async function switchRole(role){if(!confirm('Switch to '+role.replace(/_/g,' ')+' dashboard?'))return;try{const fd=new FormData();fd.append('action','switch');fd.append('role',role);fd.append('csrf_token',CSRF);const r=await fetch('/admin/api_impersonate.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success'){toast('Switching...','s');setTimeout(()=>window.location.href='/admin/dashboard.php',400);}else toast(d.message||'Failed','e');}catch(e){toast('Network error','e');}}
+// Danger confirmation dialog (admin/js/danger_confirm.js) — owner decisions 2026-10-21.
+function dcAsk(o){if(window.DangerConfirm&&window.DangerConfirm.ask)return window.DangerConfirm.ask(o);toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.','e');return Promise.resolve(false);}
+async function switchRole(role){const rn=role.replace(/_/g,' ');if(!(await dcAsk({tier:'low',title:'Open the '+rn+' dashboard?',summary:'You will act as '+rn+' until you return. Actions you take there are recorded under your account.',confirmLabel:'Switch dashboard'})))return;try{const fd=new FormData();fd.append('action','switch');fd.append('role',role);fd.append('csrf_token',CSRF);const r=await fetch('/admin/api_impersonate.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success'){toast('Switching...','s');setTimeout(()=>window.location.href='/admin/dashboard.php',400);}else toast(d.message||'Failed','e');}catch(e){toast('Network error','e');}}
 async function restoreRole(){try{const fd=new FormData();fd.append('action','restore');fd.append('csrf_token',CSRF);const r=await fetch('/admin/api_impersonate.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success')window.location.href='/admin/dashboard.php';else toast(d.message||'Failed','e');}catch(e){toast('Failed','e');}}
 
 // SECTION BARS
@@ -726,7 +729,7 @@ async function loadClasses(){const el=document.getElementById('classesContent');
 function renderUsers(){document.getElementById('usersBody').innerHTML=usersData.map(u=>`<tr><td style="color:var(--dim)">${u.id}</td><td style="font-weight:600;color:var(--bright)">${esc(u.username)}</td><td>${esc(u.full_name||'—')}</td><td>${rlBg(u.role)}</td><td>${stBg(u.status)}</td><td style="font-size:.62rem;color:var(--dim)">${u.last_login?fmtDate(u.last_login):'Never'}</td><td><button class="btn bs ${u.status==='active'?'bo':''}" style="${u.status!=='active'?'background:var(--ok);color:#fff':''}" onclick="toggleUser(${u.id},'${u.status}')"><i class="fa-solid fa-${u.status==='active'?'ban':'check'}"></i></button></td></tr>`).join('');}
 function openAddUser(){document.getElementById('addUserModal').classList.add('show');}
 async function saveNewUser(){const nm=document.getElementById('nuName').value.trim(),un=document.getElementById('nuUser').value.trim(),pw=document.getElementById('nuPass').value,rl=document.getElementById('nuRole').value;if(!nm||!un||!pw)return toast('All fields required','e');if(pw.length<12)return toast('Password must be at least 12 characters','e');if(new TextEncoder().encode(pw).length>72)return toast('Password is too long','e');try{const fd=new FormData();fd.append('full_name',nm);fd.append('username',un);fd.append('password',pw);fd.append('role',rl);fd.append('status','active');fd.append('csrf_token',CSRF);const r=await fetch('/admin/backend/user-save.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success'||d.success){toast('User created!','s');document.getElementById('addUserModal').classList.remove('show');usersData.unshift({id:d.id||Date.now(),username:un,full_name:nm,role:rl,status:'active',last_login:null});renderUsers();['nuName','nuUser','nuPass'].forEach(id=>document.getElementById(id).value='');}else toast(d.message||'Failed','e');}catch(e){toast('Network error','e');}}
-async function toggleUser(id,cur){const act=cur==='active'?'deactivate':'activate';if(!confirm(act+' this user?'))return;try{const fd=new FormData();fd.append('id',id);fd.append('action',act);fd.append('csrf_token',CSRF);const r=await fetch('/admin/backend/user-toggle.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success'||d.success){const u=usersData.find(x=>x.id==id);if(u)u.status=cur==='active'?'inactive':'active';renderUsers();toast('Done','s');}}catch(e){toast('Failed','e');}}
+async function toggleUser(id,cur){const act=cur==='active'?'deactivate':'activate';const dc=await dcAsk(act==='deactivate'?{tier:'medium',title:'Deactivate this user account?',summary:'The account is switched off but not deleted.',intent:'I want to deactivate this account',consequences:['The user can no longer log in on the web dashboard or the mobile app.','Work assigned to this account (classes, tasks) stops reaching them.'],keeps:['Everything they recorded stays and keeps their name.','You can activate the account again later.'],phrase:'DEACTIVATE USER',confirmLabel:'Deactivate account'}:{tier:'low',title:'Activate this user account?',summary:'The user can log in again with their existing password.',confirmLabel:'Activate account'});if(!dc)return;try{const fd=new FormData();fd.append('id',id);fd.append('action',act);fd.append('csrf_token',CSRF);const r=await fetch('/admin/backend/user-toggle.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();if(d.status==='success'||d.success){const u=usersData.find(x=>x.id==id);if(u)u.status=cur==='active'?'inactive':'active';renderUsers();toast('Done','s');}}catch(e){toast('Failed','e');}}
 
 // REPORTS
 function loadAnalysis(){buildAnalysis();}
@@ -1324,12 +1327,16 @@ async function setCurrentYear(id){
     const y=window._yearData?.[id];const st=y?(y.status||(y.is_current==1?'active':'upcoming')):'upcoming';
     if(st==='active'){toast('That year is already the active year','s');return;}
     const reopen=(st==='closed');const phrase=reopen?'REOPEN':'SWITCH';
-    const warn=reopen
-        ? 'This year is CLOSED (a past year).\n\nReopening it makes it the ACTIVE year again and NEW records will be stamped to it. Only do this to correct a mistake.\n\nType REOPEN to confirm:'
-        : 'Switching the active year will CLOSE the current year.\n\nNew attendance, enrolments and grades will belong to the newly selected year.\n\nType SWITCH to confirm:';
-    const typed=prompt(warn);
-    if(typed===null)return;
-    if((typed||'').trim().toUpperCase()!==phrase){toast('Confirmation text did not match — no change made','e');return;}
+    const nm=y?y.year_name:'';
+    const dc=await dcAsk(reopen?{tier:'high',title:'Reopen the closed year '+nm+'?',object:nm,
+        summary:'This year is CLOSED (a past year). Reopening it makes it the ACTIVE year again.',intent:'I want to reopen this past year',
+        consequences:['The current active year is closed.','NEW attendance, enrolments and grades will be stamped to '+nm+'.','Everyone sees '+nm+' as the current year in the web dashboard and the mobile app.'],
+        keeps:['No records are deleted.','Only do this to correct a mistake.'],phrase:'REOPEN',confirmLabel:'Reopen '+nm}
+      :{tier:'high',title:'Make '+nm+' the active year?',object:nm,
+        summary:'Switching the active year CLOSES the current year.',intent:'I want to switch the active year',
+        consequences:['The current active year is closed and becomes read-only history.','New attendance, enrolments and grades will belong to '+nm+'.','To carry students into the new year use Year Rollover instead.'],
+        keeps:['No records are deleted.'],phrase:'SWITCH',confirmLabel:'Switch to '+nm});
+    if(!dc)return;
     const fd=new FormData();fd.append('action','set_current_year');fd.append('year_id',id);fd.append('confirm',phrase);fd.append('csrf_token',CSRF);
     try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
         toast(d.message||(d.status==='success'?'Active year changed':'Failed'),d.status==='success'?'s':'e');
@@ -1338,7 +1345,7 @@ async function setCurrentYear(id){
 }
 async function deleteYear(id){
     const y=window._yearData?.[id];const nm=y?y.year_name:'';
-    if(!confirm('Delete the empty upcoming year "'+nm+'"?\n\nOnly a year with NO records can be deleted. This cannot be undone.'))return;
+    const dc=await dcAsk({tier:'medium',title:'Delete the upcoming year '+nm+'?',object:nm,summary:'Only a year with NO records can be deleted.',intent:'I want to delete this year',consequences:['The year and its semesters are deleted permanently.','If the year already has any records, the system refuses.'],irreversible:true,phrase:'DELETE YEAR',confirmLabel:'Delete year'});if(!dc)return;
     const fd=new FormData();fd.append('action','delete_year');fd.append('year_id',id);fd.append('csrf_token',CSRF);
     try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
         toast(d.message||(d.status==='success'?'Deleted':'Failed'),d.status==='success'?'s':'e');
@@ -1349,7 +1356,7 @@ function toggleYearHelp(){const h=document.getElementById('yearHelp');if(h)h.sty
 /* ─── Year Rollover (styled modal, backed by /admin/tools/year_rollover.php) ─── */
 async function openRolloverModal(){
     const m=document.getElementById('rolloverModal');if(!m)return;
-    document.getElementById('roConfirm').value='';
+    const roc=document.getElementById('roConfirm'); if(roc) roc.value='';
     document.getElementById('roOld').innerHTML='<option>Loading…</option>';
     document.getElementById('roNew').innerHTML='<option>Loading…</option>';
     document.getElementById('roPreview').textContent='Loading…';
@@ -1378,10 +1385,18 @@ async function updateRolloverPreview(){
 async function runRollover(){
     const oldId=document.getElementById('roOld').value, newId=document.getElementById('roNew').value;
     const mode=(document.querySelector('input[name="roMode"]:checked')||{}).value||'carry_forward';
-    const confirmTxt=document.getElementById('roConfirm').value.trim();
     if(!oldId||!newId){toast('Choose both years','e');return;}
     if(oldId===newId){toast('The two years must be different','e');return;}
-    if(confirmTxt.toUpperCase()!=='ROLLOVER'){toast('Type ROLLOVER to confirm','e');return;}
+    const sel=id=>{const e=document.getElementById(id);return e&&e.selectedIndex>=0?e.options[e.selectedIndex].text.replace(/\s*·\s*(Active|Upcoming|Closed|Current)\s*$/i,''):'';};
+    const oldN=sel('roOld'), newN=sel('roNew'), promote=(mode==='promote');
+    const dc=await dcAsk({tier:'high',title:'Run Year Rollover from '+oldN+' to '+newN+'?',object:oldN+'  →  '+newN,
+        summary:'Closes the current year and carries every student into the new year in one all-or-nothing step.',intent:'I want to run the year rollover',
+        consequences:[oldN+' is CLOSED and becomes read-only history.',newN+' becomes the ACTIVE year for everyone (web and mobile app).',
+            promote?'Every active student is PROMOTED one class level in '+newN+'.':'Every active student keeps the same class in '+newN+'.',
+            'All current enrolments of '+oldN+' are closed.'],
+        keeps:['Grades and attendance of '+oldN+' stay in history.','If any step fails, nothing is changed.'],
+        phrase:'ROLLOVER',confirmLabel:'Run Year Rollover'});
+    if(!dc)return;
     const btn=document.getElementById('roRunBtn');btn.disabled=true;btn.style.opacity=.6;
     const fd=new FormData();fd.append('action','run');fd.append('old_year_id',oldId);fd.append('new_year_id',newId);fd.append('mode',mode);fd.append('confirm','ROLLOVER');fd.append('csrf_token',CSRF);
     try{
@@ -1420,9 +1435,9 @@ async function saveTerm(termId){
     if(d.status==='success'){toast('Semester saved!','s');document.getElementById('termModal')?.remove();viewTerms(window._termYearId);loadYears();}
     else toast(d.message||'Failed','e');}catch(e){toast('Network error','e');}
 }
-async function reopenTerm(id,open){const fd=new FormData();fd.append('action',open?'reopen_term':'close_term_reopen');fd.append('term_id',id);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Updated':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')viewTerms(window._termYearId);}catch(e){toast('Error','e');}}
-async function setCurrentTerm(id){const fd=new FormData();fd.append('action','set_current_term');fd.append('term_id',id);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Updated':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')viewTerms(window._termYearId);}catch(e){toast('Error','e');}}
-async function deleteTerm(id){if(!confirm('Delete this semester?'))return;const fd=new FormData();fd.append('action','delete_term');fd.append('term_id',id);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Deleted':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')viewTerms(window._termYearId);}catch(e){toast('Error','e');}}
+async function reopenTerm(id,open){const dc=await dcAsk(open?{tier:'medium',title:'Reopen this semester for corrections?',summary:'A closed semester is opened again so marks can be corrected.',intent:'I want to reopen this semester',consequences:['Teachers can change marks of this semester again.','Report cards for this semester may change until you close it again.'],keeps:['No records are deleted.'],phrase:'REOPEN SEMESTER',confirmLabel:'Reopen semester'}:{tier:'low',title:'Close this semester again?',summary:'Marks of this semester become read-only again.',confirmLabel:'Close semester'});if(!dc)return;const fd=new FormData();fd.append('action',open?'reopen_term':'close_term_reopen');fd.append('term_id',id);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Updated':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')viewTerms(window._termYearId);}catch(e){toast('Error','e');}}
+async function setCurrentTerm(id){const dc=await dcAsk({tier:'medium',title:'Make this the current semester?',summary:'The current semester decides where new work is recorded.',intent:'I want to change the current semester',consequences:['New assessments and grades are recorded in this semester.','Teachers, report cards and the mobile app switch to this semester.'],keeps:['No records are deleted or moved.'],phrase:'SET SEMESTER',confirmLabel:'Set current semester'});if(!dc)return;const fd=new FormData();fd.append('action','set_current_term');fd.append('term_id',id);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Updated':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')viewTerms(window._termYearId);}catch(e){toast('Error','e');}}
+async function deleteTerm(id){const dc=await dcAsk({tier:'high',title:'Delete this semester?',summary:'The semester is removed from the academic year.',intent:'I want to delete this semester',consequences:()=>fetch('/admin/api_education.php?action=impact_delete_term&term_id='+id,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(!d||d.status!=='success')throw new Error('x');const c=d.counts||{};if(d.blocked)return['This semester has '+c.assessments+' assessment(s), '+c.grades+' grade record(s) and '+c.grade_submissions+' mark list(s). The system will REFUSE to delete it to protect that history.'];return['The semester is deleted permanently.','It has no assessments, grades or mark lists.'];}),fallbackConsequences:['If the semester has assessments, grades or mark lists, the system refuses.','Otherwise the semester is deleted permanently.'],irreversible:true,phrase:'DELETE SEMESTER',confirmLabel:'Delete semester'});if(!dc)return;const fd=new FormData();fd.append('action','delete_term');fd.append('term_id',id);fd.append('confirm_phrase',dc.phrase);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Deleted':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')viewTerms(window._termYearId);}catch(e){toast('Error','e');}}
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');}
 function toast(msg,type){const t=document.getElementById('toast'),i=document.createElement('i'),s=document.createElement('span');t.className='toast '+(type==='s'?'ts':'te')+' show';i.className='fa-solid fa-'+(type==='s'?'check-circle':'exclamation-circle');s.textContent=String(msg||'');t.replaceChildren(i,s);setTimeout(()=>t.classList.remove('show'),3500);}
 function dlFile(content,filename,mime){const b=new Blob([content],{type:mime+';charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=filename;a.click();URL.revokeObjectURL(a.href);}
@@ -1477,7 +1492,9 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
       loaded=true; render(d);
     }).catch(()=>{grid.innerHTML='<div style="font-size:.75rem">Could not load the attendance policy.</div>';});
   };
-  window.saveAttPolicy=function(dep){
+  window.saveAttPolicy=async function(dep){
+    const dc=await dcAsk({tier:'medium',title:'Save the attendance alert rules for '+dep+'?',summary:'These thresholds decide when members get attendance warnings.',intent:'I want to change the alert rules',consequences:['Warnings, risk levels and alerts for every member of this department are recalculated with the new rules.','Members may enter or leave the warning lists right away.'],keeps:['Attendance records themselves are not changed.','You can change the rules back at any time.'],phrase:'SAVE POLICY',confirmLabel:'Save alert rules'});
+    if(!dc)return;
     const body={action:'save',department:dep,csrf_token:CSRF};
     grid.querySelectorAll('[data-pol="'+dep+'"]').forEach(el=>{body[el.getAttribute('data-f')]=el.type==='checkbox'?(el.checked?1:0):el.value;});
     fetch('/admin/api_attendance_policy.php',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify(body)})

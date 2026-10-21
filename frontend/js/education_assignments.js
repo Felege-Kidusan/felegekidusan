@@ -234,10 +234,21 @@ var Asg = (function () {
         }
     }
 
+    function dcAsk(o) {
+        if (window.DangerConfirm && window.DangerConfirm.ask) return window.DangerConfirm.ask(o);
+        toast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', 'e');
+        return Promise.resolve(false);
+    }
     function remove(assignmentId) {
-        if (!confirm('Remove this assignment? Grades already entered will stay.')) return;
-        window.api.post(API, { action: 'unassign', assignment_id: assignmentId })
-            .then(afterWrite).catch(function () { toast('Error', 'e'); });
+        dcAsk({ tier: 'medium', title: 'Remove this teacher assignment?', summary: 'The teacher stops teaching this class/subject.',
+            intent: 'I want to remove this assignment',
+            consequences: ['The teacher no longer sees this class in attendance, grade entry and the timetable.'],
+            keeps: ['Grades and attendance already entered stay.'],
+            phrase: 'REMOVE ASSIGNMENT', confirmLabel: 'Remove assignment' }).then(function (ok) {
+            if (!ok) return;
+            window.api.post(API, { action: 'unassign', assignment_id: assignmentId })
+                .then(afterWrite).catch(function () { toast('Error', 'e'); });
+        });
     }
 
     function makePrimary(assignmentId) {

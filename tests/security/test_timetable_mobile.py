@@ -329,7 +329,7 @@ class TimetableWebToMobileEndToEnd(unittest.TestCase):
         other_iso = 1 if today_iso != 1 else 2
 
         # ── 1. Education builds the class on the web ──────────────────
-        self.web("save_days", {"class_id": C, "days[]": [today_iso, other_iso]})
+        self.web("save_days", {"class_id": C, "days[]": [today_iso, other_iso], "confirm_phrase": "REMOVE DAY"})  # typed confirmation (danger-confirm DC-1)
         p1 = self.web("save_period", {"class_id": C, "label": "E2E P1", "start_time": "07:30", "end_time": "08:15"})["period_id"]
         pb = self.web("save_period", {"class_id": C, "label": "E2E Break", "start_time": "08:15", "end_time": "08:30", "is_break": 1})["period_id"]
         p2 = self.web("save_period", {"class_id": C, "label": "E2E P2", "start_time": "08:30", "end_time": "09:15"})["period_id"]
