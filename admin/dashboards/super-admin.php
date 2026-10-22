@@ -1489,8 +1489,9 @@ require __DIR__ . '/../components/bottom_nav.php';
     <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
     <script src="/admin/js/danger_user_forms.js?v=20261022dc"></script>
     <script src="/admin/js/app_release.js?v=20261022dc"></script>
-    <script src="/admin/js/app_telemetry.js?v=20260928b"></script>
-    <script src="/admin/js/failure_intelligence.js?v=20261006b"></script>
+    <script src="/admin/js/app_telemetry.js?v=20261022p"></script>
+    <script src="/admin/js/list_pager.js?v=20261022p"></script>
+    <script src="/admin/js/failure_intelligence.js?v=20261022p"></script>
     <script src="/admin/js/super_admin.js?v=20261006a"></script>
     <script>
         // Calendar mode is fixed to Ethiopian system-wide (no save handler).

@@ -100,11 +100,11 @@
     value('fi-kpi-server-errors', String(data.server_errors_24h || 0));
   }
 
-  function renderIssues(data) {
+  function renderIssues(data, append) {
     var body = document.getElementById('fi-issues-body');
     if (!body) return;
     var items = (data && data.items) || [];
-    if (!items.length) {
+    if (!items.length && !append) {
       body.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No issues match these filters.</td></tr>';
     } else {
       var html = '';
@@ -123,10 +123,11 @@
           '<td><button type="button" class="btn btn-outline btn-sm" onclick="FailureIntelligenceUI.detail(' + Number(issue.id) + ')">View</button></td>' +
           '</tr>';
       });
-      body.innerHTML = html;
+      if (append) body.insertAdjacentHTML('beforeend', html); else body.innerHTML = html;
     }
     var pagination = (data && data.pagination) || {};
     state.pages = pagination.pages || 1;
+    if (issuesPager) { value('fi-page-info', (data.window || '7d') + ' window'); return; }
     value('fi-page-info', pagination.total ? 'Showing ' + (((pagination.page - 1) * pagination.limit) + 1) + '–' + Math.min(pagination.total, pagination.page * pagination.limit) + ' of ' + pagination.total + ' issues (' + (data.window || '7d') + ' window)' : '0 issues found');
   }
 
@@ -266,15 +267,15 @@
     });
   }
 
-  function renderReports(data) {
+  function renderReports(data, append) {
     var body = document.getElementById('fi-reports-body');
     if (!body) return;
     var items = (data && data.items) || [];
-    if (!items.length) {
+    if (!items.length && !append) {
       body.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:1.5rem;color:#94a3b8">No failure reports recorded yet.</td></tr>';
     } else {
       var sevColors = { low: '#94a3b8', medium: '#f59e0b', high: '#f87171', critical: '#ec4899' };
-      body.innerHTML = items.map(function (r) {
+      var rowsHtml = items.map(function (r) {
         return '<tr>' +
           '<td><span style="color:' + (sevColors[r.severity] || '#94a3b8') + ';font-weight:700;font-size:.72rem">' + escapeHtml(r.severity) + '</span></td>' +
           '<td style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(r.issue_title) + '">' + escapeHtml(r.issue_title) + '</td>' +
@@ -284,6 +285,7 @@
           '<td><button type="button" class="btn btn-outline btn-sm" onclick="FailureIntelligenceUI.viewReport(' + Number(r.id) + ')">View</button></td>' +
           '</tr>';
       }).join('');
+      if (append) body.insertAdjacentHTML('beforeend', rowsHtml); else body.innerHTML = rowsHtml;
     }
     var pagination = (data && data.pagination) || {};
     state.reportsPages = pagination.pages || 1;
@@ -343,33 +345,72 @@
     });
   }
 
-  function loadIssues(page) {
-    if (page) state.page = Math.min(Math.max(1, page), state.pages || 1);
+  // Phase 3 paging: shared pager (range, Previous/Next, per page, Load more).
+  var issuesPager = null, reportsPager = null;
+  function issuesUrl(page, perPage) {
     var source = encodeURIComponent(document.getElementById('fi-source-filter') ? document.getElementById('fi-source-filter').value : '');
     var status = encodeURIComponent(document.getElementById('fi-status-filter') ? document.getElementById('fi-status-filter').value : '');
     var win = encodeURIComponent(document.getElementById('fi-window-filter') ? document.getElementById('fi-window-filter').value : '7d');
-    get('?action=get_failure_issues&page=' + state.page + '&limit=25&source=' + source + '&status=' + status + '&window=' + win)
+    return '?action=get_failure_issues&page=' + page + '&limit=' + perPage + '&source=' + source + '&status=' + status + '&window=' + win;
+  }
+  function pagedFrom(res, page) {
+    if (res.status !== 'success' || !res.data) throw new Error('unavailable');
+    var pg = res.data.pagination || {};
+    return { data: res.data, total: pg.total || 0, page: pg.page || page, totalPages: pg.pages || 1 };
+  }
+  function makePager(hostId, key, noun, url, render, onFail) {
+    var last = null;
+    var host = document.getElementById(hostId);
+    if (!host || !window.FKSSPager) return null;
+    return window.FKSSPager.create({
+      host: host, storageKey: key, noun: noun, sizes: [25, 50, 100], defaultSize: 25,
+      fetchPage: function (page, perPage) {
+        return get(url(page, perPage)).then(function (res) {
+          var r = pagedFrom(res, page);
+          last = r.data;                                  // window / pagination for the renderer
+          return { rows: r.data.items || [], total: r.total, page: r.page, totalPages: r.totalPages };
+        });
+      },
+      render: function (rows, append) {
+        render({ items: rows, pagination: (last && last.pagination) || {}, window: last && last.window }, append);
+      },
+      onError: function () { onFail(); }
+    });
+  }
+  function issuesFail() { statusError('Failure Intelligence is unavailable. Apply sql/064_failure_intelligence.sql and verify the endpoint.'); }
+  function reportsFail() { statusError('Recorded reports are unavailable. Apply sql/064_failure_intelligence.sql.'); }
+
+  function loadIssues(page) {
+    if (!issuesPager) issuesPager = makePager('fi-issues-pager', 'fkss_pp_fi_issues', 'issues', issuesUrl, renderIssues, issuesFail);
+    if (issuesPager) {
+      var p = (page && page > 1) ? issuesPager.goTo(page) : issuesPager.reset();
+      return p.then(function () { state.page = issuesPager.firstPage; statusError(''); }).catch(issuesFail);
+    }
+    if (page) state.page = Math.min(Math.max(1, page), state.pages || 1);
+    get(issuesUrl(state.page, 25))
       .then(function (res) {
         if (res.status !== 'success' || !res.data) throw new Error('unavailable');
         renderIssues(res.data);
         statusError('');
-      }).catch(function () {
-        statusError('Failure Intelligence is unavailable. Apply sql/064_failure_intelligence.sql and verify the endpoint.');
-      });
+      }).catch(issuesFail);
   }
 
+  function reportsUrl(page, perPage) { return '?action=get_failure_reports&page=' + page + '&limit=' + perPage; }
   function loadReports(page) {
+    if (!reportsPager) reportsPager = makePager('fi-reports-pager', 'fkss_pp_fi_reports', 'reports', reportsUrl, renderReports, reportsFail);
+    if (reportsPager) {
+      var p = (page && page > 1) ? reportsPager.goTo(page) : reportsPager.reset();
+      return p.then(function () { state.reportsPage = reportsPager.firstPage; }).catch(reportsFail);
+    }
     if (page) state.reportsPage = Math.min(Math.max(1, page), state.reportsPages || 1);
-    get('?action=get_failure_reports&page=' + state.reportsPage + '&limit=20').then(function (res) {
+    get(reportsUrl(state.reportsPage, 20)).then(function (res) {
       if (res.status !== 'success' || !res.data) throw new Error('unavailable');
       renderReports(res.data);
-    }).catch(function () {
-      statusError('Recorded reports are unavailable. Apply sql/064_failure_intelligence.sql.');
-    });
+    }).catch(reportsFail);
   }
 
-  function page(delta) { loadIssues(state.page + delta); }
-  function reportsPage(delta) { loadReports(state.reportsPage + delta); }
+  function page(delta) { loadIssues((issuesPager ? issuesPager.firstPage : state.page) + delta); }
+  function reportsPage(delta) { loadReports((reportsPager ? reportsPager.firstPage : state.reportsPage) + delta); }
 
   function refresh() {
     get('?action=get_failure_overview').then(function (res) {

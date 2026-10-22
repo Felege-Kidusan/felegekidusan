@@ -47,7 +47,7 @@ $cfg = [
         'id' => (int)($_GET['id'] ?? 0),
     ],
 ];
-$assetVer = '20261022s';
+$assetVer = '20261022t';
 $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
 $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/dashboard.php';
 ?>
@@ -143,8 +143,10 @@ $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/d
     <div class="af-foot">
       <span id="af-meta"></span>
       <div class="af-pager">
+        <label class="rc-muted" style="font-size:.8rem">Per page <select id="af-size" aria-label="Rows per page"><option>25</option><option selected>50</option><option>100</option><option>200</option></select></label>
         <button class="rc-btn rc-btn-ghost rc-btn-sm" id="af-prev" type="button">‹ Prev</button>
         <button class="rc-btn rc-btn-ghost rc-btn-sm" id="af-next" type="button">Next ›</button>
+        <button class="rc-btn rc-btn-sm" id="af-more" type="button" hidden>Load more</button>
       </div>
     </div>
     <p class="af-note">A follow-up is opened automatically when a member returns to Education after an inactive period. Nothing is scored automatically: choose <em>make-up required</em>, <em>exempt</em> or <em>not applicable</em>. A make-up result is stored separately — the original assessment row is never changed.</p>

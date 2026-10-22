@@ -237,6 +237,12 @@ const AttendanceHub = (function () {
                     '<td class="py-2 pr-3">' + rateBar(g.rate) + '</td>' +
                     '<td class="py-2 text-rose-600 font-semibold">' + (g.absent || 0) + '</td></tr>'
                 ).join('');
+                // Phase 3: never cut the list silently. Groups are classes/sections (14 today), so a
+                // pager is not needed — but say so if the 100-row request ever stops covering them all.
+                const gTotal = Number(d && d.total) || lastGroups.length;
+                if (gTotal > lastGroups.length) {
+                    gt.insertAdjacentHTML('beforeend', '<tr><td colspan="5" class="py-2 text-center text-amber-600 text-xs">Showing ' + lastGroups.length + ' of ' + gTotal + ' ' + (source === 'edu' ? 'classes' : 'sections') + ' (highest marks first).</td></tr>');
+                }
             }
         }).catch(err => {
             console.error('AttendanceHub groups error:', err);

@@ -168,7 +168,7 @@ class SuperAdminUiUxTests(unittest.TestCase):
     def test_changed_assets_have_fresh_versions(self):
         self.assertIn("/admin/css/super_admin.css?v=20261006", self.dash)
         self.assertIn("/admin/js/super_admin.js?v=20261006", self.dash)
-        self.assertIn("/admin/js/failure_intelligence.js?v=20261006", self.dash)
+        self.assertIn("/admin/js/failure_intelligence.js?v=20261022p", self.dash)
 
     # ── UX-1 bug CLASS guard: scoped analytics classes must not leak ───────
     # The at-*/ar-* classes are scoped under #section-app_telemetry /

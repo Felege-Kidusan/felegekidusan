@@ -1017,7 +1017,10 @@
     // ══════════════════════════════════════════════════════════
     // MODULE 1 — HYMN LIBRARY
     // ══════════════════════════════════════════════════════════
-    var lib = { page: 1, totalPages: 1, total: 0, search: '', category: '', status: 'active', length: '', language: '', categoryId: 0, zemarianId: 0, loading: false, seq: 0 };
+    var lib = { page: 1, totalPages: 1, total: 0, search: '', category: '', status: 'active', length: '', language: '', categoryId: 0, zemarianId: 0, loading: false, seq: 0,
+        // Phase 3 paging: per page (remembered), Load more appends the next page.
+        firstPage: 1, shown: 0, appending: false,
+        perPage: (function () { var v = 0; try { v = parseInt(localStorage.getItem('fkss_pp_mz_lib'), 10); } catch (e) { v = 0; } return [25, 50, 100].indexOf(v) >= 0 ? v : PAGE_SIZE; })() };
 
     /** Keystroke cache (P22): identical search queries are answered from
      *  memory instead of re-hitting the server; every successful mutation
@@ -1058,7 +1061,9 @@
     function loadList() {
         var seq = ++lib.seq; // as-you-type: only the latest response renders
         var tb = $('mzTbody');
-        var q = 'action=list&page=' + encodeURIComponent(lib.page) + '&per_page=' + PAGE_SIZE +
+        var append = lib.appending === true;  // set only by libMore()
+        lib.appending = false;
+        var q = 'action=list&page=' + encodeURIComponent(lib.page) + '&per_page=' + lib.perPage +
             '&search=' + encodeURIComponent(lib.search) + '&category=' + encodeURIComponent(lib.category) +
             '&length=' + encodeURIComponent(lib.length) + '&language=' + encodeURIComponent(lib.language) +
             '&category_id=' + encodeURIComponent(lib.categoryId || '') + '&zemarian_id=' + encodeURIComponent(lib.zemarianId || '') +
@@ -1066,10 +1071,10 @@
         // Cached answer (same query typed again): render immediately, no
         // server round trip — the seq guard above still applies.
         if (listCache[q]) {
-            applyList(seq, tb, listCache[q]);
+            applyList(seq, tb, listCache[q], append);
             return;
         }
-        tb.innerHTML = skeletonRows(6);
+        if (!append) tb.innerHTML = skeletonRows(6);
         // supersede: this keystroke cancels every older in-flight query.
         apiGet(q, { supersede: true }).catch(function (err) {
             // P43: ONE silent retry for a transient failure. This is what
@@ -1086,7 +1091,7 @@
         }).then(function (d) {
             if (!d) return;
             if (seq === lib.seq && d.status === 'success') cachePut(q, d);
-            applyList(seq, tb, d);
+            applyList(seq, tb, d, append);
         }).catch(function (err) {
             // P43: an aborted request was cancelled BY US because the
             // user kept typing. It is not a failure and must never paint
@@ -1094,20 +1099,33 @@
             if (err && err.aborted) return;
             if (seq !== lib.seq) return;
             var msg = ((err && err.message) || 'Connection error.') + staleHint(err);
+            if (append) { lib.page--; window.toast(msg, 'e'); renderLibPagination(); return; }  // keep rows shown
             tb.innerHTML = '<tr><td colspan="6">' + errorState(msg, 'Mezmur.libReload()') + '</td></tr>';
         });
     }
 
-    function applyList(seq, tb, d) {
+    function applyList(seq, tb, d, append) {
         if (seq !== lib.seq) return;
         if (d.status !== 'success') {
+            if (append) { lib.page--; window.toast(d.message || 'Unable to load more hymns.', 'e'); renderLibPagination(); return; }
             tb.innerHTML = '<tr><td colspan="6">' + errorState(d.message || 'Unable to load hymns.', 'Mezmur.libReload()') + '</td></tr>';
             return;
         }
         lib.totalPages = d.total_pages || 1;
         lib.total = d.total || 0;
-        lib.lastItems = d.items || [];
-        renderHymnRows(d.items || []);
+        if (append && (d.items || []).length) {
+            // renderHymnRows paints the whole tbody; keep the rows already shown in front.
+            var before = tb.innerHTML;
+            renderHymnRows(d.items);
+            tb.innerHTML = before + tb.innerHTML;
+            lib.lastItems = (lib.lastItems || []).concat(d.items);
+            lib.shown += d.items.length;
+        } else {
+            lib.firstPage = lib.page;
+            lib.lastItems = d.items || [];
+            lib.shown = lib.lastItems.length;
+            renderHymnRows(d.items || []);
+        }
         renderLibPagination();
         announceResults();
     }
@@ -1276,11 +1294,22 @@
 
     function renderLibPagination() {
         var el = $('mzPagination');
-        if (lib.totalPages <= 1) { el.innerHTML = '<span style="color:var(--school-text-dim);font-size:.8rem">' + lib.total + ' hymn' + (lib.total === 1 ? '' : 's') + '</span><span></span>'; return; }
+        if (!el) return;
+        var dim = 'color:var(--school-text-dim);font-size:.8rem';
+        var start = lib.total ? (lib.firstPage - 1) * lib.perPage + 1 : 0;
+        var end = Math.min(lib.total, start + lib.shown - 1);
+        var left = Math.max(0, lib.total - end);
+        var sizes = [25, 50, 100].map(function (n) { return '<option value="' + n + '"' + (n === lib.perPage ? ' selected' : '') + '>' + n + '</option>'; }).join('');
         el.innerHTML =
-            '<button class="btn-secondary btn-sm" ' + (lib.page <= 1 ? 'disabled' : '') + ' onclick="Mezmur.libPage(' + (lib.page - 1) + ')"><i class="fa-solid fa-chevron-left"></i></button>' +
-            '<span style="color:var(--school-text-dim);font-size:.8rem">Page ' + lib.page + ' of ' + lib.totalPages + ' • ' + lib.total + ' hymns</span>' +
-            '<button class="btn-secondary btn-sm" ' + (lib.page >= lib.totalPages ? 'disabled' : '') + ' onclick="Mezmur.libPage(' + (lib.page + 1) + ')"><i class="fa-solid fa-chevron-right"></i></button>';
+            '<span id="mzLibRange" style="' + dim + '">' + (lib.total ? 'Showing ' + start + '\u2013' + end + ' of ' + lib.total + ' hymn' + (lib.total === 1 ? '' : 's') : '0 hymns') + '</span>' +
+            '<span style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">' +
+              '<button type="button" class="btn-secondary btn-sm" id="mzLibPrev" ' + (lib.firstPage <= 1 ? 'disabled' : '') + ' onclick="Mezmur.libPage(' + (lib.firstPage - 1) + ')" aria-label="Previous page"><i class="fa-solid fa-chevron-left"></i></button>' +
+              '<span style="' + dim + '">Page ' + (lib.firstPage === lib.page ? lib.page : lib.firstPage + '\u2013' + lib.page) + ' of ' + lib.totalPages + '</span>' +
+              '<button type="button" class="btn-secondary btn-sm" id="mzLibNext" ' + (lib.page >= lib.totalPages ? 'disabled' : '') + ' onclick="Mezmur.libPage(' + (lib.page + 1) + ')" aria-label="Next page"><i class="fa-solid fa-chevron-right"></i></button>' +
+              '<label style="' + dim + ';display:flex;gap:.3rem;align-items:center">Per page <select id="mzLibSize" class="school-input" style="width:auto;padding:.2rem .4rem" onchange="Mezmur.libPerPage(this.value)">' + sizes + '</select></label>' +
+              '<button type="button" class="btn-secondary btn-sm" id="mzLibMore" ' + (left <= 0 ? 'disabled' : '') + ' onclick="Mezmur.libMore()">' +
+                (left > 0 ? 'Load more (' + left + ' left)' : (lib.total ? '\u2713 All ' + lib.total + ' shown' : 'Load more')) + '</button>' +
+            '</span>';
     }
 
     var catalog = { categories: [], zemarians: [], tab: 'categories' };
@@ -2619,45 +2648,25 @@
         var hid = $('mzSubTabStatus');
         if (tab === 'insights') {
             $('mzSubmissionsList').classList.add('is-hidden');
+            if ($('mzSubPagination')) $('mzSubPagination').classList.add('is-hidden');
             $('mzSubInsights').classList.remove('is-hidden');
             loadSubInsights();
             return;
         }
         $('mzSubmissionsList').classList.remove('is-hidden');
+        if ($('mzSubPagination')) $('mzSubPagination').classList.remove('is-hidden');
         $('mzSubInsights').classList.add('is-hidden');
         hid.value = tab;
         loadSubmissions();
     }
 
-    function loadSubmissions() {
-        var tb = $('mzSubTbody');
-        if (!tb) return;
-        tb.innerHTML = skeletonRows(5);
-        var status = $('mzSubTabStatus').value || 'draft';
-        var q = 'action=submissions_list&per_page=100&status=' + encodeURIComponent(status);
-        var sec = $('mzSubSection') ? $('mzSubSection').value : '';
-        var from = $('mzSubFrom') ? $('mzSubFrom').value : '';
-        var to = $('mzSubTo') ? $('mzSubTo').value : '';
-        if (sec) q += '&section=' + encodeURIComponent(sec);
-        if (from) q += '&from=' + encodeURIComponent(from);
-        if (to) q += '&to=' + encodeURIComponent(to);
-        apiGet(q).then(function (d) {
-            if (d.status !== 'success') {
-                tb.innerHTML = '<tr><td colspan="8">' + errorState(d.message || 'Unable to load submissions.', 'Mezmur.loadSubmissions()') + '</td></tr>';
-                return;
-            }
-            _allPackets = d.items || [];
-            renderSubStats(d.stats || {});
-            if (!_allPackets.length) {
-                var empty = status === 'draft'
-                    ? 'No drafts yet. When a taker taps Save, the unfinished sheet appears here.'
-                    : (status === 'approved'
-                        ? 'No approved packets yet.'
-                        : 'No submitted sheets yet. Submit is used when the section sheet is complete.');
-                tb.innerHTML = '<tr><td colspan="8">' + emptyState('fa-inbox', status === 'draft' ? 'No drafts' : (status === 'approved' ? 'Nothing approved' : 'Nothing submitted'), empty) + '</td></tr>';
-                return;
-            }
-            tb.innerHTML = _allPackets.map(function (p) {
+    // Phase 3 paging: range, Previous/Next, per page (remembered) and Load more.
+    // The inbox grows every day; the old fixed per_page=100 cut it off silently.
+    var SUB_SIZES = [25, 50, 100];
+    var sub = { firstPage: 1, page: 1, totalPages: 1, total: 0, shown: 0, busy: false, seq: 0,
+        perPage: (function () { var v = 0; try { v = parseInt(localStorage.getItem('fkss_pp_mz_subs'), 10); } catch (e) { v = 0; } return SUB_SIZES.indexOf(v) >= 0 ? v : 50; })() };
+
+    function subRowHtml(p) {
                 var result = p.present_count + 'P / ' + p.late_count + 'L / ' + p.absent_count + 'A' + (p.excused_count ? ' / ' + p.excused_count + 'E' : '');
                 var returned = p.status === 'revision_needed' && p.reviewer_name
                     ? '<div class="text-dim" style="font-size:.68rem;margin-top:2px"><i class="fa-solid fa-arrow-rotate-left"></i> ' + esc(p.reviewer_name) +
@@ -2678,10 +2687,117 @@
                     '<td class="nowrap text-dim">' + fmtDate(p.updated_at) + '</td>' +
                     '<td class="nowrap">' + actions + '</td>' +
                     '</tr>';
-            }).join('');
+}
+
+    /** opts: none = page 1 (filters/tabs) · {keep:true} = reload the pages in view
+     *  (after a decision) · {page:n} = go to page n · {append:true} = Load more. */
+    function loadSubmissions(opts) {
+        opts = opts || {};
+        var tb = $('mzSubTbody');
+        if (!tb) return;
+        var append = opts.append === true;
+        var page = append ? sub.page + 1 : (opts.keep ? sub.firstPage : (opts.page || 1));
+        var perPage = sub.perPage;
+        // After a decision, keep what was on screen. Rows added with Load more can be re-fetched
+        // in one request only from page 1 (the server's offset is page x size); otherwise the
+        // first page in view is reloaded.
+        if (opts.keep && sub.firstPage === 1 && sub.page > 1) perPage = Math.min(100, sub.perPage * sub.page);
+        if (append && (sub.busy || sub.page >= sub.totalPages)) return;
+        var seq = ++sub.seq;
+        sub.busy = true;
+        if (!append) tb.innerHTML = skeletonRows(5);
+        var status = $('mzSubTabStatus').value || 'draft';
+        var q = 'action=submissions_list&page=' + page + '&per_page=' + perPage + '&status=' + encodeURIComponent(status);
+        var sec = $('mzSubSection') ? $('mzSubSection').value : '';
+        var from = $('mzSubFrom') ? $('mzSubFrom').value : '';
+        var to = $('mzSubTo') ? $('mzSubTo').value : '';
+        if (sec) q += '&section=' + encodeURIComponent(sec);
+        if (from) q += '&from=' + encodeURIComponent(from);
+        if (to) q += '&to=' + encodeURIComponent(to);
+        apiGet(q).then(function (d) {
+            if (seq !== sub.seq) return;            // a newer request replaced this one
+            sub.busy = false;
+            if (d.status !== 'success') {
+                if (append) { window.toast(d.message || 'Unable to load more submissions.', 'e'); return; }
+                tb.innerHTML = '<tr><td colspan="8">' + errorState(d.message || 'Unable to load submissions.', 'Mezmur.loadSubmissions()') + '</td></tr>';
+                renderSubPager();
+                return;
+            }
+            var items = d.items || [];
+            var total = Number(d.total) || 0;
+            var srvPage = Number(d.page) || page;
+            if (append && srvPage !== page) { loadSubmissions({ keep: true }); return; }  // list shrank under us
+            if (!append && !items.length && total > 0 && page > 1) { loadSubmissions({ page: Number(d.total_pages) || 1 }); return; }
+            renderSubStats(d.stats || {});
+            sub.total = total;
+            if (perPage === sub.perPage) {
+                sub.totalPages = Number(d.total_pages) || 1;
+            } else {                                // a "keep" reload fetched several pages at once
+                sub.totalPages = Math.max(1, Math.ceil(total / sub.perPage));
+            }
+            if (append) {
+                sub.page = srvPage;
+                sub.shown += items.length;
+                _allPackets = _allPackets.concat(items);
+                tb.insertAdjacentHTML('beforeend', items.map(subRowHtml).join(''));
+                renderSubPager();
+                return;
+            }
+            sub.firstPage = perPage === sub.perPage ? srvPage : page;
+            sub.page = perPage === sub.perPage ? srvPage : Math.min(sub.totalPages, page + Math.ceil(items.length / sub.perPage) - 1);
+            sub.shown = items.length;
+            _allPackets = items;
+            renderSubPager();
+            if (!_allPackets.length) {
+                var empty = status === 'draft'
+                    ? 'No drafts yet. When a taker taps Save, the unfinished sheet appears here.'
+                    : (status === 'approved'
+                        ? 'No approved packets yet.'
+                        : 'No submitted sheets yet. Submit is used when the section sheet is complete.');
+                tb.innerHTML = '<tr><td colspan="8">' + emptyState('fa-inbox', status === 'draft' ? 'No drafts' : (status === 'approved' ? 'Nothing approved' : 'Nothing submitted'), empty) + '</td></tr>';
+                return;
+            }
+            tb.innerHTML = _allPackets.map(subRowHtml).join('');
         }).catch(function (err) {
+            if (seq !== sub.seq) return;
+            sub.busy = false;
+            if (append) { window.toast((err && err.message) || 'Connection error.', 'e'); return; }
             tb.innerHTML = '<tr><td colspan="8">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.loadSubmissions()') + '</td></tr>';
         });
+    }
+
+    function renderSubPager() {
+        var el = $('mzSubPagination');
+        if (!el) return;
+        var start = sub.total ? (sub.firstPage - 1) * sub.perPage + 1 : 0;
+        var end = Math.min(sub.total, start + sub.shown - 1);
+        var left = Math.max(0, sub.total - end);
+        var dim = 'color:var(--school-text-dim);font-size:.8rem';
+        var sizes = SUB_SIZES.map(function (n) { return '<option value="' + n + '"' + (n === sub.perPage ? ' selected' : '') + '>' + n + '</option>'; }).join('');
+        el.innerHTML =
+            '<span id="mzSubRange" style="' + dim + '">' + (sub.total ? 'Showing ' + start + '\u2013' + end + ' of ' + sub.total : '0 packets') + '</span>' +
+            '<span style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">' +
+              '<button type="button" class="btn-secondary btn-sm" id="mzSubPrev" ' + (sub.firstPage <= 1 ? 'disabled' : '') + ' onclick="Mezmur.subPage(-1)" aria-label="Previous page"><i class="fa-solid fa-chevron-left"></i></button>' +
+              '<span style="' + dim + '">Page ' + (sub.firstPage === sub.page ? sub.page : sub.firstPage + '\u2013' + sub.page) + ' of ' + sub.totalPages + '</span>' +
+              '<button type="button" class="btn-secondary btn-sm" id="mzSubNext" ' + (sub.page >= sub.totalPages ? 'disabled' : '') + ' onclick="Mezmur.subPage(1)" aria-label="Next page"><i class="fa-solid fa-chevron-right"></i></button>' +
+              '<label style="' + dim + ';display:flex;gap:.3rem;align-items:center">Per page <select id="mzSubSize" class="school-input" style="width:auto;padding:.2rem .4rem" onchange="Mezmur.subPerPage(this.value)">' + sizes + '</select></label>' +
+              '<button type="button" class="btn-secondary btn-sm" id="mzSubMore" ' + (left <= 0 ? 'disabled' : '') + ' onclick="Mezmur.subMore()">' +
+                (left > 0 ? 'Load more (' + left + ' left)' : (sub.total ? '\u2713 All ' + sub.total + ' shown' : 'Load more')) + '</button>' +
+            '</span>';
+    }
+
+    function subPage(delta) {
+        var target = delta < 0 ? sub.firstPage - 1 : sub.page + 1;
+        if (target < 1 || target > sub.totalPages) return;
+        loadSubmissions({ page: target });
+    }
+    function subMore() { loadSubmissions({ append: true }); }
+    function subPerPage(v) {
+        var n = parseInt(v, 10);
+        if (SUB_SIZES.indexOf(n) < 0) return;
+        sub.perPage = n;
+        try { localStorage.setItem('fkss_pp_mz_subs', String(n)); } catch (e) { /* private mode */ }
+        loadSubmissions();
     }
 
     function renderSubStats(st) {
@@ -2718,7 +2834,7 @@
         apiPost({ action: 'submission_review', submission_id: id, new_status: decision, notes: '' }).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Unable to record the decision.', 'e'); return; }
             window.toast(d.message || 'Approved.', 's');
-            loadSubmissions();
+            loadSubmissions({ keep: true });
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
     }
 
@@ -2867,7 +2983,7 @@
             if (d.status !== 'success') { showError($('mzRvError'), d.message || 'Unable to record the decision.'); return; }
             closeModalF('mzReviewModal');
             window.toast(d.message || 'Decision recorded.', 's');
-            loadSubmissions();
+            loadSubmissions({ keep: true });
         }).catch(function (err) {
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-gavel"></i> Record Decision';
             showError($('mzRvError'), (err && err.message) || 'Connection error.');
@@ -2908,7 +3024,9 @@
     // ══════════════════════════════════════════════════════════
     // MODULE 3 — ANALYTICS (no program filter — raw attendance)
     // ══════════════════════════════════════════════════════════
-    var an = { page: 1, sort: 'rate', dir: 'desc', lastMembers: [], sessionsHeld: 0 };
+    var AN_SIZES = [25, 50, 100];
+    var an = { page: 1, firstPage: 1, total: 0, totalPages: 1, shown: 0, busy: false, sort: 'rate', dir: 'desc', lastMembers: [], sessionsHeld: 0,
+        perPage: (function () { var v = 0; try { v = parseInt(localStorage.getItem('fkss_pp_mz_an'), 10); } catch (e) { v = 0; } return AN_SIZES.indexOf(v) >= 0 ? v : PAGE_SIZE; })() };
 
     function ensureAnalyticsSections() {
         var sel = $('mzAnSection');
@@ -2916,7 +3034,7 @@
     }
 
     function anParams(page) {
-        return 'action=analytics_members&page=' + (page || an.page) + '&per_page=' + PAGE_SIZE +
+        return 'action=analytics_members&with_total=1&page=' + (page || an.page) + '&per_page=' + an.perPage +
             '&sort=' + encodeURIComponent(an.sort) + '&dir=' + an.dir +
             '&section=' + encodeURIComponent($('mzAnSection').value || '') +
             '&from=' + encodeURIComponent($('mzAnFrom').value || '') +
@@ -2945,7 +3063,8 @@
             an.lastMembers = dm.items || [];
             an.sessionsHeld = dm.sessions_held || 0;
             $('mzAnHeld').textContent = dm.sessions_held != null ? dm.sessions_held : '—';
-            $('mzAnMembers').textContent = (dm.items || []).length;
+            // Phase 3: the card shows every matching member, not just this page.
+            $('mzAnMembers').textContent = dm.total != null ? dm.total : (dm.items || []).length;
 
             // average rate across ranked members (only those with data)
             var withRate = (dm.items || []).filter(function (m) { return m.rate != null; });
@@ -2960,16 +3079,21 @@
         });
     }
 
-    function renderAnRows(dm) {
+    function renderAnRows(dm, append) {
         var tb = $('mzAnTbody');
         var items = dm.items || [];
-        if (!items.length) {
+        an.total = dm.total != null ? Number(dm.total) : items.length;
+        an.totalPages = Number(dm.total_pages) || 1;
+        if (!append) { an.firstPage = Number(dm.page) || an.page; an.shown = 0; }
+        an.page = Number(dm.page) || an.page;
+        an.shown += items.length;
+        if (!items.length && !append) {
             tb.innerHTML = '<tr><td colspan="7">' + emptyState('fa-filter-circle-xmark', 'No members match', 'Adjust the filters above and press Analyze again.') + '</td></tr>';
             $('mzAnPagination').innerHTML = '';
             return;
         }
-        var startRank = (dm.page - 1) * PAGE_SIZE;
-        tb.innerHTML = items.map(function (m, i) {
+        var startRank = (dm.page - 1) * an.perPage;
+        var rowsHtml = items.map(function (m, i) {
             return '<tr>' +
                 '<td class="text-dim">' + (startRank + i + 1) + '</td>' +
                 '<td><b>' + esc(m.student_name) + '</b> ' + esc(m.father_name || '') +
@@ -2982,12 +3106,49 @@
                 ' <span class="text-dim">(' + pctLabel(m.absent_rate) + ')</span></td>' +
                 '<td class="text-dim nowrap">' + fmtDate(m.last_attended) + '</td></tr>';
         }).join('');
+        if (append) tb.insertAdjacentHTML('beforeend', rowsHtml); else tb.innerHTML = rowsHtml;
         updateSortHeaders();
+        renderAnPager();
+    }
 
-        $('mzAnPagination').innerHTML =
-            '<button class="btn-secondary btn-sm" ' + (an.page <= 1 ? 'disabled' : '') + ' onclick="Mezmur.runAnalytics(' + (an.page - 1) + ')"><i class="fa-solid fa-chevron-left"></i></button>' +
-            '<span style="color:var(--school-text-dim);font-size:.8rem">Page ' + an.page + '</span>' +
-            '<button class="btn-secondary btn-sm" ' + (items.length < PAGE_SIZE ? 'disabled' : '') + ' onclick="Mezmur.runAnalytics(' + (an.page + 1) + ')"><i class="fa-solid fa-chevron-right"></i></button>';
+    function renderAnPager() {
+        var el = $('mzAnPagination');
+        if (!el) return;
+        var start = an.total ? (an.firstPage - 1) * an.perPage + 1 : 0;
+        var end = Math.min(an.total, start + an.shown - 1);
+        var left = Math.max(0, an.total - end);
+        var dim = 'color:var(--school-text-dim);font-size:.8rem';
+        var sizes = AN_SIZES.map(function (n) { return '<option value="' + n + '"' + (n === an.perPage ? ' selected' : '') + '>' + n + '</option>'; }).join('');
+        el.innerHTML =
+            '<span id="mzAnRange" style="' + dim + '">' + (an.total ? 'Showing ' + start + '\u2013' + end + ' of ' + an.total + ' members' : '0 members') + '</span>' +
+            '<span style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">' +
+              '<button type="button" class="btn-secondary btn-sm" id="mzAnPrev" ' + (an.firstPage <= 1 ? 'disabled' : '') + ' onclick="Mezmur.runAnalytics(' + (an.firstPage - 1) + ')" aria-label="Previous page"><i class="fa-solid fa-chevron-left"></i></button>' +
+              '<span style="' + dim + '">Page ' + (an.firstPage === an.page ? an.page : an.firstPage + '\u2013' + an.page) + ' of ' + an.totalPages + '</span>' +
+              '<button type="button" class="btn-secondary btn-sm" id="mzAnNext" ' + (an.page >= an.totalPages ? 'disabled' : '') + ' onclick="Mezmur.runAnalytics(' + (an.page + 1) + ')" aria-label="Next page"><i class="fa-solid fa-chevron-right"></i></button>' +
+              '<label style="' + dim + ';display:flex;gap:.3rem;align-items:center">Per page <select id="mzAnSize" class="school-input" style="width:auto;padding:.2rem .4rem" onchange="Mezmur.anPerPage(this.value)">' + sizes + '</select></label>' +
+              '<button type="button" class="btn-secondary btn-sm" id="mzAnMore" ' + (left <= 0 ? 'disabled' : '') + ' onclick="Mezmur.anMore()">' +
+                (left > 0 ? 'Load more (' + left + ' left)' : (an.total ? '\u2713 All ' + an.total + ' shown' : 'Load more')) + '</button>' +
+            '</span>';
+    }
+
+    /** Load more: append the next page of ranked members (rank numbers continue). */
+    function anMore() {
+        if (an.busy || an.page >= an.totalPages) return;
+        an.busy = true;
+        apiGet(anParams(an.page + 1)).then(function (dm) {
+            an.busy = false;
+            if (dm.status !== 'success') { window.toast(dm.message || 'Unable to load more members.', 'e'); return; }
+            an.lastMembers = an.lastMembers.concat(dm.items || []);
+            renderAnRows(dm, true);
+        }).catch(function (err) { an.busy = false; window.toast((err && err.message) || 'Connection error.', 'e'); });
+    }
+
+    function anPerPage(v) {
+        var n = parseInt(v, 10);
+        if (AN_SIZES.indexOf(n) < 0) return;
+        an.perPage = n;
+        try { localStorage.setItem('fkss_pp_mz_an', String(n)); } catch (e) { /* private mode */ }
+        runAnalytics(1);
     }
 
     function renderSectionCards(items) {
@@ -3493,14 +3654,24 @@
         syncStamp: syncStamp, syncPlayPause: syncPlayPause,
         syncNudge: syncNudge, syncSeekTo: syncSeekTo, syncReset: syncReset,
         closeView: function () { closeModalF('mzViewModal'); },
+        anMore: anMore, anPerPage: anPerPage,
         libPage: function (p) { if (p >= 1 && p <= lib.totalPages) { lib.page = p; loadList(); } },
+        libMore: function () { if (lib.page < lib.totalPages) { lib.page++; lib.appending = true; loadList(); } },
+        libPerPage: function (v) {
+            var n = parseInt(v, 10);
+            if ([25, 50, 100].indexOf(n) < 0) return;
+            lib.perPage = n;
+            try { localStorage.setItem('fkss_pp_mz_lib', String(n)); } catch (e) { /* private mode */ }
+            lib.page = 1; loadList();
+        },
         // attendance
         loadDays: function () { loadDays(1); },
         sessPage: function (p) { loadDays(p); },
         openDay: openDay, viewSheet: viewSheet, quickReview: quickReview,
         closeSheet: function () { closeSheet(false); },
         // review inbox
-        loadSubmissions: loadSubmissions, switchSubTab: switchSubTab, quickDecision: quickDecision,
+        loadSubmissions: function () { loadSubmissions(); }, subPage: subPage, subMore: subMore, subPerPage: subPerPage,
+        switchSubTab: switchSubTab, quickDecision: quickDecision,
         printQrRoster: printQrRoster,
         exportSubmissions: exportSubmissions, openReview: openReview, submitReview: submitReview, viewPacket: viewPacket,
         // analytics

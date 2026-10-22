@@ -16,10 +16,16 @@
     meta: document.getElementById('af-meta'),
     prev: document.getElementById('af-prev'),
     next: document.getElementById('af-next'),
+    size: document.getElementById('af-size'),
+    more: document.getElementById('af-more'),
     reload: document.getElementById('af-reload'),
     modalRoot: document.getElementById('af-modal-root')
   };
-  var state = { items: [], total: 0, limit: 50, offset: 0, counts: null, canWrite: false, labels: {}, loading: false };
+  // Phase 3 paging: per page remembered; Load more appends.
+  var SIZE_KEY = 'fkss_pp_followups';
+  var savedSize = (function () { try { var v = parseInt(localStorage.getItem(SIZE_KEY), 10); return [25, 50, 100, 200].indexOf(v) >= 0 ? v : null; } catch (e) { return null; } })();
+  var state = { items: [], total: 0, limit: savedSize || 50, offset: 0, counts: null, canWrite: false, labels: {}, loading: false };
+  if (els.size) { els.size.value = String(state.limit); }
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -62,7 +68,7 @@
       q: els.q.value.trim(),
       member_id: cfg.initial && cfg.initial.member_id ? cfg.initial.member_id : '',
       class_id: cfg.initial && cfg.initial.class_id ? cfg.initial.class_id : '',
-      limit: state.limit, offset: state.offset
+      limit: state.limit, offset: state.offset + (state.appendFrom || 0)
     };
   }
 
@@ -113,17 +119,25 @@
       });
     }
     var from = state.total ? state.offset + 1 : 0;
-    var to = Math.min(state.offset + state.limit, state.total);
+    var to = Math.min(state.offset + state.items.length, state.total);
     els.meta.textContent = state.total ? ('Showing ' + from + '–' + to + ' of ' + state.total) : '';
     els.total.textContent = state.total ? (state.total + ' follow-up' + (state.total === 1 ? '' : 's')) : '';
     els.prev.disabled = state.offset <= 0;
-    els.next.disabled = state.offset + state.limit >= state.total;
+    els.next.disabled = state.offset + state.items.length >= state.total;
+    if (els.more) {
+      var left = Math.max(0, state.total - (state.offset + state.items.length));
+      els.more.hidden = left <= 0;
+      els.more.disabled = false;
+      els.more.textContent = 'Load more (' + left + ' left)';
+    }
   }
 
-  function load() {
+  function load(append) {
     if (state.loading) { return; }
     state.loading = true;
+    state.appendFrom = append ? state.items.length : 0;
     var f = filters();
+    state.appendFrom = 0;
     Promise.all([
       get(f),
       get({ action: 'counts', member_id: f.member_id, class_id: f.class_id })
@@ -134,7 +148,7 @@
       els.unavailable.hidden = !!list.available;
       state.canWrite = !!list.can_write;
       state.labels = list.decisions || {};
-      state.items = list.items || [];
+      state.items = append ? state.items.concat(list.items || []) : (list.items || []);
       state.total = list.total || 0;
       state.counts = counts.counts || {};
       renderCards();
@@ -242,7 +256,17 @@
   var qTimer = null;
   els.q.addEventListener('input', function () { clearTimeout(qTimer); qTimer = setTimeout(function () { state.offset = 0; load(); }, 300); });
   els.prev.addEventListener('click', function () { state.offset = Math.max(0, state.offset - state.limit); load(); });
-  els.next.addEventListener('click', function () { state.offset += state.limit; load(); });
+  els.next.addEventListener('click', function () { state.offset += Math.max(state.items.length, 1); load(); });
+  if (els.more) { els.more.addEventListener('click', function () { els.more.disabled = true; els.more.textContent = 'Loading…'; load(true); }); }
+  if (els.size) {
+    els.size.addEventListener('change', function () {
+      var n = parseInt(els.size.value, 10);
+      if ([25, 50, 100, 200].indexOf(n) < 0) { return; }
+      state.limit = n; state.offset = 0;
+      try { localStorage.setItem(SIZE_KEY, String(n)); } catch (e) { /* private mode */ }
+      load();
+    });
+  }
   els.reload.addEventListener('click', load);
 
   if (cfg.initial && cfg.initial.decision) { els.decision.value = cfg.initial.decision; }

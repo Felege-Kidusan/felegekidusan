@@ -310,7 +310,7 @@ $sum = $atMetrics['summary'] ?? [];
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.8rem;font-size:.75rem;color:#94a3b8">
             <span id="sync-monitor-page-info">—</span>
-            <div style="display:flex;gap:.4rem"><button type="button" class="btn btn-outline btn-sm" id="sync-monitor-prev" onclick="SyncMonitorUI.page(-1)">Prev</button><button type="button" class="btn btn-outline btn-sm" id="sync-monitor-next" onclick="SyncMonitorUI.page(1)">Next</button></div>
+            <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap"><label style="display:flex;align-items:center;gap:.3rem">Per page <select id="sync-monitor-size" class="form-control" style="width:auto;padding:.15rem .4rem;font-size:.75rem" onchange="SyncMonitorUI.setPerPage(this.value)"><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label><button type="button" class="btn btn-outline btn-sm" id="sync-monitor-prev" onclick="SyncMonitorUI.page(-1)">‹ Previous</button><button type="button" class="btn btn-outline btn-sm" id="sync-monitor-next" onclick="SyncMonitorUI.page(1)">Next ›</button><button type="button" class="btn btn-outline btn-sm" id="sync-monitor-more" onclick="SyncMonitorUI.more()">Load more</button></div>
         </div>
         <div id="sync-monitor-detail" hidden style="margin-top:1rem;padding:.9rem;border:1px solid #334155;border-radius:.5rem;background:#0f172a;font-size:.78rem"></div>
     </div>
@@ -403,9 +403,11 @@ $sum = $atMetrics['summary'] ?? [];
 
         <div id="telemetry-pagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;font-size:0.775rem;color:#94a3b8">
             <span id="telemetry-page-info">Showing devices</span>
-            <div style="display:flex;gap:0.4rem">
-                <button type="button" class="btn btn-outline btn-sm" id="btn-telemetry-prev" onclick="AppTelemetryUI.prevPage()"><i class="fa-solid fa-chevron-left"></i> Prev</button>
+            <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:.3rem">Per page <select id="telemetry-size" class="form-control" style="width:auto;padding:.15rem .4rem;font-size:.75rem" onchange="AppTelemetryUI.setPerPage(this.value)"><option value="15">15</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-telemetry-prev" onclick="AppTelemetryUI.prevPage()"><i class="fa-solid fa-chevron-left"></i> Previous</button>
                 <button type="button" class="btn btn-outline btn-sm" id="btn-telemetry-next" onclick="AppTelemetryUI.nextPage()">Next <i class="fa-solid fa-chevron-right"></i></button>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-telemetry-more" onclick="AppTelemetryUI.loadMore()">Load more</button>
             </div>
         </div>
     </div>

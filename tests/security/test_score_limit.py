@@ -28,7 +28,7 @@ class Includes(unittest.TestCase):
         self.assertIn('/admin/js/score_limit.js?v=20261022s', read('admin/dashboards/teacher.php'))
         self.assertIn('/admin/js/score_limit.js?v=20261022s', read('admin/dashboards/edu_dept.php'))
         af = read('admin/assessment_followups.php')
-        self.assertIn("$assetVer = '20261022s';", af)
+        self.assertIn("$assetVer = '20261022t';", af)
         self.assertLess(af.index('score_limit.js'), af.index('assessment_followups.js'))
 
     def test_changed_assets_have_new_versions(self):
@@ -36,7 +36,7 @@ class Includes(unittest.TestCase):
         for page in (edu, teacher):
             self.assertIn('/admin/js/report_card.js?v=20261022s', page)
             self.assertIn('/admin/css/report_card.css?v=20261022s', page)
-        self.assertIn('academic_tracking.js?v=20261022s', edu)
+        self.assertIn('academic_tracking.js?v=20261022t', edu)
         self.assertNotIn('academic_tracking.js?v=20261003', edu)
 
     def test_screens_bind_and_check_before_saving(self):

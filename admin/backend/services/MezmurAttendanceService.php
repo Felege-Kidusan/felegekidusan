@@ -731,6 +731,21 @@ final class MezmurAttendanceService
         if ($minRate !== null) $having[] = "(rate IS NOT NULL AND rate >= $minRate)";
         if ($minAttended !== null) $having[] = "(attended >= $minAttended)";
         if ($having) $sql .= ' HAVING ' . implode(' AND ', $having);
+
+        // Phase 3 paging (opt-in with_total=1, web only): total rows for the SAME
+        // filters (incl. HAVING) so the screen can show "Showing 26–50 of N" and stop
+        // Next on the last page. The default response (mobile v1) is unchanged.
+        $withTotal = !empty($filters['with_total']);
+        $total = 0;
+        $cstmt = $withTotal ? $conn->prepare("SELECT COUNT(*) AS c FROM ($sql) mz_an_count") : false;
+        if ($cstmt) {
+            $cTypes = $subTypes . $types;
+            if ($cTypes !== '') $cstmt->bind_param($cTypes, ...array_merge($subParams, $params));
+            $cstmt->execute();
+            $total = (int)($cstmt->get_result()->fetch_assoc()['c'] ?? 0);
+            $cstmt->close();
+        }
+
         $sql .= " ORDER BY $sortCol $dir, m.student_name ASC LIMIT ? OFFSET ?";
 
         $stmt = $conn->prepare($sql);
@@ -746,6 +761,13 @@ final class MezmurAttendanceService
         }
         $stmt->close();
 
+        if ($withTotal) {
+            $paged = ['items' => $items, 'page' => $page, 'sessions_held' => $held, 'window' => $w];
+            $paged['total'] = $total;
+            $paged['per_page'] = $perPage;
+            $paged['total_pages'] = max(1, (int)ceil($total / $perPage));
+            return $paged;
+        }
         return ['items' => $items, 'page' => $page, 'sessions_held' => $held, 'window' => $w];
     }
 

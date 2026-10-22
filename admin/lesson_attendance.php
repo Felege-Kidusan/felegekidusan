@@ -39,7 +39,7 @@ $cfg = [
     'canCancel' => $userRole === 'edu_dept',
     'memberId' => $memberId,
 ];
-$assetVer = '20261020p6';
+$assetVer = '20261022p';
 $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
 $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/dashboard.php';
 ?>
@@ -103,8 +103,10 @@ $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/d
     <div class="la-foot">
       <span id="la-meta"></span>
       <div>
+        <label class="rc-muted" style="font-size:.8rem">Per page <select id="la-size" aria-label="Rows per page"><option>25</option><option selected>50</option><option>100</option><option>200</option></select></label>
         <button class="rc-btn rc-btn-ghost rc-btn-sm" id="la-prev" type="button">‹ Prev</button>
         <button class="rc-btn rc-btn-ghost rc-btn-sm" id="la-next" type="button">Next ›</button>
+        <button class="rc-btn rc-btn-sm" id="la-more" type="button" hidden>Load more</button>
       </div>
     </div>
     <p class="la-note">Each row is one lesson sheet saved by a teacher. The class/day result used for warnings and monthly rates is calculated from the lessons of that day: present if present in any lesson, else late, else excused, else absent. A cancelled lesson is kept for history but no longer counts.</p>
@@ -117,29 +119,41 @@ $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/d
 (function () {
   'use strict';
   var cfg = window.LA_CONFIG || {};
-  var PAGE = 50, offset = 0, total = 0, memberId = cfg.memberId || 0;
+  // Phase 3 paging: per page remembered; Load more appends; Next continues after the rows shown.
+  var LA_KEY = 'fkss_pp_lesson_att';
+  var PAGE = (function () { try { var v = parseInt(localStorage.getItem(LA_KEY), 10); return [25, 50, 100, 200].indexOf(v) >= 0 ? v : 50; } catch (e) { return 50; } })();
+  var offset = 0, total = 0, memberId = cfg.memberId || 0, shown = [], busy = false;
   var $ = function (id) { return document.getElementById(id); };
+  if ($('la-size')) $('la-size').value = String(PAGE);
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function toast(msg, ok) {
     var t = document.createElement('div'); t.className = 'nc-toast ' + (ok ? 'nc-ok' : 'nc-err'); t.textContent = msg;
     document.body.appendChild(t); setTimeout(function () { t.remove(); }, 3200);
   }
-  function load() {
+  function load(append) {
     if (!memberId) { $('la-list').innerHTML = ''; return; }
-    fetch(cfg.api + '?action=member&member_id=' + encodeURIComponent(memberId) + '&limit=' + PAGE + '&offset=' + offset, { credentials: 'same-origin' })
+    if (busy) return;
+    busy = true;
+    var from = append ? offset + shown.length : offset;
+    if (append && $('la-more')) { $('la-more').disabled = true; $('la-more').textContent = 'Loading…'; }
+    fetch(cfg.api + '?action=member&member_id=' + encodeURIComponent(memberId) + '&limit=' + PAGE + '&offset=' + from, { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.status !== 'success') { toast(d.message || 'Could not load.', false); return; }
+        busy = false;
+        if (d.status !== 'success') { toast(d.message || 'Could not load.', false); render([]); return; }
         $('la-unavailable').hidden = !!d.available;
         total = d.total || 0;
         var m = d.member || {};
         $('la-title').innerHTML = '<a href="' + esc(cfg.memberUrl + memberId) + '">' + esc(m.name || ('Member #' + memberId)) + '</a> <span class="rc-muted">' + esc(m.member_code || '') + '</span>';
         $('la-total').textContent = total ? total + ' lesson record(s)' : '';
-        render(d.items || []);
+        shown = append ? shown.concat(d.items || []) : (d.items || []);
+        render(shown);
       })
-      .catch(function () { toast('Could not load lesson attendance.', false); });
+      .catch(function () { busy = false; toast('Could not load lesson attendance.', false); if (append) render(shown); });
   }
   function render(items) {
+    var more = $('la-more');
+    if (more) { var left = Math.max(0, total - (offset + items.length)); more.hidden = left <= 0; more.disabled = false; more.textContent = 'Load more (' + left + ' left)'; }
     if (!items.length) { $('la-list').innerHTML = '<div class="la-empty">No lesson attendance recorded for this member' + (cfg.role === 'teacher' ? ' in your classes' : '') + '.</div>'; $('la-meta').textContent = ''; return; }
     var rows = items.map(function (it) {
       var cancelled = it.session_status === 'cancelled';
@@ -155,8 +169,8 @@ $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/d
         '</tr>';
     }).join('');
     $('la-list').innerHTML = '<table class="la-table"><thead><tr><th>Date (EC)</th><th>Class</th><th>Subject</th><th>Lesson</th><th class="opt">Teacher</th><th>Outcome</th><th class="opt">Note</th>' + (cfg.canCancel ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>';
-    $('la-meta').textContent = 'Showing ' + (offset + 1) + '–' + Math.min(offset + PAGE, total) + ' of ' + total;
-    $('la-prev').disabled = offset <= 0; $('la-next').disabled = offset + PAGE >= total;
+    $('la-meta').textContent = 'Showing ' + (offset + 1) + '–' + Math.min(offset + items.length, total) + ' of ' + total;
+    $('la-prev').disabled = offset <= 0; $('la-next').disabled = offset + items.length >= total;
   }
   $('la-list').addEventListener('click', function (e) {
     var b = e.target.closest('[data-cancel]'); if (!b) return;
@@ -179,7 +193,13 @@ $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/d
   }
   $('la-form').addEventListener('submit', function (e) { e.preventDefault(); memberId = parseInt($('la-member').value, 10) || 0; offset = 0; if (memberId) { history.replaceState(null, '', '?member_id=' + memberId); } load(); });
   $('la-prev').addEventListener('click', function () { offset = Math.max(0, offset - PAGE); load(); });
-  $('la-next').addEventListener('click', function () { offset += PAGE; load(); });
+  $('la-next').addEventListener('click', function () { offset += Math.max(shown.length, 1); load(); });
+  if ($('la-more')) $('la-more').addEventListener('click', function () { load(true); });
+  if ($('la-size')) $('la-size').addEventListener('change', function () {
+    var n = parseInt($('la-size').value, 10); if ([25, 50, 100, 200].indexOf(n) < 0) return;
+    PAGE = n; offset = 0; try { localStorage.setItem(LA_KEY, String(n)); } catch (e) { /* private mode */ }
+    load();
+  });
   load();
 })();
 </script>

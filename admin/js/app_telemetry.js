@@ -5,12 +5,29 @@
   'use strict';
 
   var API_URL = '/admin/api_telemetry.php';
+  // Phase 3 paging: remembered per-page choice.
+  function ppGet(key, sizes, def) {
+    var v = 0;
+    try { v = parseInt(localStorage.getItem(key), 10); } catch (e) { v = 0; }
+    return sizes.indexOf(v) >= 0 ? v : def;
+  }
+  function ppSet(key, v) { try { localStorage.setItem(key, String(v)); } catch (e) { /* private mode */ } }
+  function moreLabel(btn, shown, total) {
+    if (!btn) return;
+    var left = Math.max(0, total - shown);
+    btn.disabled = left <= 0;
+    btn.textContent = left > 0 ? 'Load more (' + left + ' left)' : (total > 0 ? '\u2713 All ' + total + ' shown' : 'Load more');
+  }
+
   var state = {
     range: '7d',
     version: '',
     search: '',
-    page: 1,
-    limit: 15,
+    page: 1,          // last page loaded
+    firstPage: 1,     // first page in view (Load more appends pages)
+    shown: 0,
+    total: 0,
+    limit: ppGet('fkss_pp_telemetry', [15, 25, 50, 100], 15),
     totalPages: 1,
     loaded: false
   };
@@ -116,10 +133,24 @@
     },
 
     prevPage: function () {
-      if (state.page > 1) {
-        state.page--;
+      if (state.firstPage > 1) {
+        state.page = state.firstPage - 1;
         this.loadInstallations();
       }
+    },
+
+    setPerPage: function (v) {
+      var n = parseInt(v, 10);
+      if ([15, 25, 50, 100].indexOf(n) < 0) return;
+      state.limit = n; ppSet('fkss_pp_telemetry', n);
+      state.page = 1;
+      this.loadInstallations();
+    },
+
+    loadMore: function () {
+      if (state.busy || state.page >= state.totalPages) return;
+      state.page++;
+      this.loadInstallations(true);
     },
 
     nextPage: function () {
@@ -129,9 +160,12 @@
       }
     },
 
-    loadInstallations: function () {
+    loadInstallations: function (append) {
       var tbody = document.getElementById('telemetry-table-body');
-      if (tbody) {
+      var sizeSel = document.getElementById('telemetry-size');
+      if (sizeSel) sizeSel.value = String(state.limit);
+      state.busy = true;
+      if (tbody && !append) {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading device installations...</td></tr>';
       }
 
@@ -147,9 +181,12 @@
       .then(function (res) { return res.json(); })
       .then(function (res) {
         if (res.status === 'success' && res.data) {
+          state.busy = false;
           state.totalPages = res.data.total_pages || 1;
-          AppTelemetryUI.renderTable(res.data);
+          AppTelemetryUI.renderTable(res.data, append === true);
         } else {
+          state.busy = false;
+          if (append === true) { state.page--; telemetryLoadError(); return; }  // keep rows already shown
           if (tbody) {
             tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#f87171">Telemetry device data is unavailable.</td></tr>';
           }
@@ -157,6 +194,8 @@
         }
       })
       .catch(function () {
+        state.busy = false;
+        if (append === true) { state.page--; telemetryLoadError(); return; }
         if (tbody) {
           tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#f87171">Failed to load device list.</td></tr>';
         }
@@ -232,7 +271,7 @@
       }
     },
 
-    renderTable: function (data) {
+    renderTable: function (data, append) {
       var tbody = document.getElementById('telemetry-table-body');
       var pageInfo = document.getElementById('telemetry-page-info');
       var btnPrev = document.getElementById('btn-telemetry-prev');
@@ -241,7 +280,10 @@
       if (!tbody) return;
 
       var items = data.items || [];
-      if (items.length === 0) {
+      if (!append) { state.firstPage = state.page; state.shown = 0; }
+      state.shown += items.length;
+      state.total = Number(data.total) || 0;
+      if (items.length === 0 && !append) {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:#94a3b8">No matching device installations found.</td></tr>';
       } else {
         var html = '';
@@ -272,24 +314,26 @@
             '<td>' + formatRelativeTime(row.minutes_ago) + '</td>' +
           '</tr>';
         });
-        tbody.innerHTML = html;
+        if (append) tbody.insertAdjacentHTML('beforeend', html); else tbody.innerHTML = html;
       }
 
       if (pageInfo) {
-        var start = (state.page - 1) * state.limit + 1;
-        var end = Math.min(data.total, state.page * state.limit);
+        var startRow = (state.firstPage - 1) * state.limit + 1;
+        var end = Math.min(data.total, startRow + state.shown - 1);
         pageInfo.textContent = data.total > 0
-          ? 'Showing ' + start + '–' + end + ' of ' + data.total + ' devices (Page ' + state.page + ' of ' + state.totalPages + ')'
+          ? 'Showing ' + startRow + '–' + end + ' of ' + data.total + ' devices (Page ' + (state.firstPage === state.page ? state.page : state.firstPage + '–' + state.page) + ' of ' + state.totalPages + ')'
           : '0 devices found';
       }
 
-      if (btnPrev) btnPrev.disabled = state.page <= 1;
+      var start = (state.firstPage - 1) * state.limit + 1;
+      if (btnPrev) btnPrev.disabled = state.firstPage <= 1;
       if (btnNext) btnNext.disabled = state.page >= state.totalPages;
+      moreLabel(document.getElementById('btn-telemetry-more'), start - 1 + state.shown, state.total);
     }
   };
 
   var SyncMonitorUI = (function () {
-    var monitorState = { page: 1, limit: 20, pages: 1, query: '' };
+    var monitorState = { page: 1, firstPage: 1, shown: 0, busy: false, limit: ppGet('fkss_pp_sync_attempts', [20, 50, 100], 20), pages: 1, query: '' };
     var timer = null;
 
     function value(id, text) {
@@ -376,8 +420,12 @@
       }, 300);
     }
 
-    function loadAttempts(page) {
+    function loadAttempts(page, append) {
+      if (append !== true) append = false;
       monitorState.page = page || monitorState.page;
+      var sizeSel = document.getElementById('sync-monitor-size');
+      if (sizeSel) sizeSel.value = String(monitorState.limit);
+      monitorState.busy = true;
       var query = '?action=get_sync_attempts&page=' + monitorState.page + '&limit=' + monitorState.limit +
         '&range=' + encodeURIComponent(selected('sync-monitor-range') || '30d') +
         '&status=' + encodeURIComponent(selected('sync-monitor-status-filter')) +
@@ -385,22 +433,27 @@
         '&source=' + encodeURIComponent(selected('sync-monitor-source-filter')) +
         '&search=' + encodeURIComponent(monitorState.query || '');
       var body = document.getElementById('sync-monitor-table-body');
-      if (body) body.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading server-observed attempts…</td></tr>';
+      if (body && !append) body.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading server-observed attempts…</td></tr>';
       get(query).then(function (res) {
+        monitorState.busy = false;
         if (res.status !== 'success' || !res.data) throw new Error('unavailable');
         monitorState.pages = (res.data.pagination || {}).pages || 1;
-        renderAttempts(res.data);
+        renderAttempts(res.data, append);
         monitorError('');
       }).catch(function () {
+        monitorState.busy = false;
+        if (append) { monitorState.page--; monitorError('Could not load more attempts. Try again.'); return; }
         if (body) body.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#f87171">Server-observed attempt data is unavailable.</td></tr>';
       });
     }
 
-    function renderAttempts(data) {
+    function renderAttempts(data, append) {
       var body = document.getElementById('sync-monitor-table-body');
       var items = data.items || [];
       if (!body) return;
-      if (!items.length) {
+      if (!append) { monitorState.firstPage = monitorState.page; monitorState.shown = 0; }
+      monitorState.shown += items.length;
+      if (!items.length && !append) {
         body.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#94a3b8">No server-observed attempts match these filters.</td></tr>';
       } else {
         var html = '';
@@ -424,19 +477,34 @@
             '<td><button type="button" class="btn btn-outline btn-sm" onclick="SyncMonitorUI.detail(' + Number(row.id) + ')">View</button></td>' +
             '</tr>';
         });
-        body.innerHTML = html;
+        if (append) body.insertAdjacentHTML('beforeend', html); else body.innerHTML = html;
       }
       var page = data.pagination || {};
-      value('sync-monitor-page-info', page.total ? 'Showing ' + (((page.page - 1) * page.limit) + 1) + '–' + Math.min(page.total, page.page * page.limit) + ' of ' + page.total : '0 attempts found');
+      var total = Number(page.total) || 0;
+      var first = (monitorState.firstPage - 1) * monitorState.limit + 1;
+      value('sync-monitor-page-info', total ? 'Showing ' + first + '–' + Math.min(total, first + monitorState.shown - 1) + ' of ' + total : '0 attempts found');
       var previous = document.getElementById('sync-monitor-prev');
       var next = document.getElementById('sync-monitor-next');
-      if (previous) previous.disabled = monitorState.page <= 1;
+      if (previous) previous.disabled = monitorState.firstPage <= 1;
       if (next) next.disabled = monitorState.page >= monitorState.pages;
+      moreLabel(document.getElementById('sync-monitor-more'), first - 1 + monitorState.shown, total);
     }
 
     function page(delta) {
-      var next = monitorState.page + delta;
+      var next = delta < 0 ? monitorState.firstPage - 1 : monitorState.page + 1;
       if (next >= 1 && next <= monitorState.pages) loadAttempts(next);
+    }
+
+    function more() {
+      if (monitorState.busy || monitorState.page >= monitorState.pages) return;
+      loadAttempts(monitorState.page + 1, true);
+    }
+
+    function setPerPage(v) {
+      var n = parseInt(v, 10);
+      if ([20, 50, 100].indexOf(n) < 0) return;
+      monitorState.limit = n; ppSet('fkss_pp_sync_attempts', n);
+      loadAttempts(1);
     }
 
     function detail(id) {
@@ -464,7 +532,7 @@
       }).catch(function () { monitorError('The selected attempt could not be loaded.'); });
     }
 
-    return { refresh: refresh, loadAttempts: loadAttempts, search: search, page: page, detail: detail };
+    return { refresh: refresh, loadAttempts: loadAttempts, search: search, page: page, detail: detail, more: more, setPerPage: setPerPage };
   }());
 
   window.SyncMonitorUI = SyncMonitorUI;

@@ -196,11 +196,8 @@
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.8rem;gap:.6rem;flex-wrap:wrap">
             <span id="fi-page-info" style="color:#94a3b8;font-size:.75rem"></span>
-            <span style="display:flex;gap:.4rem">
-                <button type="button" class="btn btn-outline btn-sm" id="fi-prev-page" onclick="FailureIntelligenceUI.page(-1)">‹ Prev</button>
-                <button type="button" class="btn btn-outline btn-sm" id="fi-next-page" onclick="FailureIntelligenceUI.page(1)">Next ›</button>
-            </span>
         </div>
+        <div id="fi-issues-pager"></div>
     </div>
 
     <div class="at-card" id="fi-issue-detail" hidden style="margin-bottom:1.5rem"></div>
@@ -219,10 +216,7 @@
                 <tbody id="fi-reports-body"><tr><td colspan="6" style="text-align:center;padding:1.5rem;color:#94a3b8">Open this section to load reports…</td></tr></tbody>
             </table>
         </div>
-        <div style="display:flex;justify-content:flex-end;margin-top:.8rem;gap:.4rem">
-            <button type="button" class="btn btn-outline btn-sm" id="fi-reports-prev" onclick="FailureIntelligenceUI.reportsPage(-1)">‹ Prev</button>
-            <button type="button" class="btn btn-outline btn-sm" id="fi-reports-next" onclick="FailureIntelligenceUI.reportsPage(1)">Next ›</button>
-        </div>
+        <div id="fi-reports-pager" style="margin-top:.4rem"></div>
     </div>
 
     <div class="at-card" id="fi-report-view" hidden style="margin-bottom:1.5rem"></div>

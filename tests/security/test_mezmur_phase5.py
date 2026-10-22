@@ -263,7 +263,7 @@ class MezmurPhase5Tests(unittest.TestCase):
         ]:
             self.assertIn(token, self.shell)
         for fn in [
-            "function switchSubTab(", "function loadSubmissions()",
+            "function switchSubTab(", "function loadSubmissions(",
             "function renderSubStats(", "function exportSubmissions()",
             "function loadSubInsights()", "function quickDecision(",
         ]:

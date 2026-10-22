@@ -103,7 +103,7 @@ const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSO
 <script src="/admin/js/advanced_analytics.js?v=20260927"></script>
 <script src="/admin/js/education_analytics_hub.js?v=20260927"></script>
 <script src="/admin/js/academic_intelligence.js?v=20261003"></script>
-<script src="/admin/js/academic_tracking.js?v=20261022s"></script>
+<script src="/admin/js/academic_tracking.js?v=20261022t"></script>
 <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
 <script src="/admin/js/score_limit.js?v=20261022s"></script>
 <script src="/admin/js/list_pager.js?v=20261022p"></script>
@@ -707,6 +707,7 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 </div>
 </div>
 <div id="rosterArea" style="margin-top:.75rem"></div>
+<div id="rosterPager" class="crd" style="padding:0 .75rem;margin-top:-1px"></div>
 </div>
 
 <!-- TAB: Unassigned Members -->
@@ -2267,40 +2268,27 @@ function switchEnrollTab(tab) {
 }
 
 // --- School-wide roster ---
-let _rosterTimer=null, _rosterPage=1;
+// Phase 3 paging: shared pager (range, Previous/Next, per page, Load more).
+let _rosterTimer=null, _rosterPage=1, _rosterPager=null, _rosterMeta={total:0, year:''};
 function debounceRoster(){ clearTimeout(_rosterTimer); _rosterTimer=setTimeout(()=>loadRoster(1), 350); }
-async function loadRoster(page){
-    _rosterPage = page || 1;
-    const area=document.getElementById('rosterArea');
-    if(!area) return;
-    area.innerHTML='<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading roster...</div>';
+function _rosterUrl(page, perPage){
     const q=document.getElementById('rosterQ')?.value||'';
     const cls=document.getElementById('rosterClass')?.value||'';
     const gender=document.getElementById('rosterGender')?.value||'';
     const type=document.getElementById('rosterType')?.value||'';
     const age=document.getElementById('rosterAge')?.value||'';
     const sort=document.getElementById('rosterSort')?.value||'name';
-    let url=`/admin/api_education.php?action=roster&page=${_rosterPage}&per_page=25&sort=${encodeURIComponent(sort)}`;
+    let url=`/admin/api_education.php?action=roster&page=${page}&per_page=${perPage||25}&sort=${encodeURIComponent(sort)}`;
     if(q) url+=`&q=${encodeURIComponent(q)}`;
     if(cls==='unassigned') url+='&unassigned=1';
     else if(cls) url+=`&class_id=${encodeURIComponent(cls)}`;
     if(gender) url+=`&gender=${encodeURIComponent(gender)}`;
     if(type) url+=`&member_type=${encodeURIComponent(type)}`;
     if(age) url+=`&age_group=${encodeURIComponent(age)}`;
-    try{
-        const d=await getAPI(url);
-        if(d.status!=='success'){ area.innerHTML=`<div class="crd" style="padding:1.5rem;color:#ef4444">${esc(d.message||'Error')}</div>`; return; }
-        const rows=d.rows||[], total=d.total||0, pages=d.pages||1;
-        area.innerHTML=`
-        <div class="crd">
-            <div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem">
-                <span style="font-weight:700">${total} student${total===1?'':'s'}</span>
-                <span style="font-size:.7rem;color:#64748b">Page ${_rosterPage} of ${pages}${d.year_name?' • '+esc(d.year_name):''}</span>
-            </div>
-            ${rows.length?`<div class="tw"><table class="dt"><thead><tr>
-                <th><input type="checkbox" onchange="document.querySelectorAll('.roster-cb').forEach(c=>c.checked=this.checked)"></th>
-                <th>Student</th><th>Code</th><th>Class</th><th>Type</th><th>Gender</th><th>Age</th>
-            </tr></thead><tbody>${rows.map(x=>`<tr>
+    return url;
+}
+function _rosterRow(x){
+    return `<tr>
                 <td><input type="checkbox" class="roster-cb" value="${x.id}"></td>
                 <td><div style="font-weight:600">${esc(x.student_name||'')} ${x.baptismal_name?'<span style="font-size:.65rem;color:#94a3b8">('+esc(x.baptismal_name)+')</span>':''}</div><div style="font-size:.65rem;color:#64748b">${esc(x.father_name||'')} ${esc(x.grandfather_name||'')}</div></td>
                 <td><span class="ch ch-i">${esc(x.member_code||'—')}</span></td>
@@ -2308,13 +2296,57 @@ async function loadRoster(page){
                 <td>${mtBadge(x.member_type)}</td>
                 <td>${x.gender==='male'?'♂':'♀'}</td>
                 <td>${esc(x.age||x.age_group||'—')}</td>
-            </tr>`).join('')}</tbody></table></div>`:'<div style="padding:1.5rem;text-align:center;color:#94a3b8">No matching students</div>'}
-            ${pages>1?`<div style="padding:.75rem;display:flex;justify-content:center;gap:.4rem;border-top:1px solid #f1f5f9">
-                <button class="btn btn-o btn-xs" ${_rosterPage<=1?'disabled':''} onclick="loadRoster(${_rosterPage-1})">Prev</button>
-                <button class="btn btn-o btn-xs" ${_rosterPage>=pages?'disabled':''} onclick="loadRoster(${_rosterPage+1})">Next</button>
-            </div>`:''}
+            </tr>`;
+}
+async function _rosterFetch(page, perPage){
+    const d=await getAPI(_rosterUrl(page, perPage));
+    if(d.status!=='success'){
+        const area=document.getElementById('rosterArea');
+        if(area) area.innerHTML=`<div class="crd" style="padding:1.5rem;color:#ef4444">${esc(d.message||'Error')}</div>`;
+        const e=new Error(d.message||'Error'); e._shown=true; throw e;
+    }
+    _rosterMeta={total:d.total||0, year:d.year_name||''};
+    return {rows:d.rows||[], total:d.total||0, page:d.page||page, totalPages:d.pages||1};
+}
+function _rosterRender(rows, append){
+    const area=document.getElementById('rosterArea');
+    if(!area) return;
+    const body=document.getElementById('rosterBody');
+    if(append && body){ body.insertAdjacentHTML('beforeend', rows.map(_rosterRow).join('')); return; }
+    const total=_rosterMeta.total;
+    area.innerHTML=`
+        <div class="crd" style="border-bottom-left-radius:0;border-bottom-right-radius:0">
+            <div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem">
+                <span style="font-weight:700" id="rosterTotal">${total} student${total===1?'':'s'}</span>
+                <span style="font-size:.7rem;color:#64748b">${_rosterMeta.year?esc(_rosterMeta.year):''}</span>
+            </div>
+            ${rows.length?`<div class="tw"><table class="dt"><thead><tr>
+                <th><input type="checkbox" aria-label="Select all shown" onchange="document.querySelectorAll('.roster-cb').forEach(c=>c.checked=this.checked)"></th>
+                <th>Student</th><th>Code</th><th>Class</th><th>Type</th><th>Gender</th><th>Age</th>
+            </tr></thead><tbody id="rosterBody">${rows.map(_rosterRow).join('')}</tbody></table></div>`:'<div style="padding:1.5rem;text-align:center;color:#94a3b8">No matching students</div>'}
         </div>`;
-    }catch(e){ area.innerHTML='<div class="crd" style="padding:1.5rem;color:#ef4444">Error loading roster</div>'; }
+}
+async function loadRoster(page){
+    const area=document.getElementById('rosterArea');
+    if(!area) return;
+    const keep=page && page>1;
+    if(!keep) area.innerHTML='<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading roster...</div>';
+    if(!_rosterPager && window.FKSSPager){
+        _rosterPager=FKSSPager.create({host:document.getElementById('rosterPager'),storageKey:'fkss_pp_edu_roster',noun:'students',defaultSize:25,
+            fetchPage:_rosterFetch,render:_rosterRender,onError:e=>{if(!(e&&e._shown))toast(friendlyNetError(e),'err');}});
+    }
+    try{
+        if(_rosterPager){
+            if(keep) await _rosterPager.goTo(page); else await _rosterPager.reset();
+            _rosterPage=_rosterPager.firstPage||1;
+        } else {
+            _rosterPage=page||1;
+            const r=await _rosterFetch(_rosterPage, 25); _rosterRender(r.rows,false);
+        }
+    }catch(e){
+        if(e&&e._shown) return;
+        area.innerHTML='<div class="crd" style="padding:1.5rem;color:#ef4444">Error loading roster</div>';
+    }
 }
 async function rosterBulkEnroll(){
     setFormAlert('rosterFormAlert','');
@@ -2329,7 +2361,7 @@ async function rosterBulkEnroll(){
         if(d.status==='success'||d.status==='partial'){
             toast(d.message||'Students enrolled.', d.status==='partial'?'w':'ok');
             setFormAlert('rosterFormAlert',d.message||'Students enrolled.', d.status==='partial'?'warn':'ok');
-            loadRoster(_rosterPage); loadEnrollOverview();
+            loadRoster(_rosterPager?_rosterPager.firstPage:_rosterPage); loadEnrollOverview();
         }else{
             setFormAlert('rosterFormAlert',d.message||'Could not enroll those students.','err');
             toast(d.message||'Could not enroll those students.','err');

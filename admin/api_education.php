@@ -1922,7 +1922,8 @@ switch ($action) {
         $sort = trim((string)($_GET['sort'] ?? 'name'));
         $dir = strtolower(trim((string)($_GET['dir'] ?? 'asc'))) === 'desc' ? 'DESC' : 'ASC';
         $page = max(1, (int)($_GET['page'] ?? 1));
-        $perPage = min(100, max(10, (int)($_GET['per_page'] ?? 25)));
+        // Phase 3: up to 200 per page (the shared pager's largest choice).
+        $perPage = min(200, max(10, (int)($_GET['per_page'] ?? 25)));
         $offset = ($page - 1) * $perPage;
 
         $yearId = $currentYear ? (int)$currentYear['id'] : 0;

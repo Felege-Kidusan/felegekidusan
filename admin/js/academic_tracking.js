@@ -594,14 +594,47 @@
     return { status: 'idle', data: null, error: '', code: '' };
   };
 
+  // Phase 3 paging: per page 25/50/100 (the servers' limit), remembered.
+  var AT_PP_KEY = 'fkss_pp_acad_tracking';
+  var AT_SIZES = [25, 50, 100];
+  function atSavedPerPage() {
+    try { var v = parseInt(localStorage.getItem(AT_PP_KEY), 10); return AT_SIZES.indexOf(v) >= 0 ? v : 25; } catch (e) { return 25; }
+  }
+
+  /** "Showing 101–140 of 140" for the drawer pagers. */
+  function atRange(d) {
+    var pg = Math.max(1, intOr(d.page, 1)), pp = Math.max(1, intOr(d.per_page, 25)), t = intOr(d.total, 0);
+    var from = (pg - 1) * pp + 1;
+    return 'Showing ' + esc(from) + '–' + esc(Math.min(t, pg * pp)) + ' of ' + esc(t);
+  }
+
+  AcademicTracking.prototype.setPerPage = function (key, n) {
+    var st = this.lists[key];
+    n = parseInt(n, 10);
+    if (!st || AT_SIZES.indexOf(n) < 0) return Promise.resolve();
+    st.per_page = n;
+    st.page = 1;
+    try { localStorage.setItem(AT_PP_KEY, String(n)); } catch (e) { /* private mode */ }
+    return this.load(key);
+  };
+
+  /** Load more: append the next page under the rows already shown. */
+  AcademicTracking.prototype.loadMore = function (key) {
+    var st = this.lists[key];
+    if (!st || st.loadingMore || st.status !== 'ready' || st.page >= st.pages) return Promise.resolve();
+    return this.load(key, true);
+  };
+
   AcademicTracking.prototype.freshList = function (key) {
     var d = ENTITIES[key];
     return {
       filters: {},                 // user-applied only; empty object = none
       sort: d.defaultSort,
       dir: 'asc',
-      page: 1,
-      per_page: 25,
+      page: 1,                     // last page loaded
+      firstPage: 1,                // first page on screen (Load more keeps it)
+      per_page: atSavedPerPage(),  // Phase 3: remembered per-page choice
+      loadingMore: false,
       status: 'idle',              // idle | loading | ready | error
       rows: [],
       total: 0,
@@ -755,7 +788,7 @@
     var st = this.lists[key];
     if (!st) return Promise.resolve();
     var p = Math.max(1, Math.min(intOr(page, 1), Math.max(1, st.pages)));
-    if (p === st.page) return Promise.resolve();
+    if (p === st.page && st.firstPage === st.page) return Promise.resolve();
     st.page = p;
     return this.load(key);
   };
@@ -773,7 +806,7 @@
 
   // ── loading ───────────────────────────────────────────────────────────────
 
-  AcademicTracking.prototype.buildQs = function (key) {
+  AcademicTracking.prototype.buildQs = function (key, pageOverride) {
     var st = this.lists[key];
     var d = ENTITIES[key];
     var parts = [];
@@ -787,12 +820,12 @@
       parts.push('sort=' + encodeURIComponent(st.sort));
       parts.push('dir=' + encodeURIComponent(st.dir));
     }
-    parts.push('page=' + st.page);
+    parts.push('page=' + (pageOverride || st.page));
     parts.push('per_page=' + st.per_page);
     return parts.length ? ('&' + parts.join('&')) : '';
   };
 
-  AcademicTracking.prototype.load = function (key) {
+  AcademicTracking.prototype.load = function (key, append) {
     var self = this;
     var st = this.lists[key];
     var d = ENTITIES[key];
@@ -800,14 +833,25 @@
 
     // Race guard: a slow "Ab" must never overwrite a fast "Abebe".
     var seq = ++this._seq;
-    st.status = 'loading';
+    if (append) {
+      st.loadingMore = true;                           // rows stay on screen
+    } else {
+      st.status = 'loading';
+      st.loadingMore = false;
+    }
     st.error = '';
     this.render();
 
-    return fetch(d.url + this.buildQs(key), { credentials: 'same-origin' })
+    return fetch(d.url + this.buildQs(key, append ? st.page + 1 : 0), { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (seq !== self._seq) return;                 // superseded
+        st.loadingMore = false;
+        if (append && (!data || data.status !== 'success')) {
+          self.render();
+          if (typeof window.toast === 'function') window.toast((data && data.message) || 'Could not load more.', 'err');
+          return;
+        }
         if (!data || data.status !== 'success') {
           st.status = 'error';
           st.error = (data && data.message) || 'The server could not return the list.';
@@ -816,10 +860,12 @@
           self.render();
           return;
         }
-        st.rows = data[d.rowsKey] || [];
+        var got = data[d.rowsKey] || [];
+        st.rows = append ? st.rows.concat(got) : got;
         st.total = intOr(data.total, st.rows.length);
         st.pages = Math.max(1, intOr(data.pages, 1));
-        st.page = Math.max(1, intOr(data.page, st.page));
+        st.page = Math.max(1, intOr(data.page, append ? st.page + 1 : st.page));
+        if (!append) st.firstPage = st.page;
         st.per_page = Math.max(1, intOr(data.per_page, st.per_page));
         if (data.year_id) {
           self.context.year_id = intOr(data.year_id, 0);
@@ -1124,8 +1170,10 @@
 
   AcademicTracking.prototype.renderPager = function (d, st) {
     if (st.status !== 'ready' || !st.rows.length) return '';
-    var first = ((st.page - 1) * st.per_page) + 1;
+    var fp = st.firstPage || st.page;
+    var first = ((fp - 1) * st.per_page) + 1;
     var last = Math.min(st.total, first + st.rows.length - 1);
+    var left = Math.max(0, st.total - last);
 
     var btns = '';
     var window_ = [];
@@ -1139,11 +1187,19 @@
       + '<div style="font-size:.74rem;color:#64748b">Showing ' + esc(group(first)) + '–' + esc(group(last))
       + ' of ' + esc(group(st.total)) + '</div>'
       + '<div style="display:flex;gap:.3rem;align-items:center;flex-wrap:wrap">'
-      + '<button type="button" class="btn btn-o btn-xs" data-page="' + (st.page - 1) + '"'
-      + (st.page <= 1 ? ' disabled' : '') + '><i class="fa-solid fa-chevron-left"></i> Previous</button>'
+      + '<label style="font-size:.72rem;color:#64748b;display:flex;align-items:center;gap:.25rem">Per page '
+      + '<select class="inp" data-per-page style="width:auto;padding:.2rem .4rem;font-size:.74rem">'
+      + AT_SIZES.map(function (n) { return '<option value="' + n + '"' + (n === st.per_page ? ' selected' : '') + '>' + n + '</option>'; }).join('')
+      + '</select></label>'
+      + '<button type="button" class="btn btn-o btn-xs" data-page="' + (fp - 1) + '"'
+      + (fp <= 1 ? ' disabled' : '') + '><i class="fa-solid fa-chevron-left"></i> Previous</button>'
       + btns
       + '<button type="button" class="btn btn-o btn-xs" data-page="' + (st.page + 1) + '"'
       + (st.page >= st.pages ? ' disabled' : '') + '>Next <i class="fa-solid fa-chevron-right"></i></button>'
+      + (left > 0
+        ? '<button type="button" class="btn btn-p btn-xs" data-more' + (st.loadingMore ? ' disabled' : '') + '>'
+          + (st.loadingMore ? 'Loading…' : 'Load more (' + esc(group(left)) + ' left)') + '</button>'
+        : '<span style="font-size:.72rem;color:#047857;font-weight:600"><i class="fa-solid fa-check" aria-hidden="true"></i> All ' + esc(group(st.total)) + ' shown</span>')
       + '</div></div>';
   };
 
@@ -1182,6 +1238,12 @@
     });
     root.querySelectorAll('[data-sort]').forEach(function (el) {
       el.addEventListener('change', function () { self.setSort(key, el.value); });
+    });
+    root.querySelectorAll('[data-per-page]').forEach(function (el) {
+      el.addEventListener('change', function () { self.setPerPage(key, el.value); });
+    });
+    root.querySelectorAll('[data-more]').forEach(function (el) {
+      el.addEventListener('click', function () { self.loadMore(key); });
     });
     root.querySelectorAll('[data-page]').forEach(function (el) {
       el.addEventListener('click', function () { self.setPage(key, el.getAttribute('data-page')); });
@@ -2465,6 +2527,7 @@
     if (this.context.year_id) qs.push('year_id=' + this.context.year_id);
     if (extra && extra.class_id) qs.push('class_id=' + extra.class_id);
     if (extra && extra.page) qs.push('page=' + extra.page);
+    if (extra && extra.per_page) qs.push('per_page=' + intOr(extra.per_page, 25));
     return qs;
   };
 
@@ -2604,7 +2667,8 @@
     this.render();
 
     var qs = this.subjectQs('tracking_subject_students', {
-      class_id: want, page: Math.max(1, intOr(page, 1))
+      // Phase 3: one class fits on one page (server max 100).
+      class_id: want, page: Math.max(1, intOr(page, 1)), per_page: 100
     }).join('&');
     return fetch(API_EDU + '?' + qs, { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
@@ -2910,7 +2974,7 @@
       pager = '<div style="display:flex;gap:.4rem;align-items:center;justify-content:center;padding:.6rem">'
         + '<button type="button" class="btn btn-o btn-xs" data-student-page="' + (intOr(d.page, 1) - 1) + '"'
         + (intOr(d.page, 1) <= 1 ? ' disabled' : '') + '>Previous</button>'
-        + '<span style="font-size:.72rem;color:#64748b">Page ' + esc(d.page) + ' of ' + esc(d.pages) + '</span>'
+        + '<span style="font-size:.72rem;color:#64748b">' + atRange(d) + ' · Page ' + esc(d.page) + ' of ' + esc(d.pages) + '</span>'
         + '<button type="button" class="btn btn-o btn-xs" data-student-page="' + (intOr(d.page, 1) + 1) + '"'
         + (intOr(d.page, 1) >= intOr(d.pages, 1) ? ' disabled' : '') + '>Next</button></div>';
     }
@@ -3024,6 +3088,7 @@
     var qs = ['action=' + action, 'class_id=' + this.scope.id];
     if (this.context.year_id) qs.push('year_id=' + this.context.year_id);
     if (extra && extra.page) qs.push('page=' + extra.page);
+    if (extra && extra.per_page) qs.push('per_page=' + intOr(extra.per_page, 25));
     if (extra && extra.q) qs.push('q=' + encodeURIComponent(extra.q));
     return qs;
   };
@@ -3105,6 +3170,7 @@
 
     var params = extra || {};
     if (name === 'students' && this.classStudentQuery) params.q = this.classStudentQuery;
+    if (name === 'students' && !params.per_page) params.per_page = 100; // Phase 3: whole class at once
     var qs = this.classQs(CLASS_TAB_ACTION[name], params).join('&');
 
     return fetch(API_EDU + '?' + qs, { credentials: 'same-origin' })
@@ -3361,7 +3427,7 @@
       pager = '<div style="display:flex;gap:.4rem;align-items:center;justify-content:center;padding:.6rem">'
         + '<button type="button" class="btn btn-o btn-xs" data-class-student-page="' + (intOr(d.page, 1) - 1) + '"'
         + (intOr(d.page, 1) <= 1 ? ' disabled' : '') + '>Previous</button>'
-        + '<span style="font-size:.72rem;color:#64748b">Page ' + esc(d.page) + ' of ' + esc(d.pages) + '</span>'
+        + '<span style="font-size:.72rem;color:#64748b">' + atRange(d) + ' · Page ' + esc(d.page) + ' of ' + esc(d.pages) + '</span>'
         + '<button type="button" class="btn btn-o btn-xs" data-class-student-page="' + (intOr(d.page, 1) + 1) + '"'
         + (intOr(d.page, 1) >= intOr(d.pages, 1) ? ' disabled' : '') + '>Next</button></div>';
     }

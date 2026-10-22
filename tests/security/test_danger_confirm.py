@@ -263,7 +263,7 @@ class DeployCacheBust(unittest.TestCase):
         self.assertIn('department_status.js?v=<?= SSMS_ASSET_VER ?>-20261022r', info)
         self.assertIn("return '73.7';", read('admin/components/notification_center.php'))
         self.assertIn("$assetVer = '20261022r';", read('admin/reports_v2.php'))
-        self.assertIn("-20261022r", read('admin/dashboards/sections/attendance_analytics_hub.php'))
+        self.assertIn("-20261022t", read('admin/dashboards/sections/attendance_analytics_hub.php'))
 
 
 class DangerConfirmPhp(unittest.TestCase):

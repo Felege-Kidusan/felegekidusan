@@ -415,6 +415,8 @@ ob_start();
                         </table>
                     </div>
 
+                    <div id="mzSubPagination" class="pager" role="navigation" aria-label="Submissions pagination"></div>
+
                     <!-- Insights pane -->
                     <div id="mzSubInsights" class="is-hidden" aria-live="polite"></div>
                 </div>
