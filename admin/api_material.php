@@ -194,6 +194,29 @@ $id = Input::optionalId($_POST['id'] ?? null, 'Category ID');
 case 'requests':
     $status = $_GET['status'] ?? '';
     $validStatuses = ['pending','approved','denied','fulfilled'];
+    if (isset($_GET['page'])) {
+        // Phase 3 paging: page / per_page / total (was cut at the newest 100).
+        $perPage = (int)($_GET['per_page'] ?? 50);
+        if (!in_array($perPage, [25, 50, 100, 200], true)) { $perPage = 50; }
+        $hasStatus = $status && in_array($status, $validStatuses, true);
+        $where = $hasStatus ? 'WHERE r.status=?' : '';
+        $cstmt = $conn->prepare("SELECT COUNT(*) AS c FROM material_requests r $where");
+        if ($hasStatus) { $cstmt->bind_param('s', $status); }
+        $cstmt->execute();
+        $total = (int)($cstmt->get_result()->fetch_assoc()['c'] ?? 0);
+        $cstmt->close();
+        $totalPages = max(1, (int)ceil($total / $perPage));
+        $page = min(max(1, (int)$_GET['page']), $totalPages);
+        $offset = ($page - 1) * $perPage;
+        $stmt = $conn->prepare("SELECT r.*, i.name as item_name_ref FROM material_requests r LEFT JOIN material_items i ON r.item_id=i.id $where ORDER BY r.created_at DESC, r.id DESC LIMIT " . (int)$perPage . " OFFSET " . (int)$offset);
+        if ($hasStatus) { $stmt->bind_param('s', $status); }
+        $stmt->execute();
+        $r = $stmt->get_result();
+        $reqs = [];
+        while ($row = $r->fetch_assoc()) $reqs[] = $row;
+        echo json_encode(['status'=>'success','requests'=>$reqs,'total'=>$total,'page'=>$page,'total_pages'=>$totalPages,'per_page'=>$perPage]);
+        break;
+    }
     if ($status && in_array($status, $validStatuses)) {
         $stmt = $conn->prepare("SELECT r.*, i.name as item_name_ref FROM material_requests r LEFT JOIN material_items i ON r.item_id=i.id WHERE r.status=? ORDER BY r.created_at DESC LIMIT 100");
         $stmt->bind_param('s', $status);

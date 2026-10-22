@@ -48,7 +48,7 @@ $cfg = [
         'member_id' => (int)($_GET['member_id'] ?? 0),
     ],
 ];
-$assetVer = '20261019p2';
+$assetVer = '20261022p';
 $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
 ?>
 <!DOCTYPE html>
@@ -162,11 +162,13 @@ $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
     </div>
 
     <div id="aw-list"></div>
+    <div id="aw-pager"></div>
   </main>
 </div>
 
 <div id="aw-modal-root"></div>
 <script>window.AW_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
+<script src="/admin/js/list_pager.js?v=20261022p"></script>
 <script src="/admin/js/attendance_warnings.js?v=<?= $assetVer ?>"></script>
 </body>
 </html>

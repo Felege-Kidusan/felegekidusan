@@ -357,8 +357,10 @@
     box.innerHTML = '<div class="fam-empty fam-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</div>';
     get('list_suggestions').then(function (d) {
       var rows = (d && d.suggestions) || [];
-      setCount('famTabReviewCount', rows.length);
-      var badge = $('famQueueBadge'); if (badge) { if (rows.length) { badge.textContent = rows.length; badge.classList.remove('hidden'); } else { badge.classList.add('hidden'); } }
+      // Phase 3: the real number waiting (the list shows the best 100).
+      var total = Math.max(rows.length, parseInt((d && d.total) || 0, 10) || 0);
+      setCount('famTabReviewCount', total);
+      var badge = $('famQueueBadge'); if (badge) { if (total) { badge.textContent = total; badge.classList.remove('hidden'); } else { badge.classList.add('hidden'); } }
       if (!rows.length) { box.innerHTML = '<div class="fam-empty"><i class="fa-regular fa-circle-check text-2xl text-emerald-500 mb-2"></i><div class="font-semibold">Nothing to review</div><div class="text-slate-400 mt-1">Near-duplicate guardians appear here when HR registers a child or after a re-match run. Nothing is ever merged automatically.</div></div>'; return; }
       box.innerHTML = rows.map(function (s) {
         var ev = {}; try { ev = JSON.parse(s.evidence || '{}'); } catch (e) { /* ignore */ }
@@ -369,7 +371,9 @@
           '<div class="text-[11px] text-slate-400">filed ' + fmtDate(s.created_at) + (s.member_id ? ' · at registration of member #' + esc(s.member_id) : '') + '</div></div>' +
           '<div class="fam-cmp-grid">' + compareCol(s.guardian_a_row, 'A', sid, true) + '<div class="fam-cmp-vs">vs</div>' + compareCol(s.guardian_b_row, 'B', sid, true) + '</div>' +
           '<div class="flex justify-end gap-2 mt-2"><button class="fam-btn" onclick="FamilyLink.resolve(' + sid + ',\'keep\')"><i class="fa-solid fa-people-arrows"></i> Different people — keep both</button></div></div>';
-      }).join('');
+      }).join('') + (total > rows.length
+        ? '<div class="fam-empty" data-fam-queue-more>Showing the top ' + rows.length + ' of ' + total + ' by match. Resolve these to see the rest.</div>'
+        : '');
     }).catch(function () { box.innerHTML = '<div class="fam-empty">Network error</div>'; });
   }
   function resolve(sid, how) {

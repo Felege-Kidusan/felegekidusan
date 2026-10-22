@@ -346,7 +346,11 @@ switch ($action) {
                 $rows[] = $s;
             }
         }
-        echo json_encode(['status' => 'success', 'suggestions' => $rows], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        // Phase 3: the queue shows the best 100; total says how many wait.
+        $total = count($rows);
+        $rc = $conn->query("SELECT COUNT(*) AS c FROM guardian_link_suggestions WHERE status='pending'");
+        if ($rc) { $total = max($total, (int)($rc->fetch_assoc()['c'] ?? 0)); }
+        echo json_encode(['status' => 'success', 'suggestions' => $rows, 'total' => $total], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         exit;
     }
 

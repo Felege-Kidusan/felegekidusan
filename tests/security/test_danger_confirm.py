@@ -257,7 +257,7 @@ class DeployCacheBust(unittest.TestCase):
     def test_changed_scripts_have_new_versions(self):
         hr = read('admin/dashboards/hr-dept.php')
         info = read('admin/dashboards/info-dept.php')
-        for tag in ['department_status.js?v=<?= SSMS_ASSET_VER ?>-20261022r', 'family_link.js?v=<?= SSMS_ASSET_VER ?>-20261022r',
+        for tag in ['department_status.js?v=<?= SSMS_ASSET_VER ?>-20261022r', 'family_link.js?v=<?= SSMS_ASSET_VER ?>-20261022p',
                     'new-members.js?v=20261022r', 'id-card-directory.js?v=20261022r', 'hr_data_sync.js?v=20261022r']:
             self.assertIn(tag, hr)
         self.assertIn('department_status.js?v=<?= SSMS_ASSET_VER ?>-20261022r', info)

@@ -21,12 +21,18 @@
     meta: document.getElementById('am-meta'),
     prev: document.getElementById('am-prev'),
     next: document.getElementById('am-next'),
+    size: document.getElementById('am-size'),
+    more: document.getElementById('am-more'),
     refresh: document.getElementById('am-refresh'),
     exportBtn: document.getElementById('am-export'),
     warningsLink: document.getElementById('am-warnings-link'),
     modalRoot: document.getElementById('am-modal-root')
   };
-  var state = { months: [], items: [], total: 0, limit: 100, offset: 0, summary: null, loading: false };
+  // Phase 3 paging: per-page choice remembered; Load more appends.
+  var SIZE_KEY = 'fkss_pp_att_monthly';
+  var savedSize = (function () { try { var v = parseInt(localStorage.getItem(SIZE_KEY), 10); return [25, 50, 100, 200].indexOf(v) >= 0 ? v : null; } catch (e) { return null; } })();
+  var state = { months: [], items: [], total: 0, limit: savedSize || 100, offset: 0, summary: null, loading: false };
+  if (els.size) { els.size.value = String(state.limit); }
   var BAND = { excellent: 'Excellent', good: 'Good', fair: 'Fair', low: 'Low', no_data: 'No data' };
 
   function esc(s) {
@@ -179,25 +185,31 @@
     els.meta.textContent = (state.total ? 'Showing ' + from + '–' + to + ' of ' + state.total : '') +
       (state.summary && state.summary.computed_at_ec ? ' · computed ' + state.summary.computed_at_ec + ' EC' : '');
     els.prev.disabled = state.offset <= 0;
-    els.next.disabled = state.offset + state.limit >= state.total;
+    els.next.disabled = state.offset + state.items.length >= state.total;
+    if (els.more) {
+      var left = Math.max(0, state.total - (state.offset + state.items.length));
+      els.more.hidden = left <= 0;
+      els.more.disabled = false;
+      els.more.textContent = 'Load more (' + left + ' left)';
+    }
   }
 
-  function load(force) {
+  function load(force, append) {
     if (state.loading) { return Promise.resolve(); }
     state.loading = true;
     var p = filterParams();
     p.action = 'list';
     p.limit = state.limit;
-    p.offset = state.offset;
+    p.offset = append ? state.offset + state.items.length : state.offset;
     if (force) { p.refresh = 1; }
-    els.list.innerHTML = '<div class="am-empty">Loading…</div>';
+    if (!append) { els.list.innerHTML = '<div class="am-empty">Loading…</div>'; }
     syncUrl();
     return get(p).then(function (j) {
       state.loading = false;
       if (j.status !== 'success') { els.list.innerHTML = ''; toast(j.message || 'Could not load', 'err'); return; }
       if (!j.available) { els.unavailable.hidden = false; els.list.innerHTML = ''; els.cards.innerHTML = ''; return; }
       els.unavailable.hidden = true;
-      state.items = j.items || [];
+      state.items = append ? state.items.concat(j.items || []) : (j.items || []);
       state.total = j.total || 0;
       state.summary = j.summary || null;
       renderCards(state.summary);
@@ -247,7 +259,17 @@
   els.below.addEventListener('change', function () { state.offset = 0; load(); });
   els.q.addEventListener('input', function () { clearTimeout(qTimer); qTimer = setTimeout(function () { state.offset = 0; load(); }, 300); });
   els.prev.addEventListener('click', function () { state.offset = Math.max(0, state.offset - state.limit); load(); });
-  els.next.addEventListener('click', function () { state.offset += state.limit; load(); });
+  els.next.addEventListener('click', function () { state.offset += Math.max(state.items.length, 1); load(); });
+  if (els.more) { els.more.addEventListener('click', function () { els.more.disabled = true; els.more.textContent = 'Loading…'; load(false, true); }); }
+  if (els.size) {
+    els.size.addEventListener('change', function () {
+      var n = parseInt(els.size.value, 10);
+      if ([25, 50, 100, 200].indexOf(n) < 0) { return; }
+      state.limit = n; state.offset = 0;
+      try { localStorage.setItem(SIZE_KEY, String(n)); } catch (e) { /* private mode */ }
+      load();
+    });
+  }
   els.refresh.addEventListener('click', function () { load(true); });
   els.exportBtn.addEventListener('click', function () {
     var p = filterParams(); p.action = 'export'; p.format = 'xlsx';

@@ -150,7 +150,10 @@ class MemberDirectoryScalingTests(unittest.TestCase):
 
     def test_finance_picker_searches_instead_of_loading_full_roster(self):
         self.assertIn("view: 'picker'", self.picker_js)
-        self.assertIn("limit: '50'", self.picker_js)
+        # Phase 3: still 50 per request; "Show more" asks for the next page.
+        self.assertIn("var PAGE = 50", self.picker_js)
+        self.assertIn("limit: String(PAGE), page: String(page)", self.picker_js)
+        self.assertIn("__more__", self.picker_js)
         self.assertIn("AbortController", self.picker_js)
         for relative in [
             "frontend/pages/finance_dept.php",

@@ -2333,17 +2333,17 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 </div>
             </section>
 
-<script src="/admin/js/paginated-list.js"></script>
+<script src="/admin/js/paginated-list.js?v=20261022p"></script>
 <script>window.WBWS_SECTIONS=<?= json_encode(array_map(static function($sec){return $sec['am'].' ('.$sec['letter'].')';}, \App\Services\MemberCategory::sections()), JSON_UNESCAPED_UNICODE) ?>;</script>
-        <script src="/admin/js/all-members.js" defer></script>
+        <script src="/admin/js/all-members.js?v=20261022p" defer></script>
 <script src="/admin/js/manage-members.js" defer></script>
 <script src="/admin/js/guardian_picker.js?v=<?= SSMS_ASSET_VER ?>"></script>
 <script src="/admin/js/member_nav.js?v=<?= SSMS_ASSET_VER ?>"></script>
 <script src="/admin/js/department_status.js?v=<?= SSMS_ASSET_VER ?>-20261022r"></script>
-<script src="/admin/js/family_link.js?v=<?= SSMS_ASSET_VER ?>-20261022r"></script>
+<script src="/admin/js/family_link.js?v=<?= SSMS_ASSET_VER ?>-20261022p"></script>
 
 <script src="/admin/js/new-members.js?v=20261022r" defer></script>
-<script src="/frontend/js/member-picker.js" defer></script>
+<script src="/frontend/js/member-picker.js?v=20261022p" defer></script>
 <script src="/admin/js/id-card-directory.js?v=20261022r" defer></script>
 <script src="/admin/js/archive-members.js" defer></script>
 

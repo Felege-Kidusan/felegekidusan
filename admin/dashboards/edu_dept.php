@@ -106,6 +106,7 @@ const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSO
 <script src="/admin/js/academic_tracking.js?v=20261022s"></script>
 <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
 <script src="/admin/js/score_limit.js?v=20261022s"></script>
+<script src="/admin/js/list_pager.js?v=20261022p"></script>
 <script src="/admin/js/edu_timetable.js?v=20261021dc"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
@@ -606,10 +607,10 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div class="crd no-print" style="padding:.75rem"><div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
 <input autocomplete="off" type="text" id="teacherSearch" class="inp" style="max-width:240px" placeholder="Search name, username, or code..." oninput="debounceTeacherSearch()">
 <select id="teacherStatus" class="inp" style="max-width:140px" onchange="loadTeachers()"><option value="active">Active</option><option value="all">All statuses</option><option value="inactive">Inactive</option></select>
-<select id="teacherSort" class="inp" style="max-width:160px" onchange="renderTeachers()"><option value="name">Sort: Name</option><option value="username">Sort: Username</option><option value="classes">Sort: Most classes</option></select>
+<select id="teacherSort" class="inp" style="max-width:160px" onchange="_teacherPager?loadTeachers():renderTeachers()"><option value="name">Sort: Name</option><option value="username">Sort: Username</option><option value="classes">Sort: Most classes</option></select>
 <button class="btn btn-o btn-xs" onclick="exportTeachers()"><i class="fa-solid fa-download"></i> Excel</button>
 </div></div>
-<div class="crd" style="margin-top:.75rem"><div class="tw"><table class="dt"><thead><tr><th>Teacher</th><th>Username</th><th>Email</th><th>Member Link</th><th>Assignments</th><th>Status</th><th class="text-center">Actions</th></tr></thead><tbody id="teacherBody"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
+<div class="crd" style="margin-top:.75rem"><div class="tw"><table class="dt"><thead><tr><th>Teacher</th><th>Username</th><th>Email</th><th>Member Link</th><th>Assignments</th><th>Status</th><th class="text-center">Actions</th></tr></thead><tbody id="teacherBody"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div><div id="teacherPager" style="padding:0 .75rem"></div></div>
 </div>
 
 <!-- ═══ CLASSES ═══ -->
@@ -816,6 +817,7 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <input autocomplete="off" type="hidden" id="subFilterStatus" value="draft">
 <div id="subStatsRow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1rem"></div>
 <div id="submissionsList" class="crd" style="padding:.5rem"><div style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div></div>
+<div id="submissionsPager"></div>
 <div id="subInsights" class="crd" style="padding:1rem;display:none"></div>
 </div>
 
@@ -1831,7 +1833,32 @@ function showTab(){/* teacher form is one scroll — no tabs */}
 // ═══ TEACHERS ═══
 let _teacherSearchTimer=null,_memberSearchTimer=null;
 function debounceTeacherSearch(){ clearTimeout(_teacherSearchTimer); _teacherSearchTimer=setTimeout(loadTeachers, 300); }
+// Phase 3 paging: teachers page on the server (was cut at 100). Search,
+// status and sort are applied by the server so every page is correct.
+let _teacherPager=null;
+async function _teacherFetch(page,perPage){
+    const status=document.getElementById('teacherStatus')?.value||'active';
+    const q=(document.getElementById('teacherSearch')?.value||'').trim();
+    const sort=document.getElementById('teacherSort')?.value||'name';
+    let url=`/admin/api_teachers.php?action=get_teachers&include_inactive=${status==='active'?'0':'1'}&page=${page}&per_page=${perPage}&sort=${encodeURIComponent(sort)}`;
+    if(status==='inactive') url+='&only_inactive=1';
+    if(q) url+=`&q=${encodeURIComponent(q)}`;
+    const d=await getAPI(url);
+    if(d.status!=='success') throw new Error(d.message||'Could not load teachers.');
+    const rows=Array.isArray(d.teachers)?d.teachers:[];
+    return {rows:rows,total:d.total!=null?d.total:rows.length,page:d.page||1,totalPages:d.total_pages||1};
+}
 async function loadTeachers(){
+    if(!_teacherPager&&window.FKSSPager){
+        _teacherPager=FKSSPager.create({host:document.getElementById('teacherPager'),storageKey:'fkss_pp_edu_teachers',noun:'teachers',defaultSize:50,
+            fetchPage:_teacherFetch,render:(rows,append)=>{allTeachers=append?allTeachers.concat(rows):rows;renderTeachers();},
+            onError:e=>toast(e.message||friendlyNetError(e),'err')});
+    }
+    if(_teacherPager){
+        try{await _teacherPager.reset();}
+        catch(e){allTeachers=[];renderTeachers();toast(e.message||friendlyNetError(e),'err');}
+        return;
+    }
     const status=document.getElementById('teacherStatus')?.value||'active';
     const inc=status==='active'?'0':'1';
     const q=document.getElementById('teacherSearch')?.value||'';
@@ -1847,6 +1874,7 @@ function renderTeachers(){
     const status=document.getElementById('teacherStatus')?.value||'active';
     const sort=document.getElementById('teacherSort')?.value||'name';
     let list=allTeachers.slice();
+    if(!_teacherPager){ // paged lists are already filtered + sorted by the server
     if(status==='inactive') list=list.filter(t=>t.is_active!=1);
     else if(status==='active') list=list.filter(t=>t.is_active==1);
     if(q) list=list.filter(t=>[t.full_name,t.username,t.email,t.member_code].filter(Boolean).join(' ').toLowerCase().includes(q));
@@ -1855,6 +1883,7 @@ function renderTeachers(){
         if(sort==='classes') return (parseInt(b.assigned_classes,10)||0)-(parseInt(a.assigned_classes,10)||0);
         return String(a.full_name||'').localeCompare(String(b.full_name||''));
     });
+    }
     document.getElementById('teacherBody').innerHTML=list.length?list.map(t=>`<tr style="${t.is_active==0?'opacity:.5':''}">
         <td><div style="display:flex;align-items:center;gap:.5rem"><div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.7rem">${esc((t.full_name||'?')[0].toUpperCase())}</div><div><div style="font-weight:600;font-size:.8rem">${esc(t.full_name)}</div></div></div></td>
         <td style="font-size:.8rem">${esc(t.username)}</td><td style="font-size:.8rem">${esc(t.email||'—')}</td>
@@ -3489,10 +3518,32 @@ function switchSubTab(tab){
     if(hid) hid.value=tab;
     loadSubmissions();
 }
+// Phase 3 paging: the review inbox pages through ALL packets (was capped at 200).
+let _subPager=null;
+// After a review decision: stay on the page being worked through.
+function reloadSubmissionsPage(){
+    if(_subPager&&_subPager.firstPage>1){ _subPager.goTo(_subPager.firstPage).catch(e=>{if(!(e&&e._shown))toast(friendlyNetError(e),'err');}); return; }
+    loadSubmissions();
+}
 async function loadSubmissions(){
     const list=document.getElementById('submissionsList');
-    const statsRow=document.getElementById('subStatsRow');
     if(list) list.innerHTML='<div style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
+    if(!_subPager&&window.FKSSPager){
+        _subPager=FKSSPager.create({host:document.getElementById('submissionsPager'),storageKey:'fkss_pp_edu_reviews',noun:'packets',defaultSize:50,
+            fetchPage:_subFetchPage,render:_subRender,onError:e=>{if(!(e&&e._shown))toast(friendlyNetError(e),'err');}});
+    }
+    try{
+        if(_subPager) await _subPager.reset();
+        else { const r=await _subFetchPage(1,0,false); _subRender(r.rows,false,1); }
+    }catch(e){
+        if(e&&e._shown) return;
+        if(list) list.innerHTML=`<div style="text-align:center;padding:2rem"><div style="color:#dc2626;font-weight:600;margin-bottom:.35rem">Could not load submissions</div><div style="color:#64748b;font-size:.8rem;margin-bottom:.85rem">${esc(friendlyNetError(e))}</div><button class="btn btn-p btn-xs" type="button" onclick="loadSubmissions()"><i class="fa-solid fa-rotate-right"></i> Retry</button></div>`;
+        toast(friendlyNetError(e),'err');
+    }
+}
+async function _subFetchPage(page,perPage,append){
+    const list=document.getElementById('submissionsList');
+    const statsRow=document.getElementById('subStatsRow');
     const sf=document.getElementById('subFilterStatus')?.value||'draft';
     const cf=document.getElementById('subFilterClass')?.value||'';
     const tf=document.getElementById('subFilterType')?.value||'';
@@ -3500,55 +3551,60 @@ async function loadSubmissions(){
     if(sf) url+=`&status_filter=${encodeURIComponent(sf)}`;
     if(cf) url+=`&class_id=${encodeURIComponent(cf)}`;
     if(tf) url+=`&type=${encodeURIComponent(tf)}`;
-    try{
-        const d=await getAPI(url);
-        if(d.status!=='success'){
-            if(list) list.innerHTML=`<div style="text-align:center;padding:2rem"><div style="color:#dc2626;font-weight:600;margin-bottom:.35rem">Could not load submissions</div><div style="color:#64748b;font-size:.8rem;margin-bottom:.85rem">${esc(d.message||'Please try again.')}</div><button class="btn btn-p btn-xs" type="button" onclick="loadSubmissions()"><i class="fa-solid fa-rotate-right"></i> Retry</button></div>`;
-            toast(d.message||'Could not load submissions.','err');
-            return;
+    if(perPage) url+=`&page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(perPage)}`;
+    const d=await getAPI(url);
+    if(d.status!=='success'){
+        if(append){ toast(d.message||'Could not load more submissions.','err'); }
+        else {
+                if(list) list.innerHTML=`<div style="text-align:center;padding:2rem"><div style="color:#dc2626;font-weight:600;margin-bottom:.35rem">Could not load submissions</div><div style="color:#64748b;font-size:.8rem;margin-bottom:.85rem">${esc(d.message||'Please try again.')}</div><button class="btn btn-p btn-xs" type="button" onclick="loadSubmissions()"><i class="fa-solid fa-rotate-right"></i> Retry</button></div>`;
+                toast(d.message||'Could not load submissions.','err');
         }
-        allSubmissions=d.submissions||[];
-        const st=d.stats||{};
-        const drafts=st.incomplete??allSubmissions.filter(s=>s.status==='draft'||s.status==='incomplete').length;
-        const pending=st.pending??allSubmissions.filter(s=>s.status==='submitted').length;
-        const approved=st.approved??0;
-        if(statsRow) statsRow.innerHTML=`
-            <div class="sc" style="background:linear-gradient(135deg,#2563eb,#3b82f6);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${drafts}</div><div style="font-size:.65rem;opacity:.8">Drafts (not finished)</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${pending}</div><div style="font-size:.65rem;opacity:.8">Submitted</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${approved}</div><div style="font-size:.65rem;opacity:.8">Approved</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:1rem"><div><div style="font-size:1.05rem;font-weight:700">${st.today_recorded?((st.today_present||0)+' P · '+(st.today_absent||0)+' A · '+(st.today_late||0)+' L'):'—'}</div><div style="font-size:.65rem;opacity:.8">Today’s marks</div></div></div>`;
-        if(!list) return;
-        if(!allSubmissions.length){
-            const empty=sf==='draft'?'No drafts yet. When a teacher taps Save, the unfinished sheet appears here.':'No submitted work yet. Submit is used after class or after a test.';
-            list.innerHTML=`<div style="text-align:center;padding:2rem;color:#94a3b8"><i class="fa-solid fa-inbox" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>${empty}</div>`;
-            return;
-        }
-        list.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>Type</th><th>Teacher</th><th>Class</th><th>What</th><th>Students</th><th>Result</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${allSubmissions.map(s=>{
-            const isAtt=s.submission_type==='attendance';
-            const what=isAtt?(s.attendance_date?fD(s.attendance_date):'Attendance'):(s.assessment_name||s.subject_name||'Mark list');
-            const result=isAtt?`${s.present_count||0}P / ${s.absent_count||0}A / ${s.late_count||0}L`:(s.average_score!=null?parseFloat(s.average_score).toFixed(1):'—');
-            const dt=s.updated_at||s.submitted_at||s.created_at;
-            return `<tr>
-                <td><span class="ch ${isAtt?'ch-i':'ch-p'}">${isAtt?'Attendance':'Mark list'}</span></td>
-                <td style="font-weight:600;font-size:.8rem">${esc(s.teacher_name||'—')}</td>
-                <td class="amharic">${esc(s.class_name||'—')}</td>
-                <td class="amharic" style="font-size:.78rem">${esc(what)}</td>
-                <td><span class="ch ch-i">${s.student_count||0}</span></td>
-                <td style="font-weight:700;font-size:.8rem">${esc(result)}</td>
-                <td>${subStatusChip(s.status)}</td>
-                <td style="font-size:.75rem;color:#64748b">${dt?fD(dt):'—'}${s.status==='revision_needed'&&s.reviewer_name?`<div style="color:#c2410c;font-size:.68rem;margin-top:2px"><i class="fa-solid fa-arrow-rotate-left"></i> ${esc(s.reviewer_name)}${s.review_notes?': '+esc(s.review_notes.length>60?s.review_notes.slice(0,60)+'…':s.review_notes):''}</div>`:''}</td>
-                <td style="white-space:nowrap">
-                    <button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="reviewSubmission(${s.id})" title="Open"><i class="fa-solid fa-eye"></i></button>
-                    ${s.status==='submitted'?`
-                    <button class="ab" style="background:#d1fae5;color:#065f46" onclick="quickReview(${s.id},'approved')" title="Approve"><i class="fa-solid fa-check"></i></button>
-                    <button class="ab" style="background:#fee2e2;color:#991b1b" onclick="quickReview(${s.id},'rejected')" title="Reject"><i class="fa-solid fa-times"></i></button>
-                    `:''}
-                </td></tr>`;
-        }).join('')}</tbody></table></div>`;
-    }catch(e){
-        if(list) list.innerHTML=`<div style="text-align:center;padding:2rem"><div style="color:#dc2626;font-weight:600;margin-bottom:.35rem">Could not load submissions</div><div style="color:#64748b;font-size:.8rem;margin-bottom:.85rem">${esc(friendlyNetError(e))}</div><button class="btn btn-p btn-xs" type="button" onclick="loadSubmissions()"><i class="fa-solid fa-rotate-right"></i> Retry</button></div>`;
-        toast(friendlyNetError(e),'err');
+        const err=new Error(d.message||'Could not load submissions.'); err._shown=true; throw err;
     }
+    const rows=Array.isArray(d.submissions)?d.submissions:[];
+    const st=d.stats||{};
+    const drafts=st.incomplete??rows.filter(s=>s.status==='draft'||s.status==='incomplete').length;
+    const pending=st.pending??rows.filter(s=>s.status==='submitted').length;
+    const approved=st.approved??0;
+    if(statsRow) statsRow.innerHTML=`
+        <div class="sc" style="background:linear-gradient(135deg,#2563eb,#3b82f6);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${drafts}</div><div style="font-size:.65rem;opacity:.8">Drafts (not finished)</div></div></div>
+        <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${pending}</div><div style="font-size:.65rem;opacity:.8">Submitted</div></div></div>
+        <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${approved}</div><div style="font-size:.65rem;opacity:.8">Approved</div></div></div>
+        <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:1rem"><div><div style="font-size:1.05rem;font-weight:700">${st.today_recorded?((st.today_present||0)+' P · '+(st.today_absent||0)+' A · '+(st.today_late||0)+' L'):'—'}</div><div style="font-size:.65rem;opacity:.8">Today’s marks</div></div></div>`;
+    return {rows:rows,total:(d.total!=null?d.total:rows.length),page:d.page||1,totalPages:d.total_pages||1};
+}
+function _subRender(rows,append){
+    const list=document.getElementById('submissionsList');
+    const sf=document.getElementById('subFilterStatus')?.value||'draft';
+    allSubmissions=append?allSubmissions.concat(rows):rows;
+    if(!list) return;
+    if(!allSubmissions.length){
+        const empty=sf==='draft'?'No drafts yet. When a teacher taps Save, the unfinished sheet appears here.':'No submitted work yet. Submit is used after class or after a test.';
+        list.innerHTML=`<div style="text-align:center;padding:2rem;color:#94a3b8"><i class="fa-solid fa-inbox" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>${empty}</div>`;
+        return;
+    }
+    list.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>Type</th><th>Teacher</th><th>Class</th><th>What</th><th>Students</th><th>Result</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${allSubmissions.map(s=>{
+        const isAtt=s.submission_type==='attendance';
+        const what=isAtt?(s.attendance_date?fD(s.attendance_date):'Attendance'):(s.assessment_name||s.subject_name||'Mark list');
+        const result=isAtt?`${s.present_count||0}P / ${s.absent_count||0}A / ${s.late_count||0}L`:(s.average_score!=null?parseFloat(s.average_score).toFixed(1):'—');
+        const dt=s.updated_at||s.submitted_at||s.created_at;
+        return `<tr>
+            <td><span class="ch ${isAtt?'ch-i':'ch-p'}">${isAtt?'Attendance':'Mark list'}</span></td>
+            <td style="font-weight:600;font-size:.8rem">${esc(s.teacher_name||'—')}</td>
+            <td class="amharic">${esc(s.class_name||'—')}</td>
+            <td class="amharic" style="font-size:.78rem">${esc(what)}</td>
+            <td><span class="ch ch-i">${s.student_count||0}</span></td>
+            <td style="font-weight:700;font-size:.8rem">${esc(result)}</td>
+            <td>${subStatusChip(s.status)}</td>
+            <td style="font-size:.75rem;color:#64748b">${dt?fD(dt):'—'}${s.status==='revision_needed'&&s.reviewer_name?`<div style="color:#c2410c;font-size:.68rem;margin-top:2px"><i class="fa-solid fa-arrow-rotate-left"></i> ${esc(s.reviewer_name)}${s.review_notes?': '+esc(s.review_notes.length>60?s.review_notes.slice(0,60)+'…':s.review_notes):''}</div>`:''}</td>
+            <td style="white-space:nowrap">
+                <button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="reviewSubmission(${s.id})" title="Open"><i class="fa-solid fa-eye"></i></button>
+                ${s.status==='submitted'?`
+                <button class="ab" style="background:#d1fae5;color:#065f46" onclick="quickReview(${s.id},'approved')" title="Approve"><i class="fa-solid fa-check"></i></button>
+                <button class="ab" style="background:#fee2e2;color:#991b1b" onclick="quickReview(${s.id},'rejected')" title="Reject"><i class="fa-solid fa-times"></i></button>
+                `:''}
+            </td></tr>`;
+    }).join('')}</tbody></table></div>`;
 }
 // Printable QR tiles for the selected class (Phase 8 QR attendance).
 // GET-only governed endpoint; the class picker doubles as the guard.
@@ -3746,7 +3802,7 @@ async function doReview(id,status){
     const fd=new FormData();fd.append('action','review_submission');fd.append('submission_id',id);fd.append('new_status',status);fd.append('notes',notes);
     try{const d=await postAPI('/admin/api_communication.php',fd);
     toast(d.message,d.status==='success'?'ok':'err');
-    if(d.status==='success'){closeModal('reviewModal');loadSubmissions();}}catch(e){toast('Error','err');}
+    if(d.status==='success'){closeModal('reviewModal');reloadSubmissionsPage();}}catch(e){toast('Error','err');}
 }
 
 // ═══ REPORT CARDS (Edu Dept) ═══

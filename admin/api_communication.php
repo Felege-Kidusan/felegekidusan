@@ -236,8 +236,24 @@ switch ($action) {
             if ($userRole === 'teacher') {
                 $filters['teacher_id'] = $userId;
             }
-            $submissions = \App\Services\SubmissionService::list($conn, $filters);
             $stats = \App\Services\SubmissionService::stats($conn, $userRole === 'teacher' ? ['teacher_id' => $userId] : []);
+            if (isset($_GET['page'])) {
+                // Phase 3 paging (review inbox): page / per_page / total.
+                $out = \App\Services\SubmissionService::listPaged(
+                    $conn, $filters, (int)$_GET['page'], (int)($_GET['per_page'] ?? 50)
+                );
+                echo json_encode([
+                    'status' => 'success',
+                    'submissions' => $out['items'],
+                    'total' => $out['total'],
+                    'page' => $out['page'],
+                    'total_pages' => $out['total_pages'],
+                    'per_page' => $out['per_page'],
+                    'stats' => $stats,
+                ]);
+                break;
+            }
+            $submissions = \App\Services\SubmissionService::list($conn, $filters);
             echo json_encode([
                 'status' => 'success',
                 'submissions' => $submissions,

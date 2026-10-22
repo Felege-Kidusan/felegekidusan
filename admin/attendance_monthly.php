@@ -48,7 +48,7 @@ $cfg = [
         'member_id' => (int)($_GET['member_id'] ?? 0),
     ],
 ];
-$assetVer = '20261019p4';
+$assetVer = '20261022p';
 $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
 ?>
 <!DOCTYPE html>
@@ -157,8 +157,10 @@ $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
     <div class="am-foot">
       <span id="am-meta"></span>
       <div class="am-pager">
+        <label class="rc-muted" style="font-size:.8rem">Per page <select id="am-size" aria-label="Rows per page"><option>25</option><option>50</option><option selected>100</option><option>200</option></select></label>
         <button class="rc-btn rc-btn-ghost rc-btn-sm" id="am-prev" type="button">‹ Prev</button>
         <button class="rc-btn rc-btn-ghost rc-btn-sm" id="am-next" type="button">Next ›</button>
+        <button class="rc-btn rc-btn-sm" id="am-more" type="button" hidden>Load more</button>
       </div>
     </div>
     <p class="am-note">Rate = (present + excused + 0.5 × late) ÷ eligible sessions. Only submitted/approved sheets count; holidays and months inside an inactive period are excluded. “Below threshold” uses the department policy and needs the minimum number of sessions.</p>

@@ -1842,11 +1842,11 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                 </div>
             </section>
 
-<script src="/admin/js/paginated-list.js"></script>
+<script src="/admin/js/paginated-list.js?v=20261022p"></script>
 <script>window.WBWS_SECTIONS=<?= json_encode(array_map(static function($sec){return $sec['am'].' ('.$sec['letter'].')';}, \App\Services\MemberCategory::sections()), JSON_UNESCAPED_UNICODE) ?>;</script>
-        <script src="/admin/js/all-members.js" defer></script>
+        <script src="/admin/js/all-members.js?v=20261022p" defer></script>
 <script src="/admin/js/manage-members.js" defer></script>
-<script src="/frontend/js/member-picker.js" defer></script>
+<script src="/frontend/js/member-picker.js?v=20261022p" defer></script>
 <script src="/admin/js/archive-members.js" defer></script>
 
             <!-- ARCHIVE -->

@@ -1376,12 +1376,29 @@ if ($method === 'GET' && $action === 'submissions') {
     }
     require_once __DIR__ . '/../../../admin/backend/services/SubmissionService.php';
     try {
-        $submissions = \App\Services\SubmissionService::list($conn, [
+        $filters = [
             'class_id' => (int)($_GET['class_id'] ?? 0),
             'status'   => (string)($_GET['status_filter'] ?? 'attention'),
             'type'     => (string)($_GET['type'] ?? ''),
-        ]);
+        ];
         $stats = \App\Services\SubmissionService::stats($conn);
+        // Phase 3 paging: only clients that send with_total=1 (APK 1.7.3+)
+        // get pages. Older APKs already send page=1&per_page=50 and must
+        // keep receiving the newest 200 exactly as before.
+        if ((string)($_GET['with_total'] ?? '') === '1') {
+            $out = \App\Services\SubmissionService::listPaged(
+                $conn, $filters, (int)($_GET['page'] ?? 1), (int)($_GET['per_page'] ?? 50)
+            );
+            ok([
+                'submissions' => $out['items'],
+                'total' => $out['total'],
+                'page' => $out['page'],
+                'total_pages' => $out['total_pages'],
+                'per_page' => $out['per_page'],
+                'stats' => $stats,
+            ]);
+        }
+        $submissions = \App\Services\SubmissionService::list($conn, $filters);
         ok(['submissions' => $submissions, 'stats' => $stats]);
     } catch (Throwable $e) {
         err('Could not load submissions. Please try again.', 500);

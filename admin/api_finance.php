@@ -244,14 +244,31 @@ case 'member_fees':
     if ($year) { $where[] = "f.ec_year=?"; $params[] = $year; $types .= 'i'; }
     if ($status && in_array($status, ['paid','unpaid','partial'])) { $where[] = "f.status=?"; $params[] = $status; $types .= 's'; }
 
-    $sql = "SELECT f.*, m.student_name, m.member_code FROM finance_member_fees f LEFT JOIN members m ON f.member_id=m.id WHERE ".implode(' AND ',$where)." ORDER BY f.ec_year DESC, f.ec_month DESC LIMIT 500";
+    // Phase 3 paging: page / per_page / total when the screen sends page.
+    // Without page the old response (newest 500) is unchanged.
+    $paged = isset($_GET['page']);
+    $limit = 500; $offset = 0; $pageInfo = [];
+    if ($paged) {
+        $perPage = (int)($_GET['per_page'] ?? 50);
+        if (!in_array($perPage, [25, 50, 100, 200], true)) { $perPage = 50; }
+        $cstmt = $conn->prepare("SELECT COUNT(*) AS c FROM finance_member_fees f WHERE ".implode(' AND ',$where));
+        if ($params) { $cstmt->bind_param($types, ...$params); }
+        $cstmt->execute();
+        $total = (int)($cstmt->get_result()->fetch_assoc()['c'] ?? 0);
+        $cstmt->close();
+        $totalPages = max(1, (int)ceil($total / $perPage));
+        $page = min(max(1, (int)$_GET['page']), $totalPages);
+        $limit = $perPage; $offset = ($page - 1) * $perPage;
+        $pageInfo = ['total' => $total, 'page' => $page, 'total_pages' => $totalPages, 'per_page' => $perPage];
+    }
+    $sql = "SELECT f.*, m.student_name, m.member_code FROM finance_member_fees f LEFT JOIN members m ON f.member_id=m.id WHERE ".implode(' AND ',$where)." ORDER BY f.ec_year DESC, f.ec_month DESC, f.id DESC LIMIT ".(int)$limit." OFFSET ".(int)$offset;
     $stmt = $conn->prepare($sql);
     if ($params) { $stmt->bind_param($types, ...$params); }
     $stmt->execute();
     $r = $stmt->get_result();
     $fees = [];
     while ($row = $r->fetch_assoc()) $fees[] = $row;
-    echo json_encode(['status'=>'success','fees'=>$fees]);
+    echo json_encode(['status'=>'success','fees'=>$fees] + $pageInfo);
     break;
 
 case 'save_fee':

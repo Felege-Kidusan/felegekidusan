@@ -33,7 +33,8 @@ $extraHead = '
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" integrity="sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3" crossorigin="anonymous"></script>
-<script src="/frontend/js/member-picker.js" defer></script>
+<script src="/frontend/js/member-picker.js?v=20261022p" defer></script>
+<script src="/admin/js/list_pager.js?v=20261022p" defer></script>
 ';
 
 ob_start();
@@ -216,6 +217,7 @@ ob_start();
                 <div style="overflow-x:auto">
                     <table><thead><tr><th>Member</th><th>Code</th><th>Type</th><th>Amount</th><th>Month</th><th>Year</th><th>Status</th><th>Paid</th></tr></thead>
                     <tbody id="feesBody"></tbody></table>
+                    <div id="feesPager"></div>
                 </div>
             </div>
 

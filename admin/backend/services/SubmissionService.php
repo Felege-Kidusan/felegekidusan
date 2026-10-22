@@ -1539,8 +1539,60 @@ class SubmissionService
      */
     public static function list(\mysqli $conn, array $filters): array
     {
-        self::ensureTable($conn);
+        return self::listQuery($conn, $filters, 200, 0);
+    }
 
+    /** Allowed page sizes for the paged review list (Phase 3 paging). */
+    public const LIST_PAGE_SIZES = [25, 50, 100, 200];
+
+    /**
+     * Paged review list (Phase 3, 2026-10-22). Same filters and order as
+     * list(); returns the Mezmur inbox shape so every client pages alike:
+     * ['items' => rows, 'total', 'page', 'total_pages', 'per_page'].
+     * list() itself is unchanged (newest 200) for callers that do not page.
+     */
+    public static function listPaged(\mysqli $conn, array $filters, $page, $perPage): array
+    {
+        $perPage = (int)$perPage;
+        if (!in_array($perPage, self::LIST_PAGE_SIZES, true)) {
+            $perPage = 50;
+        }
+        $page = max(1, (int)$page);
+        $total = self::listCount($conn, $filters);
+        $totalPages = max(1, (int)ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $items = $total > 0 ? self::listQuery($conn, $filters, $perPage, ($page - 1) * $perPage) : [];
+        return [
+            'items' => $items,
+            'total' => $total,
+            'page' => $page,
+            'total_pages' => $totalPages,
+            'per_page' => $perPage,
+        ];
+    }
+
+    private static function listCount(\mysqli $conn, array $filters): int
+    {
+        self::ensureTable($conn);
+        [$where, $params, $types] = self::listWhere($filters);
+        $stmt = $conn->prepare('SELECT COUNT(*) AS c FROM grade_submissions gs WHERE ' . implode(' AND ', $where));
+        if (!$stmt) {
+            throw new \RuntimeException('Could not count submissions.');
+        }
+        if ($params) {
+            $stmt->bind_param($types, ...$params);
+        }
+        $stmt->execute();
+        $c = (int)($stmt->get_result()->fetch_assoc()['c'] ?? 0);
+        $stmt->close();
+        return $c;
+    }
+
+    /** @return array{0: string[], 1: array, 2: string} */
+    private static function listWhere(array $filters): array
+    {
         $where = ['1=1'];
         $params = [];
         $types = '';
@@ -1572,6 +1624,15 @@ class SubmissionService
             $params[] = $status;
             $types .= 's';
         }
+        return [$where, $params, $types];
+    }
+
+    private static function listQuery(\mysqli $conn, array $filters, int $limit, int $offset): array
+    {
+        self::ensureTable($conn);
+        [$where, $params, $types] = self::listWhere($filters);
+        $limit = max(1, min(200, $limit));
+        $offset = max(0, $offset);
 
         $sql = "SELECT gs.id, gs.teacher_id, gs.class_id, gs.subject_id, gs.academic_year_id,
                        gs.term_id, gs.assessment_id, gs.attendance_date, gs.submission_type, gs.status,
@@ -1593,7 +1654,7 @@ class SubmissionService
                 LEFT JOIN users rv ON gs.reviewed_by = rv.id
                 WHERE " . implode(' AND ', $where) . "
                 ORDER BY gs.updated_at DESC, gs.id DESC
-                LIMIT 200";
+                LIMIT {$limit} OFFSET {$offset}";
 
         $stmt = $conn->prepare($sql);
         if (!$stmt) {

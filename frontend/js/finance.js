@@ -17,6 +17,7 @@ var Finance = (function() {
     var APP = window.APP || {};
     var cats = [];
     var members = [];
+    var feePager = null;
     var txns = { income: [], expense: [] };
     var saving = {};
     function setSaving(name, pending) {
@@ -368,22 +369,50 @@ var Finance = (function() {
         var st = (document.getElementById('feeStatus') || {}).value || '';
         var yr = (document.getElementById('feeYear') || {}).value || '';
 
-        window.api.get('finance.php?action=member_fees&status=' + st + '&ec_year=' + yr)
+        var base = 'finance.php?action=member_fees&status=' + encodeURIComponent(st) + '&ec_year=' + encodeURIComponent(yr);
+        // Phase 3 paging: fee records page through everything (was cut at 500).
+        if (window.FKSSPager) {
+            if (!feePager) {
+                feePager = window.FKSSPager.create({
+                    host: document.getElementById('feesPager'),
+                    storageKey: 'fkss_pp_fin_fees', noun: 'fee records', defaultSize: 50,
+                    fetchPage: function (page, perPage) {
+                        return window.api.get(base_() + '&page=' + page + '&per_page=' + perPage).then(function (d) {
+                            if (d.status !== 'success') throw new Error(d.message || 'Could not load fees');
+                            var f = d.fees || [];
+                            return { rows: f, total: d.total != null ? d.total : f.length, page: d.page || 1, totalPages: d.total_pages || 1 };
+                        });
+                    },
+                    render: function (rows, append) { renderFees(rows, append); },
+                    onError: function (e) { toast(e.message || 'Could not load fees', 'e'); }
+                });
+            }
+            feePager.reset().catch(function (e) { toast(e.message || 'Could not load fees', 'e'); });
+            return;
+        }
+        window.api.get(base)
             .then(function(d) {
                 if (d.status === 'success') renderFees(d.fees || []);
             });
     }
 
-    function renderFees(fees) {
+    // Current filters (read again for every page so Previous/Next keep them).
+    function base_() {
+        var st = (document.getElementById('feeStatus') || {}).value || '';
+        var yr = (document.getElementById('feeYear') || {}).value || '';
+        return 'finance.php?action=member_fees&status=' + encodeURIComponent(st) + '&ec_year=' + encodeURIComponent(yr);
+    }
+
+    function renderFees(fees, append) {
         var tb = document.getElementById('feesBody');
         if (!tb) return;
 
-        if (!fees.length) {
+        if (!fees.length && !append) {
             tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--school-text-dim);padding:1.5rem">No fees recorded</td></tr>';
             return;
         }
 
-        tb.innerHTML = fees.map(function(x) {
+        var html = fees.map(function(x) {
             var stBadge = x.status === 'paid' ? '<span class="badge badge-active">Paid</span>' :
                           x.status === 'partial' ? '<span class="badge badge-warning">Partial</span>' :
                           '<span class="badge badge-inactive">Unpaid</span>';
@@ -398,6 +427,8 @@ var Finance = (function() {
                 '<td style="font-size:.7rem">' + (x.paid_date ? fDate(x.paid_date) : '—') + '</td>' +
                 '</tr>';
         }).join('');
+        if (append) tb.insertAdjacentHTML('beforeend', html);
+        else tb.innerHTML = html;
     }
 
     function saveFee() {
@@ -438,6 +469,14 @@ var Finance = (function() {
     // ══════════════════════════════════════════════════════════
 
     function loadMembers() {
+        // Phase 3 paging: the shared picker reaches every member (search +
+        // "Show more…"); the old first-50 load stays only as a fallback.
+        if (window.MemberPicker) {
+            members = [1];
+            window.MemberPicker.load(document.getElementById('txnMemberSearch'));
+            window.MemberPicker.load(document.getElementById('feeMemberSearch'));
+            return;
+        }
         window.api.get('members.php?view=picker&limit=50')
             .then(function(d) {
                 if (d.status === 'success') {

@@ -28,10 +28,11 @@
         return map[group] || group || '—';
     }
 
-    function buildRow(member) {
+    function buildRow(member, position) {
         var id = Number.parseInt(member.id, 10);
         if (!Number.isSafeInteger(id) || id <= 0) return document.createDocumentFragment();
-        rowCounter++;
+        // Position in the whole list from the pager (correct after Previous/Next).
+        rowCounter = typeof position === 'number' ? position : rowCounter + 1;
 
         var row = document.createElement('tr');
         row.className = 'hover:bg-slate-50 transition';
@@ -116,7 +117,7 @@
         var p = {};
         Object.keys(filterMap).forEach(function (elId) {
             var el = document.getElementById(elId);
-            if (el && el.value.trim() !== '') params[filterMap[elId]] = el.value.trim();
+            if (el && el.value.trim() !== '') p[filterMap[elId]] = el.value.trim();
         });
         return p;
     }

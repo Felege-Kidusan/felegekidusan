@@ -97,17 +97,59 @@
       '</tr></thead><tbody>' + rows + '</tbody></table>';
   }
 
-  function load() {
-    var params = {
+  // Phase 3 paging: warnings page through everything (was cut at 200).
+  var pager = null;
+  function baseParams() {
+    return {
       action: 'list',
       department: els.department.value,
       status: els.status.value,
       kind: els.kind.value,
       stage: els.stage.value,
       q: els.q.value.trim(),
-      member_id: cfg.initial && cfg.initial.member_id ? cfg.initial.member_id : '',
-      limit: 200
+      member_id: cfg.initial && cfg.initial.member_id ? cfg.initial.member_id : ''
     };
+  }
+  function fetchPage(page, perPage) {
+    var params = baseParams();
+    params.limit = perPage;
+    params.offset = (page - 1) * perPage;
+    return get(params).then(function (j) {
+      if (j.status !== 'success') { throw new Error(j.message || 'Could not load warnings'); }
+      state.meta = j;
+      state.unavailable = !j.available;
+      if (!j.available) {
+        els.unavailable.hidden = false;
+        els.list.innerHTML = '';
+        els.cards.innerHTML = '';
+        return { rows: [], total: 0, page: 1, totalPages: 1 };
+      }
+      els.unavailable.hidden = true;
+      state.total = j.total || 0;
+      els.total.textContent = state.total + ' warning' + (state.total === 1 ? '' : 's');
+      return { rows: j.items || [], total: state.total, page: page, totalPages: Math.max(1, Math.ceil(state.total / perPage)) };
+    });
+  }
+  function load() {
+    if (window.FKSSPager && document.getElementById('aw-pager')) {
+      if (!pager) {
+        pager = window.FKSSPager.create({
+          host: document.getElementById('aw-pager'),
+          storageKey: 'fkss_pp_att_warnings', noun: 'warnings', defaultSize: 50,
+          fetchPage: fetchPage,
+          render: function (rows, append) {
+            if (state.unavailable) { return; }
+            state.items = append ? state.items.concat(rows) : rows;
+            renderList();
+          },
+          onError: function (e) { toast(e.message || 'Network error', 'err'); }
+        });
+      }
+      els.list.innerHTML = '<div class="aw-empty">Loading…</div>';
+      return pager.reset().catch(function (e) { els.list.innerHTML = ''; toast(e.message || 'Network error', 'err'); });
+    }
+    var params = baseParams();
+    params.limit = 200;
     els.list.innerHTML = '<div class="aw-empty">Loading…</div>';
     return get(params).then(function (j) {
       if (j.status !== 'success') { toast(j.message || 'Could not load warnings', 'err'); return; }

@@ -182,18 +182,20 @@ switch ($action) {
             $assignedSubjects = "0 as assigned_subjects";
         }
         
-        $sql = "SELECT 
+        $select = "SELECT 
                     u.id, u.username, u.email, u.full_name, u.is_active, 
                     $memberIdCol u.created_at, $lastLoginCol
                     $memberCols
                     $assignedClasses
-                    $assignedSubjects
-                FROM users u
+                    $assignedSubjects ";
+        $sql = "FROM users u
                 $memberJoin
                 WHERE u.role = 'teacher'";
         
         if (!$includeInactive) {
             $sql .= " AND u.is_active = 1";
+        } elseif (($_GET['only_inactive'] ?? '') === '1') {
+            $sql .= " AND u.is_active = 0";
         }
         $q = trim((string)($_GET['q'] ?? ''));
         $bind = [];
@@ -211,8 +213,30 @@ switch ($action) {
             }
             $sql .= ")";
         }
-        $limit = min(100, max(1, (int)($_GET['limit'] ?? 100)));
-        $sql .= " ORDER BY u.full_name LIMIT " . $limit;
+        // Phase 3 paging: page / per_page / total + server-side sort when the
+        // screen sends page. Without page the old response is unchanged.
+        $pageInfo = [];
+        if (isset($_GET['page'])) {
+            $perPage = (int)($_GET['per_page'] ?? 50);
+            if (!in_array($perPage, [25, 50, 100, 200], true)) { $perPage = 50; }
+            $cstmt = $conn->prepare("SELECT COUNT(*) AS c " . $sql);
+            if ($types !== '') { $cstmt->bind_param($types, ...$bind); }
+            $cstmt->execute();
+            $total = (int)($cstmt->get_result()->fetch_assoc()['c'] ?? 0);
+            $cstmt->close();
+            $totalPages = max(1, (int)ceil($total / $perPage));
+            $page = min(max(1, (int)$_GET['page']), $totalPages);
+            $orderBy = [
+                'name' => 'u.full_name ASC, u.id ASC',
+                'username' => 'u.username ASC, u.id ASC',
+                'classes' => 'assigned_classes DESC, u.full_name ASC, u.id ASC',
+            ][(string)($_GET['sort'] ?? 'name')] ?? 'u.full_name ASC, u.id ASC';
+            $sql = $select . $sql . " ORDER BY " . $orderBy . " LIMIT " . (int)$perPage . " OFFSET " . (int)(($page - 1) * $perPage);
+            $pageInfo = ['total' => $total, 'page' => $page, 'total_pages' => $totalPages, 'per_page' => $perPage];
+        } else {
+            $limit = min(100, max(1, (int)($_GET['limit'] ?? 100)));
+            $sql = $select . $sql . " ORDER BY u.full_name LIMIT " . $limit;
+        }
         
         try {
             if ($types !== '') {
@@ -229,7 +253,7 @@ switch ($action) {
                     $teachers[] = $row;
                 }
             }
-            echo json_encode(['status' => 'success', 'teachers' => $teachers]);
+            echo json_encode(['status' => 'success', 'teachers' => $teachers] + $pageInfo);
         } catch (Exception $e) {
             reportInternalError('Teacher list failed', $e);
             echo json_encode(['status' => 'error', 'message' => 'Unable to load teachers.']);
