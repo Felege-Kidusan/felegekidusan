@@ -1,5 +1,8 @@
 # PRODUCTION READINESS AUDIT — SSMS (pre-sync gate)
 
+> **Historical point-in-time audit (marked 2026-10-22).** This verdict applied to `main @ 4ea1e50` on 2026-10-17 and a beta/test target. It is not a statement about the current system. See [docs/ENGINEERING_HANDOVER.md](../../ENGINEERING_HANDOVER.md).
+
+
 Date: 2026-10-17 · Auditor: Arena agent · Repo state: `main @ 4ea1e50`
 Target: `felegekidusan.arkeonethiopia.com` (shared hosting, Apache + PHP + MariaDB)
 

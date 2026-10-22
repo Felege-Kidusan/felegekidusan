@@ -1,0 +1,136 @@
+# Database and migrations
+
+**Status:** canonical. **Verified against:** `main` at `46fbaa7` (2026-10-22), from source files only. **No production database was queried for this document.** Statements about production are owner-reported or marked unverified. This document deliberately contains no ERD, row counts or schema dump, because none could be verified.
+
+## 1. Engine and access
+
+- **Engine:** MariaDB. CI uses the `mariadb:11.4` service image. Production runs on shared hosting; its exact server version was not re-verified for this document.
+- **Character set:** new tables use `utf8mb4` / `utf8mb4_unicode_ci`. Legacy tables may differ. For example, `sql/066_academic_year_charset_repair.sql` exists because `academic_years` was `latin1` in production. Whether that repair has been applied is unverified.
+- **Access:**
+  - Mostly mysqli prepared statements, through the connection opened in `config.php`, with PDO in a few files.
+  - There is no ORM and no query builder.
+- **Credentials:** `DB_HOST`, `DB_NAME`, `DB_USER` and `DB_PASS` are read from `.fkss_env.php` (see [SECURITY.md](SECURITY.md#3-configuration-and-secrets)).
+
+## 2. Sources of schema truth, and their limits
+
+| Source | What it is | Reliability |
+|---|---|---|
+| `sql/NNN_*.sql` (76 files, `001`–`078`) | Hand-written, mostly additive and idempotent migrations. The owner applies them in phpMyAdmin | Authoritative for **intended** changes. Applied state unknown (section 4) |
+| `database_schema.sql` | Legacy snapshot with about 11 tables | **Stale.** Not the current schema; used only as the first step of `tests/e2e/provision_env.sh` |
+| `admin/migrations/*.php`, `backend/migrations/*.php` | Early PHP migration scripts | Historical. Blocked from the web by `.htaccess` rewrite rules and CLI-only guards |
+| Runtime DDL | `MezmurSchemaReconciler::apply`, called from `admin/api_mezmur.php`, can create or alter Mezmur tables at request time | Production can drift from `sql/` |
+| `tests/e2e/provision_env.sh` | Encodes the apply order that produces a working test database | The best available **executable** description of the schema; test-only |
+
+Distinct table names created across `sql/`: **103**, counted from `CREATE TABLE` statements in this pass. Tables created before `sql/` existed, or by legacy scripts, are not included in that count.
+
+## 3. Migration rules in force
+
+- **Shared hosting:** use plain SQL that is safe for MariaDB. Migrations must be additive and idempotent where possible (`IF NOT EXISTS`, information_schema guards). There is no server-side tooling.
+- **CI checks (`backend-checks.yml`):**
+  - *No duplicate migration numbers*;
+  - *Migrations are not silently destructive*: it flags lines that start with `TRUNCATE` or `DELETE FROM`.
+- **Preflight queries:** `sql/preflight/` holds read-only checks that are run before some migrations: `auth_outbox_*`, `failure_intelligence_preflight`, `uniqueness_preflight`, `mobile_fleet_telemetry_*`, `guardian_profiling_pack`.
+- **Pre-056 schema in CI:** `tests/security/test_schema_conformance.py` runs tracking endpoints against a deliberately pre-`056` schema (database `ssms_pre056_e2e`). Queries that name columns production may lack therefore fail in CI.
+- **Fresh databases:** `sql/` is **not linearly applicable** to an empty database (header of `tests/e2e/provision_env.sh`).
+  - `003` indexes columns that `012` adds.
+  - `014`, `017`, `021` and `029` assume legacy tables from the PHP-migration era.
+  - Use `provision_env.sh` for test databases.
+
+## 4. Applied state in production: unverified
+
+- **No migration ledger.** There is no `schema_migrations`-style table, so which files have been applied cannot be determined from the repository.
+- **Owner-reported:** migrations `070`–`078` were applied manually in October 2026.
+- **Gaps in numbering:**
+  - `047` (`047_account_self_service.sql`) was added in `3ba18f7` and removed by the revert `491b9ed` (2026-09-22). Two tests mention that it "landed later via server-side" (`tests/security/test_p1a_members_local_first.py`, `test_p1b_notification_local_first.py`). Whether it is applied in production is **unknown**.
+  - `061` never existed in history.
+- **Read-only verification needed:** see [ENGINEERING_HANDOVER.md](ENGINEERING_HANDOVER.md#5-unknowns-that-need-read-only-verification). The owner should export the production schema (structure only, no data) and diff it against a database built by `provision_env.sh`.
+
+## 5. Migration inventory (source control only)
+
+The summaries are taken from each file's header comment. "Tables created" lists `CREATE TABLE` targets (truncated after six). **This is not a record of what production contains.**
+
+| File | Added | Summary (from file header) | Tables created |
+|---|---|---|---|
+| `001_production_patch.sql` | 2026-08-15 | WBSS/FKSS Production Patch — Database Migration | activity_logs |
+| `002_cms_schema.sql` | 2026-08-15 | FKSS CMS — Database Migration | cms_gallery_categories, cms_gallery_photos, cms_programs, cms_registration_submissions, cms_schedule, cms_social_links … |
+| `003_production_hardening.sql` | 2026-08-15 | WBSS / FKSS — Database hardening for go-live (5,000+ students) | academic_records_archive, activity_logs_archive, attendance_archive |
+| `004_year_lifecycle.sql` | 2026-08-15 | Academic-year LIFECYCLE STATES (upcoming / active / closed) |  |
+| `005_roster_indexes.sql` | 2026-08-18 | Indexes for Education roster + member search. |  |
+| `006_assignment_hardening.sql` | 2026-08-18 | Smart teacher ↔ subject ↔ class assignments. | class_subjects, teacher_assignments |
+| `007_timetable.sql` | 2026-08-18 | Bell schedule (periods) + weekly class grid (entries). | timetable_entries, timetable_periods |
+| `008_security_rate_limits.sql` | 2026-08-24 | Shared, atomic authentication throttling for multi-instance deployments. | security_rate_limits |
+| `009_api_idempotency.sql` | 2026-08-24 | Atomic request reservations and bounded response replay for API writes. | api_idempotency, api_idempotency_records |
+| `010_refresh_token_rotation.sql` | 2026-08-24 | One-time refresh-token rotation, replay detection, and family revocation. | api_refresh_legacy_exchanges, api_refresh_sessions |
+| `011_monitor_schema.sql` | 2026-08-24 | Migration 011: deployment-managed error and uptime monitor schema | arkeon_error_log, arkeon_uptime_log |
+| `012_runtime_schema_baseline.sql` | 2026-08-24 | Migration 012: move shared bootstrap schema repair out of request handling | academic_years, activity_logs, classes, notifications, system_branding |
+| `013_application_schema_completion.sql` | 2026-08-24 | Migration 013: application-owned tables and compatibility columns | academic_records, academic_terms, ai_chat_history, ai_provider_configs, attendance, attendance_summary … |
+| `014_member_directory_scaling.sql` | 2026-08-24 | SSMS migration 014: member directory and export indexes |  |
+| `015_explicit_attendance_status.sql` | 2026-08-24 | Attendance must always be an explicit user or integration decision. |  |
+| `016_member_duplicate_lookup.sql` | 2026-08-24 | SSMS migration 016: bounded member duplicate lookup |  |
+| `017_identity_codes.sql` | 2026-08-25 | Ministry three-category identity + configurable department / | departments, member_code_migrations, member_staff_positions, staff_positions |
+| `018_code_sequences_and_year_uniqueness.sql` | 2026-08-26 | Part of the phase-1 fix batch (findings M2 + M3): | member_code_sequences |
+| `019_member_types_and_under6_removal.sql` | 2026-08-27 | 019_member_types_and_under6_removal.sql  (IDEMPOTENT / RE-RUNNABLE) | member_type_settings |
+| `020_identity_v2.sql` | 2026-08-27 | 020_identity_v2.sql  (IDEMPOTENT / RE-RUNNABLE) |  |
+| `021_mezmur_department.sql` | 2026-08-27 | Hymn library schema + Mezmur entry in the staff-position | mezmur_hymns |
+| `022_mezmur_attendance.sql` | 2026-08-27 | 022 — Mezmur Attendance & Analytics (መዝሙር ክፍል) | mezmur_attendance, mezmur_attendance_audit, mezmur_sessions |
+| `023_mezmur_date_attendance.sql` | 2026-08-27 | 023 — Mezmur attendance goes DATE-based (section-grouped) | mezmur_days |
+| `024_mezmur_submissions.sql` | 2026-08-27 | 024 — Mezmur submission packets (teachers/edu workflow clone) | mezmur_submissions |
+| `025_mezmur_hymn_offline.sql` | 2026-08-28 | 025 — Mezmur hymns go offline-first on mobile | mezmur_categories |
+| `026_hr_attendance.sql` | 2026-08-28 | 026 — HR department attendance domain (section-based) | hr_attendance, hr_attendance_audit, hr_submissions, only |
+| `027_attendance_rollup.sql` | 2026-08-28 | 027 — Attendance analytics read model (Phase C, 2026-08-28) | attendance_rollup |
+| `028_analytics_scale.sql` | 2026-08-28 | Phase E — scale hardening for the analytics hub (100k+ rows). |  |
+| `029_subject_codes_and_limits.sql` | 2026-08-31 | Migration 029 — Subject codes that survive Amharic names + safe field limits |  |
+| `030_mezmur_taxonomy.sql` | 2026-08-31 | 030 — Mezmur hymn taxonomy (multi-category + singers + type) | mezmur_hymn_categories, mezmur_hymn_zemarians, mezmur_zemarians |
+| `031_mezmur_hymn_title_unique.sql` | 2026-09-01 | 031 — case-insensitive UNIQUE hymn titles (MZ-6) |  |
+| `032_mezmur_hymn_words.sql` | 2026-09-01 | inverted word index for hymn search (Patch 25). | mezmur_hymn_words |
+| `033_mezmur_single_title.sql` | 2026-09-02 | single Amharic title (Patch 28, item 9). |  |
+| `034_mezmur_subcategories.sql` | 2026-09-02 | two-level taxonomy (Patch 30) — main category → sub-categories. |  |
+| `035_mezmur_category_gradient.sql` | 2026-09-02 | per-category cover gradient (Patch 32) — for categories and |  |
+| `036_mezmur_gradient_alpha.sql` | 2026-09-02 | gradient alpha channel (Patch 33) — the cover-color picker gains |  |
+| `037_zemarian_images.sql` | 2026-09-02 | singer (zemarian) cover images (Patch 34) — singers get the |  |
+| `038_mezmur_audio_media.sql` | 2026-09-03 | 038 — Mezmur audio media + synced lyrics | mezmur_play_stats, mezmur_user_favorites |
+| `039_mezmur_word_index_fold.sql` | 2026-09-05 | 039 — P42: rebuild the Mezmur word index after homophone folding |  |
+| `040_mezmur_hymn_art.sql` | 2026-09-09 | HYMN ART (P66) — per-hymn cover image plane |  |
+| `041_section_age_source_of_truth.sql` | 2026-09-12 | P71 — Section / Age Group single source of truth. |  |
+| `042_notification_center.sql` | 2026-09-12 | P72 — WBWS Communication Center: per-user notification read | announcements, message_thread_participants, message_threads, messages, notification_reads |
+| `043_message_read_receipts.sql` | 2026-09-12 | P73 Phase 3 — Telegram-style read receipts for messaging. |  |
+| `044_message_edit_delete.sql` | 2026-09-12 | P73 — Telegram-grade message management: edit + delete. |  |
+| `045_comm_poll_indexes.sql` | 2026-09-12 | P73 Phase 5 — Performance & scale: poll/pagination indexes. |  |
+| `046_message_client_tag.sql` | 2026-09-18 | O4 (offline-first) — exactly-once message sends. |  |
+| `048_user_authorization_scope.sql` | 2026-09-23 | Monotonic authorization-scope versions for mobile live revalidation. |  |
+| `049_user_profile_image.sql` | 2026-09-25 | Private profile-image reference for authenticated user profiles. |  |
+| `050_assessment_types.sql` | 2026-09-26 | Dynamic Assessment Types managed by Education Department. | assessment_types |
+| `051_app_telemetry.sql` | 2026-09-28 | First-Party Mobile App Telemetry & Fleet Analytics | app_downloads, app_installations, app_telemetry_events |
+| `052_roster_scale_indexes.sql` | 2026-10-02 | Migration 052 — Scale indexes for roster dedupe + unassigned-member listing |  |
+| `053_grade_submission_slot_uniqueness.sql` | 2026-10-02 | 053 — one Education submission packet per slot (audit finding J, 2026-10-02) |  |
+| `054_legacy_era_columns.sql` | 2026-10-02 | 054 — columns the application depends on that no sql/ migration creates |  |
+| `055_mezmur_orphan_link_cleanup.sql` | 2026-10-02 | 055 — mezmur link-table orphan cleanup  (audit finding R-2, 2026-10-02) | migration_055_mezmur_link_quarantine |
+| `056_subject_duration_and_semester_weights.sql` | 2026-10-02 | 056 — Subject duration (SEMESTER_ONLY / FULL_YEAR) + per-year semester weights |  |
+| `057_sync_change_feed.sql` | 2026-10-03 | 057 — Shared synchronization change feed (PHASE A foundation) | sync_changes, sync_feed_state |
+| `058_sync_feed_scope_date.sql` | 2026-10-03 | 058 — Carry the attendance date on feed entries |  |
+| `059_api_sync_attempts.sql` | 2026-10-05 | Server-observed, read-only sync monitoring foundation. | api_sync_attempts |
+| `060_telemetry_integrity_hardening.sql` | 2026-10-05 | Telemetry integrity hardening (idempotent / re-runnable) |  |
+| `062_sync_attempt_context.sql` | 2026-10-06 | Sync attempt fleet context (idempotent / re-runnable) |  |
+| `063_crash_signatures.sql` | 2026-10-06 | Crash signatures (idempotent / re-runnable) | app_crash_signatures |
+| `064_failure_intelligence.sql` | 2026-10-06 | Failure Intelligence (idempotent / re-runnable) | failure_issues, failure_remediation_catalog, failure_reports |
+| `065_failure_alerts.sql` | 2026-10-06 | Failure alerting state (idempotent / re-runnable) | failure_alerts |
+| `066_academic_year_charset_repair.sql` | 2026-10-08 | Fix: academic_years is latin1 on the production database |  |
+| `067_semester_reopen_flag.sql` | 2026-10-08 | 067 — Semester reopen-for-corrections flag (term-close model, release 1) |  |
+| `068_member_permanent_eligibility_notified.sql` | 2026-10-16 | 068 — Permanent-eligibility notification state for temporary members |  |
+| `069_guardian_linkage.sql` | 2026-10-17 | Family Link: guardians entity + member<->guardian links + aliases + | guardian_aliases, guardian_link_suggestions, guardians, member_guardians |
+| `070_report_definitions.sql` | 2026-10-19 | Reporting Centre V2-3: saved views (private / department / shared) and | report_definitions |
+| `071_department_status_and_policy.sql` | 2026-10-19 | Attendance alerting — Phase 1 (ATTENDANCE_ALERTING_IMPLEMENTATION_PLAN | attendance_policies, member_department_periods |
+| `072_attendance_warnings.sql` | 2026-10-19 | Attendance alerting — Phase 2 (ATTENDANCE_ALERTING_IMPLEMENTATION_PLAN | attendance_warning_events, attendance_warnings |
+| `073_attendance_submission_events.sql` | 2026-10-19 | Attendance alerting — Phase 3 (ATTENDANCE_ALERTING_IMPLEMENTATION_PLAN | attendance_submission_events |
+| `074_attendance_month_rollup.sql` | 2026-10-19 | 074 — Attendance monthly roll-up (Attendance alerting — Phase 4) | attendance_month_rollup |
+| `075_assessment_followups.sql` | 2026-10-19 | 075 — Assessment follow-ups on Education reactivation | assessment_followups, assessment_makeup_attempts |
+| `076_attendance_sessions.sql` | 2026-10-19 | 076 — Lesson‑level Education attendance (Attendance alerting — Phase 6, Option B) | attendance_session_records, attendance_sessions |
+| `077_timetable_builder.sql` | 2026-10-20 | 077 — Education timetable builder (per‑class working days, per‑class bell | timetable_class_days, timetable_makeup_classes |
+| `078_school_calendar.sql` | 2026-10-20 | 078 — School calendar: planned holidays + "Day Off" days | school_day_offs, school_holidays |
+
+## 6. Recommended next steps (documented, not implemented)
+
+1. Introduce a migration ledger table and a one-off, owner-run back-fill based on the schema comparison in section 4.
+2. Replace `database_schema.sql` with a generated structure-only baseline from a verified database, or delete it after review.
+3. Move `MezmurSchemaReconciler` DDL into numbered migrations.
+4. Add a CI job that builds a database from a baseline plus `sql/` and compares it with the expected structure.

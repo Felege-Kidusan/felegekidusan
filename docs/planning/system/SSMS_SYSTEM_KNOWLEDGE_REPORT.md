@@ -1,5 +1,8 @@
 # SSMS — Complete System Knowledge Report
 
+> **Historical snapshot (marked 2026-10-22).** This is an AI-assisted code analysis taken on 2026-10-16. It is retained unchanged and is not authoritative. Current architecture: [docs/ARCHITECTURE.md](../../ARCHITECTURE.md).
+
+
 **Repository:** `suraman21/SSMS` (cloned at `/home/user/SSMS`)
 **Analysis basis:** source code in the cloned repository (no runtime/database available in this environment).
 **Protocol followed:** Master Codebase Understanding Protocol (attached PDF). Analysis phase only — no files modified.

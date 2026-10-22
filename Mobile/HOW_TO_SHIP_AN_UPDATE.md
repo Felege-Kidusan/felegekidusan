@@ -1,5 +1,10 @@
 # How to give teachers a new FKSS app without a Play Store listing
 
+> **Historical — superseded (marked 2026-10-22).** The server commands below refer to an earlier server and a `git`-based update, and do not describe production deployment. Retained unchanged. Current procedures:
+> - mobile releases: [Mobile/wbws_flutter_app/docs/RELEASE.md](wbws_flutter_app/docs/RELEASE.md) and [docs/OPERATIONS.md §5](../docs/OPERATIONS.md#5-mobile-release);
+> - server deployment: [docs/OPERATIONS.md §2](../docs/OPERATIONS.md#2-code-deployment-manual-sftp).
+
+
 The phone app asks the website: “is there a newer file?”  
 If yes, the teacher taps **Download and install**. You do **not** rebuild for every Education change — only when the app itself must change.
 

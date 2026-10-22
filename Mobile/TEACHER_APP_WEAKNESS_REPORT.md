@@ -1,5 +1,8 @@
 # Teacher phone app — weakness report
 
+> **Historical record (marked 2026-10-22).** This is a 2026-08-19 working note written in conversational form. It is retained unchanged, and many items have since been addressed. See [docs/README.md](../docs/README.md) for current documentation.
+
+
 Date: 19 August 2026  
 Based on the six screenshots you sent, plus the live code in `Mobile/wbws_flutter_app`.
 
