@@ -1876,7 +1876,9 @@
         + (a.has_result
           ? '<strong>' + esc(a.score) + '</strong>'
             + (a.max_score !== null ? '<span style="color:#94a3b8"> / ' + esc(a.max_score) + '</span>' : '')
-          : dash())
+          : (a.not_taken
+            ? '<span class="at-dnt" style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:.7rem;font-weight:700;background:#fef3c7;color:#92400e">Did not take</span>'
+            : dash()))
         + '</td>'
         + '<td style="text-align:right">' + (a.percentage === null ? dash() : esc(a.percentage) + '%') + '</td>'
         + '</tr>';

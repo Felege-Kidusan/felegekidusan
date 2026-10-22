@@ -168,7 +168,7 @@
       var attemptForm = (canWrite && it.decision === 'makeup_required') ? (
         '<div class="af-form"><strong>Record make-up result</strong>' +
         '<div class="af-row"><label>Score<input type="number" id="af-a-score" step="0.01" min="0" max="' + esc(it.assessment_max_score) + '"></label>' +
-        '<label>Out of<input type="number" id="af-a-max" step="0.01" min="0.01" value="' + esc(it.assessment_max_score) + '"></label></div>' +
+        '<label>Out of<input type="number" id="af-a-max" step="0.01" min="0.01" max="' + esc(it.assessment_max_score) + '" value="' + esc(it.assessment_max_score) + '"></label></div>' +
         '<label>Remarks<input type="text" id="af-a-remarks" maxlength="500"></label>' +
         '<span class="af-note">Stored as a separate make-up attempt; the original assessment row is kept unchanged.</span>' +
         '<div class="af-actions"><button class="rc-btn rc-btn-sm" type="button" id="af-a-save">Save result</button></div></div>'
@@ -208,8 +208,22 @@
         });
       }
       var aSave = document.getElementById('af-a-save');
+      // Score limit (2026-10-22): the score can never exceed "Out of", and
+      // "Out of" can never exceed the assessment's own max (server enforces too).
+      if (aSave && window.FKSSScoreLimit) {
+        window.FKSSScoreLimit.bind(els.modalRoot, '#af-a-score, #af-a-max');
+        var mxEl = document.getElementById('af-a-max');
+        mxEl.addEventListener('input', function () {
+          var v = parseFloat(mxEl.value);
+          if (isFinite(v) && v > 0) document.getElementById('af-a-score').setAttribute('max', String(v));
+        });
+      }
       if (aSave) {
         aSave.addEventListener('click', function () {
+          if (window.FKSSScoreLimit) {
+            var bad = window.FKSSScoreLimit.problems(els.modalRoot, '#af-a-score, #af-a-max');
+            if (bad.length) { bad[0].el.focus(); toast(window.FKSSScoreLimit.problemMessage(bad), 'err'); return; }
+          }
           aSave.disabled = true;
           post({ action: 'attempt', id: it.id, score: document.getElementById('af-a-score').value, max_score: document.getElementById('af-a-max').value, remarks: document.getElementById('af-a-remarks').value })
             .then(function (r) {

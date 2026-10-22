@@ -150,7 +150,7 @@ $csrfToken = generateCsrfToken();
     </style>
 <?= wbws_calendar_scripts($conn ?? null) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
-<link rel="stylesheet" href="/admin/css/report_card.css?v=20261022p">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20261022s">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="min-h-screen">
@@ -701,7 +701,8 @@ $csrfToken = generateCsrfToken();
     </div>
     
     <div id="toastContainer"></div>
-    <script src="/admin/js/report_card.js?v=20261022p"></script>
+    <script src="/admin/js/report_card.js?v=20261022s"></script>
+    <script src="/admin/js/score_limit.js?v=20261022s"></script>
     <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
     <script src="/admin/js/attendance-sheet.js?v=20261022dc4"></script>
     <script>
@@ -933,6 +934,8 @@ $csrfToken = generateCsrfToken();
                     <td><input type="text" class="form-input remarks-input" style="width:150px" data-member-id="${s.member_id}" value="${escapeHtml(s.remarks || '')}" placeholder="Remarks"></td>
                 </tr>
             `).join('');
+            // Score limit (2026-10-22): nobody can type more than the max.
+            if (window.FKSSScoreLimit) window.FKSSScoreLimit.bind(tbody, '.grade-input');
         }
 
         function updateTeacherLiveGrading() {
@@ -951,6 +954,10 @@ $csrfToken = generateCsrfToken();
         
         function saveAllGrades() {
             if (!currentAssessment) return;
+            if (window.FKSSScoreLimit) {
+                const bad = window.FKSSScoreLimit.problems(document.getElementById('gradeEntryBody'), '.grade-input');
+                if (bad.length) { bad[0].el.focus(); return showToast(window.FKSSScoreLimit.problemMessage(bad), 'error'); }
+            }
             const grades = [];
             document.querySelectorAll('#gradeEntryBody .grade-input').forEach(input => {
                 const memberId = input.dataset.memberId;
@@ -1315,10 +1322,13 @@ $csrfToken = generateCsrfToken();
                                 <td>${i+1}</td>
                                 <td class="font-medium">${escapeHtml((s.student_name||'')+ ' '+(s.father_name||''))}</td>
                                 <td><code class="text-xs bg-slate-100 px-2 py-1 rounded">${escapeHtml(s.member_code||'—')}</code></td>
-                                <td><input type="number" class="grade-input submit-score" data-mid="${s.member_id}" min="0" max="${maxScore}" step="0.5" value="${s.score!==null&&s.score!==undefined?s.score:''}" placeholder="—"></td>
+                                <td><input type="number" class="grade-input submit-score" data-mid="${s.member_id}" data-name="${escapeHtml(((s.student_name||'')+' '+(s.father_name||'')).trim())}" min="0" max="${maxScore}" step="0.5" value="${s.score!==null&&s.score!==undefined?s.score:''}" placeholder="—"></td>
                                 <td><input type="text" class="form-input submit-remark" data-mid="${s.member_id}" style="width:120px" value="${escapeHtml(s.remarks||'')}" placeholder="Remark"></td>
                             </tr>
                         `).join('') : '<tr><td colspan="5" class="text-center text-slate-400 py-8">No students</td></tr>';
+                        // The disable above ran on the OLD rows; apply it to the new ones too.
+                        tbody.querySelectorAll('.submit-score, .submit-remark').forEach(el => { el.disabled = submitLocked; });
+                        if (window.FKSSScoreLimit) window.FKSSScoreLimit.bind(tbody, '.submit-score');
                     }
                 });
         }
@@ -1337,6 +1347,13 @@ $csrfToken = generateCsrfToken();
             });
             
             if (grades.filter(g => g.score !== '').length === 0) return showToast('Enter at least one score', 'error');
+            if (window.FKSSScoreLimit) {
+                const bad = window.FKSSScoreLimit.problems(document.getElementById('submitEntryBody') || document, '.submit-score');
+                if (bad.length) { bad[0].el.focus(); return showToast(window.FKSSScoreLimit.problemMessage(bad), 'error'); }
+            }
+            // Blank = the student did not take this test (shown on the review and report card).
+            const blankNames = [];
+            document.querySelectorAll('.submit-score').forEach(inp => { if (String(inp.value).trim() === '') blankNames.push(inp.dataset.name || ('Member #' + inp.dataset.mid)); });
 
             // Danger confirmation (T2, MEDIUM): submitting locks the marks for review.
             if (!(window.DangerConfirm && window.DangerConfirm.ask)) return showToast('The confirmation dialog did not load. Reload the page (Ctrl+F5) and try again.', 'error');
@@ -1345,7 +1362,7 @@ $csrfToken = generateCsrfToken();
             const what = (selEl && selEl.selectedIndex >= 0 ? selEl.options[selEl.selectedIndex].text : '') + (submitAssessmentData.name ? ' · ' + submitAssessmentData.name : '');
             const dc = await window.DangerConfirm.ask({ tier: 'medium', title: 'Submit this mark list to the Education department?', object: what || 'This mark list',
                 summary: 'The marks go to Education for review.', intent: 'I want to submit these marks',
-                consequences: [filled + ' score(s) are submitted' + (blank ? '; ' + blank + ' student(s) have NO score.' : '.'), 'The mark list is LOCKED while Education reviews it. You can only change it if they return it.'],
+                consequences: [filled + ' score(s) are submitted.', ...(blank ? [blank + ' student(s) will be marked “Did not take”: ' + blankNames.slice(0, 8).join(', ') + (blankNames.length > 8 ? ' and ' + (blankNames.length - 8) + ' more' : '') + '. Leave a box empty ONLY if the student did not take the test.'] : []), 'The mark list is LOCKED while Education reviews it. You can only change it if they return it.'],
                 keeps: ['Education can return the list to you for correction.'], phrase: 'SUBMIT MARKS', confirmLabel: 'Submit to Education' });
             if (!dc) return;
 
@@ -1551,7 +1568,7 @@ $csrfToken = generateCsrfToken();
                                         return `<tr style="border-bottom:1px solid #f1f5f9">
                                             <td style="padding:.5rem .6rem;font-weight:600">${escapeHtml(sub.subject_name)}</td>
                                             <td style="padding:.5rem .6rem;text-align:center;font-size:.7rem">${(sub.assessments||[]).map(a => 
-                                                `<span style="display:inline-block;background:#ede9fe;color:#5b21b6;padding:1px 5px;border-radius:4px;margin:1px;font-size:.6rem">${escapeHtml(a.assessment_name||'')}: ${a.score!==null?a.score:'—'}/${a.max_score}</span>`
+                                                `<span style="display:inline-block;background:#ede9fe;color:#5b21b6;padding:1px 5px;border-radius:4px;margin:1px;font-size:.6rem">${escapeHtml(a.assessment_name||'')}: ${a.score!==null?a.score+'/'+a.max_score:(a.not_taken?'<b style="color:#92400e">Did not take</b>':'—/'+a.max_score)}</span>`
                                             ).join(' ')}</td>
                                             <td style="padding:.5rem .6rem;text-align:center;font-weight:700">${fp!==null?fp.toFixed(1)+'%':'—'}</td>
                                             <td style="padding:.5rem .6rem;text-align:center"><span style="display:inline-flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.75rem;color:#fff;background:${gc[gl]||'#94a3b8'}">${gl||'—'}</span></td>

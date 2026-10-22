@@ -1061,6 +1061,13 @@ if ($action === 'save' && $method === 'POST') {
         }
     }
     
+    // Score-limit rule (2026-10-22): refuse the whole list, write nothing.
+    $badScores = \App\Services\SubmissionService::invalidScores($conn, $grades, (float)$assessment['max_score']);
+    if ($badScores) {
+        err(\App\Services\SubmissionService::invalidScoresMessage($badScores, (float)$assessment['max_score']), 422,
+            ['code' => 'INVALID_SCORES', 'invalid' => $badScores, 'max_score' => (float)$assessment['max_score']]);
+    }
+
     $successCount = 0;
     $errors = [];
     
@@ -1179,6 +1186,15 @@ if ($action === 'submit' && $method === 'POST') {
             err($refusal, 409,
                 ['code' => ($st !== null && !\App\Services\SubmissionService::statusIsOpen($st)) ? 'ALREADY_SUBMITTED' : 'TERM_CLOSED']);
         }
+    }
+
+    // Score-limit rule (2026-10-22): an invalid score used to be skipped
+    // silently while the packet was still locked as SUBMITTED, so that
+    // student vanished from the submission. Refuse the whole list instead.
+    $badScores = \App\Services\SubmissionService::invalidScores($conn, $grades, (float)$assessment['max_score']);
+    if ($badScores) {
+        err(\App\Services\SubmissionService::invalidScoresMessage($badScores, (float)$assessment['max_score']), 422,
+            ['code' => 'INVALID_SCORES', 'invalid' => $badScores, 'max_score' => (float)$assessment['max_score']]);
     }
 
     apiEnsureSubmissionsTable();

@@ -322,6 +322,10 @@ final class AcademicTrackingService
             $rows[$i]['workflow_label'] = $st === null
                 ? 'Not started'
                 : SubmissionService::statusLabel($st);
+            // 2026-10-22: no score on a mark list that has left the teacher
+            // = the student did not take this test (shown, never counted).
+            $rows[$i]['not_taken'] = empty($r['has_result'])
+                && in_array((string)$st, [SubmissionService::STATUS_SUBMITTED, SubmissionService::STATUS_APPROVED], true);
         }
 
         usort($rows, static function ($a, $b) {

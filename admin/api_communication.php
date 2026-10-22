@@ -129,6 +129,20 @@ switch ($action) {
         }
 
         $maxScore = (float)$assessment['max_score'];
+        // Score-limit rule (2026-10-22): an invalid score used to be skipped
+        // while the rest was submitted and locked — that student vanished.
+        $badScores = \App\Services\SubmissionService::invalidScores($conn, $grades, $maxScore);
+        if ($badScores) {
+            http_response_code(422);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'INVALID_SCORES',
+                'message' => \App\Services\SubmissionService::invalidScoresMessage($badScores, $maxScore),
+                'invalid' => $badScores,
+                'max_score' => $maxScore,
+            ]);
+            exit;
+        }
         $conn->begin_transaction();
         try {
             $saved = 0; $totalScore = 0.0; $scoreCount = 0; $skipped = [];

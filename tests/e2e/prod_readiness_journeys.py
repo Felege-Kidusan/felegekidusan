@@ -293,7 +293,7 @@ def j3_submit_marks(br):
     d = dialog(page)
     page.click('[data-dcx-act=next]')
     txt = dialog(page).inner_text()
-    check(('%d score(s) are submitted' % (n - 1)) in txt and '1 student(s) have NO score' in txt, 'J3: dialog shows filled/blank counts (%d filled, 1 blank)' % (n - 1))
+    check(('%d score(s) are submitted' % (n - 1)) in txt and '1 student(s) will be marked “Did not take”' in txt, 'J3: dialog shows filled/blank counts (%d filled, 1 blank)' % (n - 1))
     shot(page, 'J3_submit_marks')
     page.click('[data-dcx-act=next]')
     page.fill('.dcx-in', 'SUBMIT MARKS')

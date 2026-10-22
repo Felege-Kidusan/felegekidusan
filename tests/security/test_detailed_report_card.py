@@ -208,10 +208,10 @@ class DashboardScreenStyles(unittest.TestCase):
                 self.assertTrue(s.startswith(".rc-print-banner"), s)
 
     def test_stylesheet_cache_busted_on_both_pages(self):
-        self.assertIn("/admin/css/report_card.css?v=20261022p", self.edu)
-        self.assertIn("/admin/css/report_card.css?v=20261022p", self.teacher)
-        self.assertIn("/admin/js/report_card.js?v=20261022p", self.edu)
-        self.assertIn("/admin/js/report_card.js?v=20261022p", self.teacher)
+        self.assertIn("/admin/css/report_card.css?v=20261022s", self.edu)
+        self.assertIn("/admin/css/report_card.css?v=20261022s", self.teacher)
+        self.assertIn("/admin/js/report_card.js?v=20261022s", self.edu)
+        self.assertIn("/admin/js/report_card.js?v=20261022s", self.teacher)
 
     # Print fix 2026-10-22: printed sheets must not stay on screen, must not
     # leak into the class-list print, and the paper holds only the cards.

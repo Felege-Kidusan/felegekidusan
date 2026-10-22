@@ -244,6 +244,9 @@
   .rc-actions{display:none!important}
 }
 
+/* 2026-10-22: "Did not take" note under a subject (shown, not counted). */
+.rc-dnt{display:block;margin-top:1px;font-size:.62rem;line-height:1.25;color:#92400e;font-weight:600;white-space:normal}
+
 /* ═══════════════════════════════════════════════════════════════════════
    Report Cards DASHBOARD screen (Education #sec-reportcards, teacher
    portal #sec-reports) — semester progress, KPI cards, subject cards,

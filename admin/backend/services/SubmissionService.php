@@ -51,6 +51,129 @@ class SubmissionService
     {
     }
 
+    /**
+     * Score-limit rule (2026-10-22, owner): a mark list is accepted whole or
+     * not at all. Every save/submit path calls this BEFORE writing anything.
+     *
+     * Blank ('' / null) is valid and means "no score" (after submit: Did not
+     * take). Anything else must be a plain number with at most 2 decimals and
+     * be between 0 and the assessment's max. Before this rule the paths
+     * skipped an invalid row silently, still answered "success" and could
+     * lock the packet without that student; (float)"abc" also saved as 0.
+     *
+     * @param mixed $grades list of ['member_id'=>..,'score'=>..]
+     * @return list<array{member_id:int,value:string,reason:string,message:string}>
+     */
+    public static function invalidScores(\mysqli $conn, $grades, float $maxScore): array
+    {
+        if (!is_array($grades)) {
+            return [];
+        }
+        $bad = [];
+        $maxLabel = self::scoreLabel($maxScore);
+        foreach ($grades as $g) {
+            if (!is_array($g)) {
+                continue;
+            }
+            $mid = (int)($g['member_id'] ?? 0);
+            if ($mid <= 0 || !array_key_exists('score', $g)) {
+                continue;
+            }
+            $raw = $g['score'];
+            if ($raw === null || $raw === '') {
+                continue;
+            }
+            if (is_bool($raw) || is_array($raw) || !is_scalar($raw)) {
+                $bad[] = ['member_id' => $mid, 'value' => '?', 'reason' => 'not_a_number'];
+                continue;
+            }
+            $txt = is_float($raw) || is_int($raw) ? self::scoreLabel((float)$raw) : trim((string)$raw);
+            if ($txt === '') {
+                continue;
+            }
+            if (!preg_match('/^\d{1,4}(\.\d{1,2})?$/', $txt)) {
+                $bad[] = ['member_id' => $mid, 'value' => mb_substr($txt, 0, 12), 'reason' => 'not_a_number'];
+                continue;
+            }
+            $v = (float)$txt;
+            if ($v > $maxScore + 1e-9) {
+                $bad[] = ['member_id' => $mid, 'value' => $txt, 'reason' => 'over_max'];
+            }
+        }
+        if (!$bad) {
+            return [];
+        }
+        $names = self::memberLabels($conn, array_column($bad, 'member_id'));
+        foreach ($bad as &$b) {
+            $who = $names[$b['member_id']] ?? ('Member #' . $b['member_id']);
+            $b['message'] = $b['reason'] === 'over_max'
+                ? "{$who}: {$b['value']} is more than the maximum {$maxLabel}"
+                : "{$who}: \"{$b['value']}\" is not a valid score (use a number from 0 to {$maxLabel})";
+        }
+        unset($b);
+        return $bad;
+    }
+
+    /** One-line summary for the 422 refusal shown to the teacher. */
+    public static function invalidScoresMessage(array $bad, float $maxScore): string
+    {
+        $n = count($bad);
+        $lines = array_slice(array_column($bad, 'message'), 0, 5);
+        return ($n === 1 ? '1 score is' : "{$n} scores are") . ' not allowed for this test (maximum '
+            . self::scoreLabel($maxScore) . '). Nothing was saved. Fix: ' . implode('; ', $lines)
+            . ($n > 5 ? '; and ' . ($n - 5) . ' more.' : '.');
+    }
+
+    public static function scoreLabel(float $v): string
+    {
+        return rtrim(rtrim(number_format($v, 2, '.', ''), '0'), '.');
+    }
+
+    /** @param list<int> $ids @return array<int,string> "Name Father (CODE)" */
+    private static function memberLabels(\mysqli $conn, array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (!$ids) {
+            return [];
+        }
+        $ids = array_slice($ids, 0, 200);
+        $out = [];
+        try {
+            $ph = implode(',', array_fill(0, count($ids), '?'));
+            $st = $conn->prepare("SELECT id, student_name, father_name, member_code FROM members WHERE id IN ($ph)");
+            if ($st) {
+                $st->bind_param(str_repeat('i', count($ids)), ...$ids);
+                $st->execute();
+                $r = $st->get_result();
+                while ($row = $r->fetch_assoc()) {
+                    $nm = trim((string)$row['student_name'] . ' ' . (string)($row['father_name'] ?? ''));
+                    $out[(int)$row['id']] = $nm . (!empty($row['member_code']) ? ' (' . $row['member_code'] . ')' : '');
+                }
+                $st->close();
+            }
+        } catch (\Throwable $e) {
+        }
+        return $out;
+    }
+
+    /**
+     * Max-score guard: an assessment's max may not be lowered below the
+     * highest score already saved for it (would leave e.g. 15/10 rows).
+     * @return array{count:int,highest:float}
+     */
+    public static function scoresAbove(\mysqli $conn, int $assessmentId, float $newMax): array
+    {
+        $st = $conn->prepare('SELECT COUNT(*) AS n, MAX(score) AS hi FROM academic_records WHERE assessment_id = ? AND score > ?');
+        if (!$st) {
+            return ['count' => 0, 'highest' => 0.0];
+        }
+        $st->bind_param('id', $assessmentId, $newMax);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc() ?: [];
+        $st->close();
+        return ['count' => (int)($row['n'] ?? 0), 'highest' => (float)($row['hi'] ?? 0)];
+    }
+
     public static function staffCanOverride(array $auth): bool
     {
         $role = (string)($auth['rol'] ?? $auth['role'] ?? '');
@@ -1704,6 +1827,29 @@ class SubmissionService
             }
         } elseif (($packet['submission_type'] ?? '') === self::TYPE_MARKLIST && !empty($packet['assessment_id'])) {
             $packet['rows'] = self::marklistRows($conn, (int)$packet['assessment_id']);
+            // "Did not take" (2026-10-22, owner): once a mark list leaves the
+            // teacher (submitted / approved / rejected) a blank score means the
+            // student did not take the test; while it is still open it is
+            // simply "not entered yet". Every enrolled student is listed.
+            $open = self::statusIsOpen((string)($packet['status'] ?? ''));
+            $scored = 0;
+            $blank = 0;
+            foreach ($packet['rows'] as &$mr) {
+                if ($mr['score'] === null) {
+                    $blank++;
+                    $mr['score_state'] = $open ? 'not_entered' : 'not_taken';
+                    $mr['score_label'] = $open ? 'Not entered yet' : 'Did not take';
+                } else {
+                    $scored++;
+                    $mr['score_state'] = 'scored';
+                    $mr['score_label'] = '';
+                }
+            }
+            unset($mr);
+            $packet['scored_count'] = $scored;
+            $packet['not_taken_count'] = $open ? 0 : $blank;
+            $packet['not_entered_count'] = $open ? $blank : 0;
+            $packet['blank_label'] = $open ? 'Not entered yet' : 'Did not take';
         }
         return $packet;
     }
@@ -1784,11 +1930,65 @@ class SubmissionService
             ];
         }
         $stmt->close();
+        // Every student enrolled in the assessment's class/year is listed —
+        // the same roster the teacher grades (/grades/students). A student
+        // without a row used to be invisible to the reviewer.
+        foreach (self::assessmentRoster($conn, $assessmentId) as $m) {
+            $mid = (int)$m['member_id'];
+            if (isset($byMember[$mid])) {
+                continue;
+            }
+            $byMember[$mid] = [
+                'member_id' => $mid,
+                'student_name' => $m['student_name'] ?? '',
+                'father_name' => $m['father_name'] ?? '',
+                'member_code' => $m['member_code'] ?? '',
+                'score' => null,
+                'max_score' => $m['max_score'] !== null ? (float)$m['max_score'] : null,
+                'remarks' => '',
+            ];
+        }
         $rows = array_values($byMember);
         usort($rows, static function ($a, $b) {
             return strcasecmp((string)$a['student_name'], (string)$b['student_name']);
         });
         return $rows;
+    }
+
+    /**
+     * Active enrolment of the assessment's class in the assessment's year.
+     * @return list<array<string,mixed>>
+     */
+    public static function assessmentRoster(\mysqli $conn, int $assessmentId): array
+    {
+        if ($assessmentId <= 0) {
+            return [];
+        }
+        $out = [];
+        try {
+            $st = $conn->prepare(
+                "SELECT ce.member_id, m.student_name, m.father_name, m.member_code, a.max_score
+                 FROM assessments a
+                 JOIN class_enrollments ce ON ce.class_id = a.class_id
+                      AND ce.academic_year_id = a.academic_year_id AND ce.status = 'active'
+                 JOIN members m ON m.id = ce.member_id
+                 WHERE a.id = ?
+                 ORDER BY m.student_name"
+            );
+            if (!$st) {
+                return [];
+            }
+            $st->bind_param('i', $assessmentId);
+            $st->execute();
+            $r = $st->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $out[] = $row;
+            }
+            $st->close();
+        } catch (\Throwable $e) {
+            return [];
+        }
+        return $out;
     }
 
     public static function countsFromRecords(array $records): array

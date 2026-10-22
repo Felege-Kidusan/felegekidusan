@@ -47,7 +47,7 @@ $cfg = [
         'id' => (int)($_GET['id'] ?? 0),
     ],
 ];
-$assetVer = '20261019p5';
+$assetVer = '20261022s';
 $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'SSMS';
 $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/dashboard.php';
 ?>
@@ -153,6 +153,7 @@ $backUrl = $userRole === 'teacher' ? '/admin/dashboards/teacher.php' : '/admin/d
 
 <div id="af-modal-root"></div>
 <script>window.AF_CONFIG = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
+<script src="/admin/js/score_limit.js?v=<?= $assetVer ?>"></script>
 <script src="/admin/js/assessment_followups.js?v=<?= $assetVer ?>"></script>
 </body>
 </html>

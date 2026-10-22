@@ -1507,7 +1507,9 @@ switch ($action) {
         $weight = (float)($_POST['weight_percentage'] ?? $_POST['weight'] ?? 0);
         $maxScore = (float)($_POST['max_score'] ?? 100);
         $description = trim($_POST['description'] ?? '');
-        $dueDate = $_POST['due_date'] ?? null;
+        // An empty due date is "no date" — '' made strict-mode MariaDB fail (500).
+        $dueDate = isset($_POST['due_date']) && is_string($_POST['due_date']) && trim($_POST['due_date']) !== ''
+            ? trim($_POST['due_date']) : null;
         
         if (!$id || empty($name) || $weight <= 0) {
             echo json_encode(['status' => 'error', 'message' => 'Invalid data']);
@@ -1570,6 +1572,21 @@ switch ($action) {
             exit;
         }
         
+        // Max-score guard (2026-10-22): never leave saved marks above the max.
+        $above = \App\Services\SubmissionService::scoresAbove($conn, (int)$id, (float)$maxScore);
+        if ($above['count'] > 0) {
+            http_response_code(422);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'MAX_BELOW_SAVED_SCORES',
+                'message' => ($above['count'] === 1 ? '1 student already has' : $above['count'] . ' students already have')
+                    . ' a score above ' . \App\Services\SubmissionService::scoreLabel((float)$maxScore)
+                    . ' (highest: ' . \App\Services\SubmissionService::scoreLabel($above['highest'])
+                    . '). Fix those marks first, or keep the maximum at least ' . \App\Services\SubmissionService::scoreLabel($above['highest']) . '. Nothing was changed.',
+            ]);
+            exit;
+        }
+
         $stmt = $conn->prepare("
             UPDATE assessments SET 
             assessment_name = ?, assessment_type = ?, weight_percentage = ?, 
@@ -1853,6 +1870,20 @@ switch ($action) {
 
         $recordedBy = (int)($_SESSION['admin_id']);
         $maxScore = (float)$assessment['max_score'];
+
+        // Score-limit rule (2026-10-22): refuse the whole list, write nothing.
+        $badScores = \App\Services\SubmissionService::invalidScores($conn, $grades, $maxScore);
+        if ($badScores) {
+            http_response_code(422);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'INVALID_SCORES',
+                'message' => \App\Services\SubmissionService::invalidScoresMessage($badScores, $maxScore),
+                'invalid' => $badScores,
+                'max_score' => $maxScore,
+            ]);
+            exit;
+        }
         $yearId = (int)($assessment['academic_year_id'] ?: ($currentYear['id'] ?? 0));
         $termId = !empty($assessment['term_id']) ? (int)$assessment['term_id'] : null;
         $successCount = 0;

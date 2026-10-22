@@ -475,7 +475,15 @@ final class AssessmentFollowupService
             throw new \DomainException('Score must be a number.');
         }
         $score = round((float)$score, 2);
-        $max = is_numeric($maxScore) && (float)$maxScore > 0 ? round((float)$maxScore, 2) : (float)$row['assessment_max_score'];
+        // Score-limit rule (2026-10-22): the assessment's own max is the
+        // ceiling. A client-sent max may only be LOWER — a higher one is
+        // REFUSED (never silently changed: 5/20 must not become 5/10).
+        $assessMax = round((float)($row['assessment_max_score'] ?? 0), 2);
+        $max = is_numeric($maxScore) && (float)$maxScore > 0 ? round((float)$maxScore, 2) : $assessMax;
+        if ($assessMax > 0 && $max > $assessMax) {
+            throw new \DomainException('"Out of" cannot be more than the test\'s maximum '
+                . rtrim(rtrim(number_format($assessMax, 2, '.', ''), '0'), '.') . '.');
+        }
         if ($max <= 0) {
             throw new \DomainException('The assessment has no maximum score.');
         }

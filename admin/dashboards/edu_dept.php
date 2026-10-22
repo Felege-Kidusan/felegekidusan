@@ -103,8 +103,9 @@ const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSO
 <script src="/admin/js/advanced_analytics.js?v=20260927"></script>
 <script src="/admin/js/education_analytics_hub.js?v=20260927"></script>
 <script src="/admin/js/academic_intelligence.js?v=20261003"></script>
-<script src="/admin/js/academic_tracking.js?v=20261003"></script>
+<script src="/admin/js/academic_tracking.js?v=20261022s"></script>
 <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
+<script src="/admin/js/score_limit.js?v=20261022s"></script>
 <script src="/admin/js/edu_timetable.js?v=20261021dc"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
@@ -169,7 +170,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </style>
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
-<link rel="stylesheet" href="/admin/css/report_card.css?v=20261022p">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20261022s">
 <?php include __DIR__ . "/../theme.php"; ?>
 <style id="p70-edu-mobile">
 /* ═══════════════════════════════════════════════════════════════════
@@ -1605,7 +1606,7 @@ include __DIR__ . '/../components/comm/comm_section.php';
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.sec;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 
 <div id="toastC"></div>
-<script src="/admin/js/report_card.js?v=20261022p"></script>
+<script src="/admin/js/report_card.js?v=20261022s"></script>
 <script>
 let allTeachers=[],currentTeacherId=null,asgRows=[],homeroomClassIds=[],homeroomHolders={};
 const EDU_CLASSES=<?= json_encode(array_map(static function ($c) {
@@ -2714,6 +2715,8 @@ async function loadGradeStudents(){
                         <button class="btn btn-p" onclick="saveAllGrades(${aid})"><i class="fa-solid fa-save"></i> Save All Grades</button>
                     </div>
                 </div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-user-xmark" style="font-size:2rem;margin-bottom:.5rem;color:#cbd5e1"></i><p>No students enrolled in this class.</p></div>';
+            // Score limit (2026-10-22): nobody can type more than the max.
+            if(window.FKSSScoreLimit) window.FKSSScoreLimit.bind(document.getElementById('gradeArea'),'.grade-input');
         }
     }catch(e){toast('Error loading students','err');}
 }
@@ -2734,6 +2737,10 @@ function updateLiveGradingProgress(){
     }
 }
 async function saveAllGrades(aid){
+    if(window.FKSSScoreLimit){
+        const bad=window.FKSSScoreLimit.problems(document.getElementById('gradeArea'),'.grade-input');
+        if(bad.length){bad[0].el.focus();return toast(window.FKSSScoreLimit.problemMessage(bad),'err');}
+    }
     const grades=[];
     document.querySelectorAll('.grade-input').forEach(inp=>{
         const mid=inp.dataset.mid,score=inp.value,remark=document.querySelector(`.grade-remark[data-mid="${mid}"]`)?.value||'';
@@ -3630,7 +3637,7 @@ function paintReviewShell(s){
             <div><strong style="color:#64748b">Class:</strong> <span class="amharic">${esc(s.class_name||'—')}</span></div>
             <div><strong style="color:#64748b">${isAtt?'Date':'Subject'}:</strong> <span class="amharic">${esc(isAtt?(s.attendance_date?fD(s.attendance_date):'—'):(s.subject_name||'—'))}</span></div>
             <div><strong style="color:#64748b">${isAtt?'Marks':'Assessment'}:</strong> ${esc(isAtt?((s.present_count||0)+' P · '+(s.absent_count||0)+' A · '+(s.late_count||0)+' L'):(s.assessment_name||'—'))}</div>
-            <div><strong style="color:#64748b">Students:</strong> ${s.student_count||rows.length||0}</div>
+            <div><strong style="color:#64748b">Students:</strong> ${isAtt?(s.student_count||rows.length||0):rows.length}${(!isAtt&&s.scored_count!=null)?` · <span style="color:#059669;font-weight:600">${s.scored_count} scored</span>`+((s.not_taken_count||s.not_entered_count)?` · <span class="rv-dnt-count" style="color:#b45309;font-weight:700">${s.not_taken_count||s.not_entered_count} ${esc(s.blank_label||'no score')}</span>`:''):''}</div>
             <div><strong style="color:#64748b">${isAtt?'Status':'Average'}:</strong> ${isAtt?subStatusChip(s.status):`<span style="font-weight:700;color:#7c3aed">${s.average_score!=null?parseFloat(s.average_score).toFixed(1):'—'}</span>`}</div>
             <div><strong style="color:#64748b">Progress:</strong> <span style="padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700;color:#fff;background:${sc[s.status]||'#94a3b8'}">${esc(s.status_label||s.status||'')}</span></div>
             <div><strong style="color:#64748b">Updated:</strong> ${s.updated_at?fD(s.updated_at):(s.submitted_at?fD(s.submitted_at):'—')}</div>
@@ -3642,7 +3649,7 @@ function paintReviewShell(s){
             <h4 style="font-weight:700;font-size:.85rem;margin:0"><i class="fa-solid fa-list-ol" style="color:#7c3aed"></i> ${isAtt?'Attendance sheet':'Student scores'}</h4>
             <div style="display:flex;gap:.4rem;flex-wrap:wrap">
                 <input autocomplete="off" id="reviewSearch" class="inp" style="max-width:180px;padding:.35rem .6rem;font-size:.75rem" placeholder="Search name or code…" oninput="renderReviewRows()">
-                <select id="reviewFilter" class="inp" style="max-width:130px;padding:.35rem .5rem;font-size:.75rem" onchange="renderReviewRows()">${isAtt?'<option value="">All marks</option><option value="present">Present</option><option value="absent">Absent</option><option value="late">Late</option><option value="excused">Excused</option>':'<option value="">All scores</option><option value="scored">Has score</option><option value="blank">No score</option><option value="high">80% and above</option><option value="low">Below 50%</option>'}</select>
+                <select id="reviewFilter" class="inp" style="max-width:130px;padding:.35rem .5rem;font-size:.75rem" onchange="renderReviewRows()">${isAtt?'<option value="">All marks</option><option value="present">Present</option><option value="absent">Absent</option><option value="late">Late</option><option value="excused">Excused</option>':'<option value="">All scores</option><option value="scored">Has score</option><option value="blank">'+esc(s.blank_label||'No score')+'</option><option value="high">80% and above</option><option value="low">Below 50%</option>'}</select>
                 <select id="reviewSort" class="inp" style="max-width:130px;padding:.35rem .5rem;font-size:.75rem" onchange="renderReviewRows()"><option value="name">Sort: Name</option><option value="code">Sort: Code</option>${isAtt?'<option value="mark">Sort: Mark</option>':'<option value="score">Sort: Score</option>'}</select>
             </div>
         </div>
@@ -3718,7 +3725,7 @@ function renderReviewRows(){
     if(isAtt){
         box.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Mark</th><th>Note</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td><span style="font-weight:700;color:${color[st.status]||'#64748b'};text-transform:capitalize">${esc(st.status||'—')}</span></td><td style="font-size:.75rem;color:#64748b">${esc(st.notes||'')}</td></tr>`).join('')}</tbody></table></div>`;
     }else{
-        box.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td style="font-weight:700">${st.score!=null?st.score+(st.max_score?' / '+st.max_score:''):'—'}</td><td style="font-size:.75rem;color:#64748b">${esc(st.remarks||'')}</td></tr>`).join('')}</tbody></table></div>`;
+        box.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td style="font-weight:700">${st.score!=null?st.score+(st.max_score?' / '+st.max_score:''):(st.score_label?`<span class="rv-dnt" style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:.7rem;font-weight:700;background:${st.score_state==='not_taken'?'#fef3c7;color:#92400e':'#f1f5f9;color:#64748b'}">${esc(st.score_label)}</span>`:'—')}</td><td style="font-size:.75rem;color:#64748b">${esc(st.remarks||'')}</td></tr>`).join('')}</tbody></table></div>`;
     }
 }
 async function quickReview(id,status){

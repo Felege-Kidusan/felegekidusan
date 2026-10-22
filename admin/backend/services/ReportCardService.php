@@ -792,6 +792,9 @@ class ReportCardService
                 'term_id' => !empty($rec['term_id']) ? (int)$rec['term_id'] : null,
                 // Phase 5: 1 when the shown score is a make-up attempt (original kept in academic_records).
                 'is_makeup' => !empty($rec['is_makeup']) ? 1 : 0,
+                // 2026-10-22: a listed test with no score = "Did not take"
+                // (shown on the card, never counted in any total — D1).
+                'not_taken' => $score === null ? 1 : 0,
             ];
         }
 
@@ -970,7 +973,114 @@ class ReportCardService
             $out[$mid][$sid][] = $row;
         }
         $stmt->close();
+        // "Did not take" rows go in BEFORE make-ups so a later make-up score
+        // still replaces the blank (applyMakeupPrecedence matches by assessment).
+        $out = self::addNotTaken($conn, $classId, $yearId, $termId, $out);
         return self::applyMakeupPrecedence($conn, $classId, $yearId, $termId, $out);
+    }
+
+    /**
+     * "Did not take" (2026-10-22, owner D1 = shown, NOT counted): for every
+     * assessment of this class whose mark list has left the teacher
+     * (submitted / approved), each actively enrolled student without a mark
+     * gets a score-less row. aggregateSubject() already leaves null scores out
+     * of every total, so averages and ranks do not change — the test is only
+     * listed on the card as "Did not take". Assessments without a semester
+     * are skipped (they would otherwise be reported as untagged marks).
+     *
+     * @param array<int,array<int,list<array<string,mixed>>>> $out
+     * @return array<int,array<int,list<array<string,mixed>>>>
+     */
+    private static function addNotTaken(\mysqli $conn, int $classId, int $yearId, int $termId, array $out): array
+    {
+        try {
+            $sql = "SELECT a.id, a.subject_id, a.assessment_name, a.weight_percentage, a.max_score,
+                           a.term_id, a.academic_year_id, s.subject_name, s.subject_name_en
+                    FROM assessments a
+                    LEFT JOIN subjects s ON s.id = a.subject_id
+                    WHERE a.class_id = ? AND a.term_id IS NOT NULL AND a.term_id > 0
+                      AND EXISTS (SELECT 1 FROM grade_submissions gs
+                                  WHERE gs.assessment_id = a.id AND gs.submission_type = 'marklist'
+                                    AND gs.status IN ('submitted', 'approved'))";
+            $params = [$classId];
+            $types = 'i';
+            if ($yearId > 0) {
+                $sql .= ' AND a.academic_year_id = ?';
+                $params[] = $yearId;
+                $types .= 'i';
+            }
+            if ($termId > 0) {
+                $sql .= ' AND a.term_id = ?';
+                $params[] = $termId;
+                $types .= 'i';
+            }
+            $st = $conn->prepare($sql);
+            if (!$st) {
+                return $out;
+            }
+            $st->bind_param($types, ...$params);
+            $st->execute();
+            $res = $st->get_result();
+            $assessments = [];
+            while ($a = $res->fetch_assoc()) {
+                $assessments[] = $a;
+            }
+            $st->close();
+            if (!$assessments) {
+                return $out;
+            }
+            $roster = [];
+            $rs = $conn->prepare("SELECT member_id, academic_year_id FROM class_enrollments WHERE class_id = ? AND status = 'active'");
+            if (!$rs) {
+                return $out;
+            }
+            $rs->bind_param('i', $classId);
+            $rs->execute();
+            $rr = $rs->get_result();
+            while ($e = $rr->fetch_assoc()) {
+                $roster[(int)$e['academic_year_id']][] = (int)$e['member_id'];
+            }
+            $rs->close();
+        } catch (\Throwable $e) {
+            return $out;
+        }
+        foreach ($assessments as $a) {
+            $aid = (int)$a['id'];
+            $sid = (int)$a['subject_id'];
+            foreach ($roster[(int)$a['academic_year_id']] ?? [] as $mid) {
+                $has = false;
+                foreach ($out[$mid][$sid] ?? [] as $row) {
+                    if ((int)($row['assessment_id'] ?? 0) === $aid) {
+                        $has = true;
+                        break;
+                    }
+                }
+                if ($has) {
+                    continue;
+                }
+                $out[$mid][$sid][] = [
+                    'id' => 0,
+                    'member_id' => $mid,
+                    'class_id' => $classId,
+                    'subject_id' => $sid,
+                    'assessment_id' => $aid,
+                    'score' => null,
+                    'max_score' => $a['max_score'],
+                    'remarks' => '',
+                    'academic_year_id' => (int)$a['academic_year_id'],
+                    'term_id' => (int)$a['term_id'],
+                    'assessment_name' => (string)$a['assessment_name'],
+                    'weight_percentage' => $a['weight_percentage'],
+                    'assess_max' => $a['max_score'],
+                    'a_class_id' => $classId,
+                    'a_subject_id' => $sid,
+                    'subject_name' => (string)($a['subject_name'] ?? 'Subject'),
+                    'subject_name_en' => (string)($a['subject_name_en'] ?? ''),
+                    'not_taken' => 1,
+                ];
+            }
+        }
+        return $out;
     }
 
     /**

@@ -130,6 +130,15 @@
       '</div>';
 
     // ── inside bottom: the one totals table ───────────────────────────
+    // 2026-10-22 (owner D1): tests the student did not take are LISTED on
+    // the card but never counted — the server already leaves them out of
+    // every average, so this is a note only.
+    function dntNote(sub) {
+      const names = (sub.assessments || []).filter(function (a) { return a && a.not_taken; })
+        .map(function (a) { return String(a.assessment_name || 'Assessment'); });
+      if (!names.length) return '';
+      return '<div class="rc-dnt">Did not take: ' + esc(names.join(', ')) + '</div>';
+    }
     function subjectRow(sub) {
       const annual = num(sub.final_percentage);
       const continuing = sub.subject_status === 'CONTINUING' || (sub.duration_type === 'FULL_YEAR' && annual === null && (sub.semester_1_score != null || sub.semester_2_score != null));
@@ -143,7 +152,7 @@
       return '<tr>' +
         '<td class="rc-subj-cell"><span class="am">' + esc(sub.subject_name || '') + '</span>' +
           (sub.subject_name_en ? ' <small>· ' + esc(sub.subject_name_en) + '</small>' : '') +
-          (semOnly ? ' <em class="rc-tag">semester subject</em>' : '') + '</td>' +
+          (semOnly ? ' <em class="rc-tag">semester subject</em>' : '') + dntNote(sub) + '</td>' +
         (isAnnualView
           ? '<td class="num">' + cell(sub.semester_1_score) + '</td><td class="num">' + cell(sub.semester_2_score) + '</td>'
           : '<td class="num">' + cell(sub.average) + '</td>') +
