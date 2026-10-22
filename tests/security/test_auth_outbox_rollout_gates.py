@@ -31,13 +31,13 @@ class Build24ReleaseGateTest(unittest.TestCase):
         pubspec = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
         config = (MOBILE / "lib/utils/config.dart").read_text(encoding="utf-8")
         notes = (MOBILE / "RELEASE_NOTES.md").read_text(encoding="utf-8")
-        self.assertRegex(pubspec, r"(?m)^version:\s*1\.7\.2\+39\s*$")
-        self.assertIn("appVersion = '1.7.2'", config)
-        self.assertIn("appBuild = 39", config)
-        self.assertIn("## 1.7.2 (build 39)", notes)
+        self.assertRegex(pubspec, r"(?m)^version:\s*1\.7\.3\+40\s*$")
+        self.assertIn("appVersion = '1.7.3'", config)
+        self.assertIn("appBuild = 40", config)
+        self.assertIn("## 1.7.3 (build 40)", notes)
         for source in (self.release, self.release_example):
-            self.assertRegex(source, r"'latest_version'\s*=>\s*'1\.7\.2'")
-            self.assertRegex(source, r"'latest_build'\s*=>\s*39")
+            self.assertRegex(source, r"'latest_version'\s*=>\s*'1\.7\.3'")
+            self.assertRegex(source, r"'latest_build'\s*=>\s*40")
 
     def test_release_config_exposes_a_strict_drain_switch(self):
         self.assertIn("'background_drains_enabled' => true", self.release)

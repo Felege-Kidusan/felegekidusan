@@ -1333,6 +1333,39 @@ if ($action === 'summary' && $method === 'GET') {
 
 $__eduReviewRoles = ['edu_dept', 'school_admin', 'super_admin'];
 
+// ── GET /grades/student-results?assessment_id=&member_id= ───────
+// Phase 2 (owner D2, 2026-10-22): the private full-screen result card —
+// one student's results for the same class + subject + semester.
+if ($method === 'GET' && $action === 'student-results') {
+    $assessmentId = (int)($_GET['assessment_id'] ?? 0);
+    $memberId = (int)($_GET['member_id'] ?? 0);
+    if ($assessmentId <= 0 || $memberId <= 0) err('assessment_id and member_id are required', 422);
+    if (isApiRateLimited('grades_student_results', 120)) {
+        err('Too many requests. Please wait a moment.', 429);
+    }
+    require_once __DIR__ . '/../../../admin/backend/services/SubmissionService.php';
+    $stmt = $conn->prepare('SELECT class_id, subject_id FROM assessments WHERE id = ?');
+    $stmt->bind_param('i', $assessmentId);
+    $stmt->execute();
+    $own = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$own) err('Test not found.', 404);
+    if ($isRestricted) {
+        checkTeacherSubjectAccess($conn, $userId, $userRole, (int)$own['class_id'], (int)$own['subject_id'], $yearId);
+    }
+    try {
+        $out = \App\Services\SubmissionService::studentResults($conn, $assessmentId, $memberId);
+    } catch (Throwable $e) {
+        reportInternalError('grades student-results failed', $e);
+        err('Could not load results. Please try again.', 500);
+    }
+    if (($out['status'] ?? '') !== 'success') {
+        err((string)($out['message'] ?? 'Not found.'), ($out['code'] ?? '') === 'not_found' ? 404 : 422);
+    }
+    unset($out['status']);
+    ok($out);
+}
+
 // ── GET /grades/submissions — department review queue ───────────
 if ($method === 'GET' && $action === 'submissions') {
     if (!in_array($userRole, $__eduReviewRoles, true)) {

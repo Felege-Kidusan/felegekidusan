@@ -703,6 +703,7 @@ $csrfToken = generateCsrfToken();
     <div id="toastContainer"></div>
     <script src="/admin/js/report_card.js?v=20261022s"></script>
     <script src="/admin/js/score_limit.js?v=20261022s"></script>
+    <script src="/admin/js/view_only_marks.js?v=20261022t"></script>
     <script src="/admin/js/danger_confirm.js?v=20261022dc4"></script>
     <script src="/admin/js/attendance-sheet.js?v=20261022dc4"></script>
     <script>
@@ -906,6 +907,15 @@ $csrfToken = generateCsrfToken();
                         document.getElementById('maxScoreHeader').textContent = data.assessment.max_score;
                         renderGradeEntryTable(students, data.assessment.max_score);
                         applyTermLockToEntry(entryLocked);
+                        // Phase 2: View-only lock + private result card (after the
+                        // term lock, so unlocking restores each box's own state).
+                        if (window.FKSSViewOnly) window.FKSSViewOnly.attach({
+                            card: document.getElementById('gradeEntryCard'),
+                            tbody: document.getElementById('gradeEntryBody'),
+                            input: '.grade-input', extra: '.remarks-input', buttons: ['saveGradesBtn'],
+                            assessmentId: data.assessment.id || assessmentId,
+                            assessmentName: data.assessment.assessment_name, maxScore: data.assessment.max_score
+                        });
                     }
                 });
         }
@@ -954,6 +964,9 @@ $csrfToken = generateCsrfToken();
         
         function saveAllGrades() {
             if (!currentAssessment) return;
+            if (window.FKSSViewOnly && window.FKSSViewOnly.isOn(currentAssessment.id)) {
+                return showToast('View only is on. Click 🔒 to edit first.', 'error');
+            }
             if (window.FKSSScoreLimit) {
                 const bad = window.FKSSScoreLimit.problems(document.getElementById('gradeEntryBody'), '.grade-input');
                 if (bad.length) { bad[0].el.focus(); return showToast(window.FKSSScoreLimit.problemMessage(bad), 'error'); }
@@ -1329,12 +1342,20 @@ $csrfToken = generateCsrfToken();
                         // The disable above ran on the OLD rows; apply it to the new ones too.
                         tbody.querySelectorAll('.submit-score, .submit-remark').forEach(el => { el.disabled = submitLocked; });
                         if (window.FKSSScoreLimit) window.FKSSScoreLimit.bind(tbody, '.submit-score');
+                        if (window.FKSSViewOnly) window.FKSSViewOnly.attach({
+                            card: document.getElementById('submitEntryCard'), tbody: tbody,
+                            input: '.submit-score', extra: '.submit-remark', buttons: ['submitBtn'],
+                            assessmentId: aid, assessmentName: aName, maxScore: maxScore
+                        });
                     }
                 });
         }
         
         async function submitMarklist() {
             if (!submitAssessmentData) return;
+            if (window.FKSSViewOnly && window.FKSSViewOnly.isOn(submitAssessmentData.id)) {
+                return showToast('View only is on. Click 🔒 to edit first.', 'error');
+            }
             const combo = document.getElementById('submitAssignmentSelect').value;
             if (!combo) return showToast('Select class and subject', 'error');
             const [cid, sid] = combo.split('-');

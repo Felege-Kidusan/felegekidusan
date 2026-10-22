@@ -5,6 +5,36 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.7.3 (build 40) — Marks: live limit, "Did not take", View only, result card
+
+Owner request 2026-10-22. Works with the server change in the same release
+(the server already refuses invalid marks with a clear message).
+
+- **Live limit on marks:** on a test out of 10, a key that would make the
+  mark more than 10 is refused on the spot and a small red hint says
+  "Max is 10". Letters, minus, a second dot and a third decimal are refused
+  too; a comma key becomes a dot. The "graded" counter counts valid marks only.
+- **Save / Submit check:** a mark that is not valid (for example an old 15 on
+  a /10 test) stops Save and Submit with a message naming the student.
+- **Submit summary:** before submitting, a short sheet shows "47 scored ·
+  3 Did not take" with the names, and **Submit** / **Go back**. The 5-second
+  Undo stays.
+- **"Did not take":** on a submitted list, a blank box shows an amber
+  "Did not take" badge (a draft says "Not entered yet").
+- **View only (🔒):** a lock in the top bar makes the whole list read-only —
+  no box, no keyboard, nothing can be erased. Remembered per test on this
+  phone until you tap it again. A search box finds a student by name or code.
+- **Result card:** in View only (or on a submitted list) tap a student to open
+  a private full-screen card — the mark big and clear, plus that student's
+  other results in the same class and subject this semester, and "Marks so
+  far" ("Did not take" is shown, not counted). Works offline for the mark
+  itself; other results need internet.
+- **Education review on the phone:** mark lists now show each student's
+  score and "Did not take", with scored / did-not-take counts and the average
+  (before, only attendance letters were shown).
+- New endpoint `GET /api/v1/grades/student-results`. No schema change; no new
+  packages.
+
 ## 1.7.2 (build 39) — Teacher "My Timetable" (Weekly · Daily · Monthly)
 
 Mobile side of the Education timetable builder (web, `sql/077`). Read-only.

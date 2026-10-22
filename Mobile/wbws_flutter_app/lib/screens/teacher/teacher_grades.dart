@@ -21,6 +21,11 @@ import '../../widgets/fast_list.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/quick_confirm.dart';
 import '../../widgets/status_banner.dart';
+import '../../utils/score_limit.dart';
+import '../../widgets/score_state_chip.dart';
+import '../../utils/view_only_lock.dart';
+import '../../widgets/submit_summary_sheet.dart';
+import 'student_result_card.dart';
 
 class TeacherGradesScreen extends StatefulWidget {
   const TeacherGradesScreen({super.key});
@@ -659,9 +664,59 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   bool _commitInProgress = false;
   LegacyOperationRef? _submittedUndoRef;
 
+  /// 1.7.3 View-only lock (owner 2026-10-22): the teacher locks the list to
+  /// cross-check without changing or erasing marks, and taps a student to
+  /// show them their result. Remembered per test on this phone.
+  bool _viewOnly = false;
+  final TextEditingController _search = TextEditingController();
+  String _query = '';
+
+  /// Live score-limit hint ("Max is 10") under the box that refused a key.
+  int? _hintMid;
+  String _hintText = '';
+  Timer? _hintTimer;
+
+  Future<void> _restoreViewOnly() async {
+    final v = await ViewOnlyLock.isOn(widget.assessmentId);
+    if (mounted && v != _viewOnly) setState(() => _viewOnly = v);
+  }
+
+  Future<void> _setViewOnly(bool on) async {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _viewOnly = on;
+      if (!on) {
+        _query = '';
+        _search.clear();
+      }
+    });
+    HapticFeedback.selectionClick();
+    await ViewOnlyLock.set(widget.assessmentId, on);
+  }
+
+  void _showHint(int mid, String text) {
+    _hintTimer?.cancel();
+    HapticFeedback.lightImpact();
+    setState(() {
+      _hintMid = mid;
+      _hintText = text;
+    });
+    _hintTimer = Timer(const Duration(milliseconds: 1800), () {
+      if (mounted) setState(() => _hintMid = null);
+    });
+  }
+
+  /// Read-only for any reason: submitted/approved, closed semester, or the
+  /// teacher's own View-only lock.
+  bool get _readOnly => _locked || _viewOnly;
+
+  /// A blank on a submitted/approved list means "Did not take".
+  bool get _blankIsNotTaken => PacketLock.isLocked(_packetStatus);
+
   @override
   void initState() {
     super.initState();
+    _restoreViewOnly();
     _isOffline = !ConnectivityService().hasLink;
     _packetStatus = widget.initialStatus;
     _termLocked = widget.initialTermLocked;
@@ -691,6 +746,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     _netSub?.cancel();
     _syncSub?.cancel();
     _autosaveTimer?.cancel();
+    _hintTimer?.cancel();
+    _search.dispose();
     _dirty.dispose();
     _scoreCtrl.values.forEach((c) => c.dispose());
     _remarkCtrl.values.forEach((c) => c.dispose());
@@ -873,7 +930,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       final score = s['score'];
       _scoreCtrl[mid] = TextEditingController(text: score != null ? '$score' : '');
       _remarkCtrl[mid] = TextEditingController(text: '${s['remarks'] ?? s['remark'] ?? ''}');
-      if (score != null) graded++;
+      if (score != null && ScoreLimit.isValid('$score', widget.maxScore)) graded++;
       clean.add({...s, 'member_id': mid});
     }
     _students = clean;
@@ -887,10 +944,65 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     for (final s in _students) {
       final mid = RosterParse.asInt(s['member_id']);
       if (mid == null) continue;
-      if ((_scoreCtrl[mid]?.text.trim() ?? '').isNotEmpty) n++;
+      final t = _scoreCtrl[mid]?.text.trim() ?? '';
+      // 1.7.3: only VALID marks count as graded.
+      if (t.isNotEmpty && ScoreLimit.isValid(t, widget.maxScore)) n++;
     }
     if (n != _gradedCount) setState(() => _gradedCount = n);
   }
+
+  /// Boxes that may not be saved (e.g. "9." or an old 15 on a /10 test).
+  /// The server would refuse them (422 INVALID_SCORES) — tell the teacher now.
+  List<String> _problems() {
+    final out = <String>[];
+    for (final s in _students) {
+      final mid = RosterParse.asInt(s['member_id']);
+      if (mid == null) continue;
+      final t = _scoreCtrl[mid]?.text.trim() ?? '';
+      if (t.isEmpty || ScoreLimit.isValid(t, widget.maxScore)) continue;
+      final name = '${s['student_name'] ?? ''} ${s['father_name'] ?? ''}'.trim();
+      final v = double.tryParse(t);
+      out.add(v != null && v > widget.maxScore
+          ? '$name: $t is more than ${ScoreLimit.label(widget.maxScore)}'
+          : '$name: "$t" is not a valid mark');
+    }
+    return out;
+  }
+
+  bool _refuseIfProblems() {
+    final bad = _problems();
+    if (bad.isEmpty) return false;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: const Duration(seconds: 5),
+      backgroundColor: AppTheme.danger,
+      content: Text(
+        'Fix ${bad.length} mark${bad.length == 1 ? '' : 's'} first (max ${ScoreLimit.label(widget.maxScore)}). '
+        '${bad.take(3).join('; ')}${bad.length > 3 ? '; and ${bad.length - 3} more' : ''}',
+      ),
+    ));
+    return true;
+  }
+
+  /// Students left blank — after Submit they are "Did not take".
+  List<String> _blankNames() {
+    final out = <String>[];
+    for (final s in _students) {
+      final mid = RosterParse.asInt(s['member_id']);
+      if (mid == null) continue;
+      if ((_scoreCtrl[mid]?.text.trim() ?? '').isEmpty) {
+        out.add('${s['student_name'] ?? ''} ${s['father_name'] ?? ''}'.trim());
+      }
+    }
+    return out;
+  }
+
+  /// 1.7.3 submit summary: "47 scored · 3 Did not take: names…".
+  Future<bool> _confirmSubmitSummary(int scored) => showSubmitSummarySheet(
+        context,
+        assessmentName: widget.assessmentName,
+        scored: scored,
+        blankNames: _blankNames(),
+      );
 
   Future<void> _persistDraftSnapshot(
       List<Map<String, dynamic>> grades) async {
@@ -969,6 +1081,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       return;
     }
 
+    if (_refuseIfProblems()) return;
     final grades = _collectGrades();
     if (grades.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No valid grades to save'), backgroundColor: AppTheme.warning));
@@ -1015,12 +1128,16 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
           backgroundColor: AppTheme.warning));
       return;
     }
+    if (_refuseIfProblems()) return;
     final grades = _collectGrades();
     if (grades.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Enter at least one valid score first'), backgroundColor: AppTheme.warning));
       return;
     }
+    FocusScope.of(context).unfocus();
+    if (!await _confirmSubmitSummary(grades.length)) return;
+    if (!mounted || _locked) return;
     await _beginOrderedCommit();
     try {
       _submittedUndoRef = await _db.saveGradesLocal(
@@ -1097,11 +1214,18 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       appBar: AppBar(
         title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(widget.assessmentName, style: const TextStyle(fontSize: 16)),
-          Text('${widget.className} · Max: ${widget.maxScore.toStringAsFixed(0)}',
+          Text('${widget.className} · Max: ${ScoreLimit.label(widget.maxScore)}',
               style: const TextStyle(fontSize: 11, color: Colors.white70)),
         ]),
         actions: [
-
+          // 1.7.3 View-only lock — not needed when the list is already locked.
+          if (_students.isNotEmpty && !_locked)
+            IconButton(
+              key: const Key('view-only-toggle'),
+              tooltip: _viewOnly ? 'View only — tap to edit' : 'Lock to view only',
+              icon: Icon(_viewOnly ? Icons.lock : Icons.visibility_outlined),
+              onPressed: () => _setViewOnly(!_viewOnly),
+            ),
         ],
       ),
       bottomNavigationBar: _students.isEmpty
@@ -1119,6 +1243,22 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                   ]))
               : _locked
               ? const SubmittedBar()
+              : _viewOnly
+              ? Material(
+                  color: Colors.white,
+                  child: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                      child: OutlinedButton.icon(
+                        key: const Key('view-only-edit'),
+                        onPressed: () => _setViewOnly(false),
+                        icon: const Icon(Icons.lock_open, size: 18),
+                        label: const Text('Edit marks'),
+                      ),
+                    ),
+                  ),
+                )
               : TeacherActionBar(
                   saveLabel: 'Save',
                   submitLabel: 'Submit',
@@ -1173,6 +1313,41 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                           !_locked)
                         StatusBanner.warning(
                             'Returned by Education — you can edit and resubmit. $_returnNote'),
+                      if (_viewOnly && !_locked)
+                        Container(
+                          key: const Key('view-only-banner'),
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                          color: AppTheme.info.withOpacity(0.10),
+                          child: Row(children: [
+                            Icon(Icons.lock, size: 16, color: AppTheme.info),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text('View only. Tap 🔒 to edit. Tap a student to show their result.',
+                                style: TextStyle(fontSize: 12, color: AppTheme.info, fontWeight: FontWeight.w600))),
+                          ])),
+                      if (_readOnly)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                          child: TextField(
+                            key: const Key('grades-search'),
+                            controller: _search,
+                            onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              prefixIcon: const Icon(Icons.search, size: 20),
+                              hintText: 'Find a student by name or code',
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              suffixIcon: _query.isEmpty
+                                  ? null
+                                  : IconButton(
+                                      icon: const Icon(Icons.close, size: 18),
+                                      onPressed: () => setState(() {
+                                        _query = '';
+                                        _search.clear();
+                                      })),
+                            ),
+                          ),
+                        ),
                       Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), color: AppTheme.surfaceLight,
                         child: Row(children: [
                           Text('${_students.length} students', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
@@ -1187,12 +1362,19 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                             ),
                           ],
                         ])),
-                      Expanded(child: ListView.builder(
-                        itemCount: _students.length,
-                        cacheExtent: kListCacheExtent,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        itemBuilder: (_, i) => _studentRow(i),
-                      )),
+                      Expanded(child: Builder(builder: (_) {
+                        final rows = _visibleIndexes();
+                        if (rows.isEmpty) {
+                          return Center(child: Text('No student matches "$_query"',
+                              style: TextStyle(color: AppTheme.textSecondary)));
+                        }
+                        return ListView.builder(
+                          itemCount: rows.length,
+                          cacheExtent: kListCacheExtent,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          itemBuilder: (_, i) => _studentRow(rows[i]),
+                        );
+                      })),
                     ]),
               ),
             ],
@@ -1200,11 +1382,78 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     );
   }
 
+  /// Rows to show — all, or the search matches (name, father, code).
+  List<int> _visibleIndexes() {
+    final all = List<int>.generate(_students.length, (i) => i);
+    if (!_readOnly || _query.isEmpty) return all;
+    return all.where((i) {
+      final s = _students[i];
+      final hay = '${s['student_name'] ?? ''} ${s['father_name'] ?? ''} ${s['member_code'] ?? ''}'.toLowerCase();
+      return hay.contains(_query);
+    }).toList();
+  }
+
+  void _openResultCard(Map<String, dynamic> s, int mid) {
+    FocusScope.of(context).unfocus();
+    final text = _scoreCtrl[mid]?.text.trim() ?? '';
+    Navigator.push(context, SmoothPageRoute(page: StudentResultCard(
+      assessmentId: widget.assessmentId,
+      memberId: mid,
+      studentName: '${s['student_name'] ?? ''} ${s['father_name'] ?? ''}'.trim(),
+      memberCode: '${s['member_code'] ?? ''}',
+      assessmentName: widget.assessmentName,
+      maxScore: widget.maxScore,
+      scoreText: text,
+      notTaken: text.isEmpty && _blankIsNotTaken,
+      subjectName: widget.subjectName,
+      className: widget.className,
+    )));
+  }
+
+  /// Read-only row (View only / submitted / closed semester): no box, no
+  /// keyboard — the mark big and clear, or "Did not take". Tap = result card.
+  Widget _readOnlyRow(int index, Map<String, dynamic> s, int mid) {
+    final text = _scoreCtrl[mid]?.text.trim() ?? '';
+    final remark = _remarkCtrl[mid]?.text.trim() ?? '';
+    final valid = text.isEmpty || ScoreLimit.isValid(text, widget.maxScore);
+    return InkWell(
+      key: Key('ro-row-$mid'),
+      onTap: () => _openResultCard(s, mid),
+      child: FastListRow(
+        index: index,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        child: Row(children: [
+          SizedBox(width: 28, child: Text('${index + 1}', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w600))),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${s['student_name'] ?? ''} ${s['father_name'] ?? ''}',
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+            if ('${s['member_code'] ?? ''}'.isNotEmpty)
+              Text('${s['member_code']}', style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+            if (remark.isNotEmpty)
+              Text(remark, style: TextStyle(fontSize: 11, color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis),
+          ])),
+          if (text.isEmpty)
+            ScoreStateChip(key: Key('ro-state-$mid'), notTaken: _blankIsNotTaken)
+          else
+            Text('$text / ${ScoreLimit.label(widget.maxScore)}',
+                key: Key('ro-score-$mid'),
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800,
+                    color: valid ? AppTheme.primary : AppTheme.danger)),
+          const SizedBox(width: 4),
+          Icon(Icons.chevron_right, size: 18, color: AppTheme.textSecondary),
+        ]),
+      ),
+    );
+  }
+
   Widget _studentRow(int index) {
     final s = _students[index];
     final mid = RosterParse.asInt(s['member_id']);
     if (mid == null) return const SizedBox.shrink();
+    if (_readOnly) return _readOnlyRow(index, s, mid);
     final hasScore = _scoreCtrl[mid]?.text.isNotEmpty ?? false;
+    final scoreText = _scoreCtrl[mid]?.text.trim() ?? '';
+    final scoreBad = scoreText.isNotEmpty && !ScoreLimit.isValid(scoreText, widget.maxScore, finalCheck: false);
 
     return FastListRow(
       index: index,
@@ -1222,10 +1471,15 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
               ])),
               SizedBox(width: 72, height: 38,
                 child: TextField(
+                  key: Key('score-$mid'),
                   controller: _scoreCtrl[mid],
                   readOnly: _locked,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                  // 1.7.3 live limit: a key that would go over the max (or a
+                  // 3rd decimal, a 2nd dot, a letter) is refused on the spot.
+                  inputFormatters: [
+                    ScoreLimitFormatter(widget.maxScore, onRefused: (why) => _showHint(mid, why)),
+                  ],
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: hasScore ? AppTheme.primary : null),
                   decoration: InputDecoration(
@@ -1233,7 +1487,9 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: hasScore ? AppTheme.primary.withOpacity(0.3) : AppTheme.borderLight)),
+                      borderSide: BorderSide(
+                          color: scoreBad ? AppTheme.danger : (hasScore ? AppTheme.primary.withOpacity(0.3) : AppTheme.borderLight),
+                          width: scoreBad ? 1.6 : 1)),
                   ),
                   textInputAction: TextInputAction.next,
                   onChanged: (_) {
@@ -1244,9 +1500,18 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                 ),
               ),
               const SizedBox(width: 6),
-              Text('/ ${widget.maxScore.toStringAsFixed(0)}',
+              Text('/ ${ScoreLimit.label(widget.maxScore)}',
                   style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
             ]),
+            if (_hintMid == mid || scoreBad)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, left: 28),
+                child: Text(
+                  _hintMid == mid ? _hintText : 'Max is ${ScoreLimit.label(widget.maxScore)} — fix this mark',
+                  key: Key('score-hint-$mid'),
+                  style: TextStyle(fontSize: 11, color: AppTheme.danger, fontWeight: FontWeight.w700),
+                ),
+              ),
             const SizedBox(height: 6),
             TextField(
               controller: _remarkCtrl[mid],

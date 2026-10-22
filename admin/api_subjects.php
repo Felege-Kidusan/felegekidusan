@@ -1668,6 +1668,36 @@ switch ($action) {
     // GRADE ENTRY
     // ============================================================
     
+    case 'student_results':
+        // Phase 2 (owner D2, 2026-10-22): private result card on the web —
+        // one student's results for this class + subject + semester.
+        $assessmentId = (int)($_GET['assessment_id'] ?? 0);
+        $memberId = (int)($_GET['member_id'] ?? 0);
+        $stmt = $conn->prepare("SELECT class_id, subject_id, academic_year_id FROM assessments WHERE id = ?");
+        $stmt->bind_param("i", $assessmentId);
+        $stmt->execute();
+        $own = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$own || $memberId <= 0) {
+            http_response_code(404);
+            echo json_encode(['status' => 'error', 'message' => 'Test or student not found.']);
+            exit;
+        }
+        if ($__restrictedRole) {
+            edu_require_assignment(
+                $conn, $__uid,
+                (int)$own['class_id'], (int)$own['subject_id'],
+                (int)($own['academic_year_id'] ?: ($currentYear['id'] ?? 0))
+            );
+        }
+        require_once __DIR__ . '/backend/services/SubmissionService.php';
+        $out = \App\Services\SubmissionService::studentResults($conn, $assessmentId, $memberId);
+        if (($out['status'] ?? '') !== 'success') {
+            http_response_code(($out['code'] ?? '') === 'not_found' ? 404 : 422);
+        }
+        echo json_encode($out);
+        exit;
+
     case 'get_students_for_grading':
         $assessmentId = (int)($_GET['assessment_id'] ?? 0);
         

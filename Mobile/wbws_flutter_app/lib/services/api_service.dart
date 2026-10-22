@@ -1883,6 +1883,14 @@ class ApiService {
   Future<ApiResponse> getGradeStudents(int assessmentId) =>
       get('/grades/students', params: {'assessment_id': '$assessmentId'});
 
+  /// One student's results for the class + subject + semester of a test
+  /// (private full-screen result card, 1.7.3).
+  Future<ApiResponse> getStudentResults(int assessmentId, int memberId) =>
+      get('/grades/student-results', params: {
+        'assessment_id': '$assessmentId',
+        'member_id': '$memberId',
+      });
+
   Future<ApiResponse> saveGrades(
           int assessmentId, List<Map<String, dynamic>> grades,
           {String? clientOpId,

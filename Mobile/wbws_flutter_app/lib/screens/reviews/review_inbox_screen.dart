@@ -9,6 +9,8 @@ import '../../services/local_db.dart';
 import '../../utils/config.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/theme.dart';
+import '../../utils/score_limit.dart';
+import '../../widgets/score_state_chip.dart';
 
 /// ════════════════════════════════════════════════════════════
 /// Department review inbox (Phase 9) — the mobile mirror of the
@@ -649,6 +651,68 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
     );
   }
 
+  /// 1.7.3: mark lists show scores and "Did not take" (server rows carry
+  /// score_state / score_label since 2026-10-22), not P/A/L/E.
+  bool get _isMarklist => '${_sub['submission_type'] ?? ''}' == 'marklist';
+
+  int _n(dynamic v) => (num.tryParse('${v ?? 0}') ?? 0).toInt();
+
+  Widget _marklistSummary() {
+    final scored = _n(_sub['scored_count']);
+    final notTaken = _n(_sub['not_taken_count']);
+    final notEntered = _n(_sub['not_entered_count']);
+    // Average of scored rows only ("Did not take" is never counted — D1).
+    final scores = ((_sub['rows'] is List) ? _sub['rows'] as List : const [])
+        .whereType<Map>()
+        .map((r) => double.tryParse('${r['score'] ?? ''}'))
+        .whereType<double>()
+        .toList();
+    final avg = scores.isEmpty ? null : ScoreLimit.label(scores.reduce((x, y) => x + y) / scores.length);
+    Widget chip(String text, Color fg, Color bg, String key) => Container(
+          key: Key(key),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+          child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: fg)),
+        );
+    return Wrap(spacing: 8, runSpacing: 6, children: [
+      if ('${_sub['assessment_name'] ?? ''}'.isNotEmpty)
+        chip('${_sub['assessment_name']}', AppTheme.textPrimary, const Color(0xFFF3F4F6), 'ml-name'),
+      chip('$scored scored', AppTheme.success, AppTheme.success.withOpacity(0.10), 'ml-scored'),
+      if (notTaken > 0) chip('$notTaken Did not take', ScoreStateChip.amberFg, ScoreStateChip.amberBg, 'ml-not-taken'),
+      if (notEntered > 0) chip('$notEntered not entered yet', AppTheme.textSecondary, const Color(0xFFF3F4F6), 'ml-not-entered'),
+      if (avg != null && '$avg'.isNotEmpty) chip('Average $avg', AppTheme.info, AppTheme.info.withOpacity(0.10), 'ml-avg'),
+    ]);
+  }
+
+  Widget _marklistRow(Map r) {
+    final state = '${r['score_state'] ?? ''}';
+    final score = r['score'];
+    final max = r['max_score'] ?? _sub['max_score'];
+    final hasScore = score != null && '$score'.isNotEmpty;
+    String fmt(dynamic v) {
+      final d = double.tryParse('$v');
+      return d == null ? '$v' : ScoreLimit.label(d);
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${r['student_name'] ?? ''} ${r['father_name'] ?? ''}',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+            if ('${r['member_code'] ?? ''}'.isNotEmpty)
+              Text('${r['member_code']}', style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+          ]),
+        ),
+        if (hasScore)
+          Text(max != null ? '${fmt(score)} / ${fmt(max)}' : fmt(score),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.primary))
+        else
+          ScoreStateChip(notTaken: state != 'not_entered'),
+      ]),
+    );
+  }
+
   Map<String, int> _counts() {
     final rows = _sub['rows'];
     final c = {'present': 0, 'absent': 0, 'late': 0, 'excused': 0, 'none': 0};
@@ -887,6 +951,9 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    if (_isMarklist)
+                      _marklistSummary()
+                    else
                     Wrap(
                       spacing: 8,
                       children: [
@@ -907,7 +974,9 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    if (rows.isNotEmpty)
+                    if (rows.isNotEmpty && _isMarklist)
+                      ...rows.whereType<Map>().map(_marklistRow),
+                    if (rows.isNotEmpty && !_isMarklist)
                       ...rows.whereType<Map>().map((r) {
                         final st = '${r['status'] ?? ''}'.toLowerCase();
                         final color = st == 'present'

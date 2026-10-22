@@ -1991,6 +1991,141 @@ class SubmissionService
         return $out;
     }
 
+    /**
+     * One student's results for the class + subject + semester of an
+     * assessment (Phase 2, owner D2 2026-10-22: "the big result screen have
+     * to contain other assesment results also"). Private: only this student.
+     *
+     * state: scored | not_taken (blank after submit) | not_entered (draft).
+     * Totals count scored tests only — "Did not take" is shown, not counted
+     * (owner D1).
+     *
+     * @return array{status:string, message?:string, student?:array, subject?:array, results?:list<array>, totals?:array}
+     */
+    public static function studentResults(\mysqli $conn, int $assessmentId, int $memberId): array
+    {
+        if ($assessmentId <= 0 || $memberId <= 0) {
+            return ['status' => 'error', 'code' => 'invalid', 'message' => 'Choose a student and a test.'];
+        }
+        $st = $conn->prepare(
+            "SELECT a.id, a.class_id, a.subject_id, a.academic_year_id, a.term_id,
+                    s.subject_name, c.class_name, t.term_name
+             FROM assessments a
+             LEFT JOIN subjects s ON s.id = a.subject_id
+             LEFT JOIN classes c ON c.id = a.class_id
+             LEFT JOIN academic_terms t ON t.id = a.term_id
+             WHERE a.id = ?"
+        );
+        if (!$st) {
+            return ['status' => 'error', 'code' => 'server', 'message' => 'Could not load results.'];
+        }
+        $st->bind_param('i', $assessmentId);
+        $st->execute();
+        $a = $st->get_result()->fetch_assoc();
+        $st->close();
+        if (!$a) {
+            return ['status' => 'error', 'code' => 'not_found', 'message' => 'Test not found.'];
+        }
+        $classId = (int)$a['class_id'];
+        if (!self::memberBelongsToClass($conn, $memberId, $classId)) {
+            return ['status' => 'error', 'code' => 'not_found', 'message' => 'This student is not in this class.'];
+        }
+
+        $st = $conn->prepare('SELECT id, student_name, father_name, member_code FROM members WHERE id = ?');
+        $st->bind_param('i', $memberId);
+        $st->execute();
+        $m = $st->get_result()->fetch_assoc();
+        $st->close();
+        if (!$m) {
+            return ['status' => 'error', 'code' => 'not_found', 'message' => 'Student not found.'];
+        }
+
+        // Same class + subject + year; same semester when the test has one.
+        $termId = (int)($a['term_id'] ?? 0);
+        $sql = "SELECT a.id, a.assessment_name, a.assessment_type, a.max_score, a.weight_percentage, a.due_date,
+                       ar.score, ar.remarks
+                FROM assessments a
+                LEFT JOIN academic_records ar ON ar.assessment_id = a.id AND ar.member_id = ?
+                WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?";
+        $types = 'iiii';
+        $params = [$memberId, $classId, (int)$a['subject_id'], (int)$a['academic_year_id']];
+        if ($termId > 0) {
+            $sql .= ' AND (a.term_id = ? OR a.term_id IS NULL OR a.term_id = 0)';
+            $types .= 'i';
+            $params[] = $termId;
+        }
+        $sql .= ' ORDER BY COALESCE(a.assessment_order, 9999), a.due_date IS NULL, a.due_date, a.id';
+        $st = $conn->prepare($sql);
+        $st->bind_param($types, ...$params);
+        $st->execute();
+        $res = $st->get_result();
+        $rows = [];
+        while ($r = $res->fetch_assoc()) {
+            $rows[] = $r;
+        }
+        $st->close();
+
+        $statuses = self::resolvedMarklistStatuses($conn, array_map(static fn($r) => (int)$r['id'], $rows));
+        $out = [];
+        $sum = 0.0;
+        $sumMax = 0.0;
+        $counts = ['scored' => 0, 'not_taken' => 0, 'not_entered' => 0];
+        foreach ($rows as $r) {
+            $id = (int)$r['id'];
+            $max = (float)$r['max_score'];
+            $packet = (string)($statuses[$id] ?? '');
+            $hasScore = $r['score'] !== null && $r['score'] !== '';
+            if ($hasScore) {
+                $state = 'scored';
+                $sum += (float)$r['score'];
+                $sumMax += $max;
+            } elseif (in_array($packet, [self::STATUS_SUBMITTED, self::STATUS_APPROVED], true)) {
+                $state = 'not_taken';
+            } else {
+                $state = 'not_entered';
+            }
+            $counts[$state]++;
+            $out[] = [
+                'assessment_id' => $id,
+                'assessment_name' => (string)$r['assessment_name'],
+                'assessment_type' => (string)($r['assessment_type'] ?? ''),
+                'max_score' => $max,
+                'weight' => (float)($r['weight_percentage'] ?? 0),
+                'score' => $hasScore ? (float)$r['score'] : null,
+                'score_state' => $state,
+                'score_label' => $hasScore ? self::scoreLabel((float)$r['score']) . ' / ' . self::scoreLabel($max)
+                    : ($state === 'not_taken' ? 'Did not take' : 'Not entered yet'),
+                'remarks' => (string)($r['remarks'] ?? ''),
+                'packet_status' => $packet,
+                'is_current' => $id === $assessmentId,
+            ];
+        }
+
+        return [
+            'status' => 'success',
+            'student' => [
+                'member_id' => (int)$m['id'],
+                'student_name' => (string)$m['student_name'],
+                'father_name' => (string)($m['father_name'] ?? ''),
+                'member_code' => (string)($m['member_code'] ?? ''),
+            ],
+            'subject' => [
+                'class_id' => $classId,
+                'class_name' => (string)($a['class_name'] ?? ''),
+                'subject_id' => (int)$a['subject_id'],
+                'subject_name' => (string)($a['subject_name'] ?? ''),
+                'term_name' => (string)($a['term_name'] ?? ''),
+            ],
+            'results' => $out,
+            'totals' => $counts + [
+                'score' => round($sum, 2),
+                'max' => round($sumMax, 2),
+                'percent' => $sumMax > 0 ? round($sum / $sumMax * 100, 1) : null,
+                'label' => $sumMax > 0 ? self::scoreLabel($sum) . ' / ' . self::scoreLabel($sumMax) : '—',
+            ],
+        ];
+    }
+
     public static function countsFromRecords(array $records): array
     {
         $out = ['present' => 0, 'absent' => 0, 'late' => 0, 'excused' => 0, 'student_count' => 0];
