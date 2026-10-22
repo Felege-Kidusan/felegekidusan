@@ -77,6 +77,8 @@ if ($action === 'search' && $method === 'GET') {
     }
 
     $limit = min(20, max(1, (int)($_GET['limit'] ?? 20)));
+    // Phase 3: opt-in offset (Load more) and with_total=1 (total matches).
+    $offset = min(100000, max(0, (int)($_GET['offset'] ?? 0)));
     $st = '%' . $q . '%';
     $sql = "SELECT m.id, m.member_code, m.student_name, m.father_name, m.gender, m.member_type,
                    c.class_name, c.id AS class_id
@@ -86,10 +88,10 @@ if ($action === 'search' && $method === 'GET') {
             LEFT JOIN classes c ON c.id = ce.class_id
             WHERE m.status = 'active'
               AND (m.student_name LIKE ? OR m.father_name LIKE ? OR m.member_code LIKE ? OR m.baptismal_name LIKE ?)
-            ORDER BY m.student_name
-            LIMIT ?";
+            ORDER BY m.student_name, m.id
+            LIMIT ? OFFSET ?";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param('issssi', $yearId, $st, $st, $st, $st, $limit);
+    $stmt->bind_param('issssii', $yearId, $st, $st, $st, $st, $limit, $offset);
     $stmt->execute();
     $members = [];
     $r = $stmt->get_result();
@@ -106,7 +108,17 @@ if ($action === 'search' && $method === 'GET') {
         ];
     }
     $stmt->close();
-    ok(['members' => $members]);
+    $out = ['members' => $members];
+    if (($_GET['with_total'] ?? '') === '1') {
+        $cs = $conn->prepare("SELECT COUNT(*) AS c FROM members m WHERE m.status = 'active'
+              AND (m.student_name LIKE ? OR m.father_name LIKE ? OR m.member_code LIKE ? OR m.baptismal_name LIKE ?)");
+        $cs->bind_param('ssss', $st, $st, $st, $st);
+        $cs->execute();
+        $out['total'] = (int)($cs->get_result()->fetch_assoc()['c'] ?? 0);
+        $cs->close();
+        $out['offset'] = $offset;
+    }
+    ok($out);
 }
 
 if (($action === '' || $action === null) && $method === 'POST') {

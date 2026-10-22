@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../widgets/fast_list.dart';
+import '../../widgets/paged_list_footer.dart';
 import '../../widgets/use_website_note.dart';
 
 /// Search by name or code and enroll one student. Bulk enroll stays on the website.
@@ -16,6 +17,10 @@ class _EduEnrollmentScreenState extends State<EduEnrollmentScreen> {
   final _search = TextEditingController();
   bool _loadingClasses = true;
   bool _searching = false;
+  // Phase 3: total matches + Load more (search was cut at 20).
+  int? _hitTotal;
+  bool _loadingMore = false;
+  String _lastQuery = '';
   bool _enrolling = false;
   String? _error;
   List<dynamic> _classes = [];
@@ -59,11 +64,36 @@ class _EduEnrollmentScreenState extends State<EduEnrollmentScreen> {
     if (!mounted) return;
     setState(() {
       _searching = false;
+      _lastQuery = q;
       if (res.success) {
         _hits = res.data?['members'] ?? [];
+        final t = res.data?['total'];
+        _hitTotal = t is num ? t.toInt() : null;
       } else {
         _error = res.message;
         _hits = [];
+        _hitTotal = null;
+      }
+    });
+  }
+
+  Future<void> _moreHits() async {
+    if (_loadingMore || _lastQuery.isEmpty) return;
+    setState(() => _loadingMore = true);
+    final res = await _api.searchEnrollment(_lastQuery, offset: _hits.length);
+    if (!mounted) return;
+    setState(() {
+      _loadingMore = false;
+      if (res.success) {
+        final seen = _hits.map((h) => '${h['id']}').toSet();
+        final more = (res.data?['members'] as List? ?? const [])
+            .where((h) => h is Map && !seen.contains('${h['id']}'))
+            .toList();
+        _hits = [..._hits, ...more];
+        final t = res.data?['total'];
+        if (t is num) _hitTotal = t.toInt();
+      } else {
+        _error = res.message;
       }
     });
   }
@@ -160,6 +190,14 @@ class _EduEnrollmentScreenState extends State<EduEnrollmentScreen> {
                           ),
                         ),
                       )),
+                if (!_searching && _hits.isNotEmpty && _hitTotal != null)
+                  PagedListFooter(
+                    shown: _hits.length,
+                    total: _hitTotal,
+                    noun: 'matches',
+                    loading: _loadingMore,
+                    onLoadMore: _moreHits,
+                  ),
                 const SizedBox(height: 16),
                 const UseWebsiteNote(
                   title: 'Many students at once',

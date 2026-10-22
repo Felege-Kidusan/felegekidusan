@@ -7,6 +7,7 @@ import '../../utils/theme.dart';
 import '../../utils/transitions.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/paged_list_footer.dart';
 import '../../widgets/loading_skeleton.dart';
 import 'attendance_warning_detail_screen.dart';
 import 'attendance_warning_widgets.dart';
@@ -44,6 +45,7 @@ class _AttendanceWarningsScreenState extends State<AttendanceWarningsScreen> {
   bool _isNetworkError = false;
   List<Map<String, dynamic>> _items = [];
   int _total = 0;
+  bool _loadingMore = false; // Phase 3: Load more (was capped at 100)
   List<String> _departments = const [];
   Map<String, dynamic> _counts = {};
 
@@ -62,6 +64,42 @@ class _AttendanceWarningsScreenState extends State<AttendanceWarningsScreen> {
     _debounce?.cancel();
     _search.dispose();
     super.dispose();
+  }
+
+  /// Phase 3: next 100 warnings after the ones on screen, appended.
+  Future<void> _loadMore() async {
+    if (_loadingMore || _items.length >= _total) return;
+    setState(() => _loadingMore = true);
+    final res = await _api.getAttendanceWarnings(
+      department: _department,
+      status: _status,
+      kind: _kind,
+      query: _search.text,
+      offset: _items.length,
+    );
+    if (!mounted) return;
+    if (!res.success || res.data is! Map) {
+      setState(() => _loadingMore = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(res.message ?? 'Could not load more warnings.')));
+      return;
+    }
+    final data = res.data as Map;
+    final raw = data['items'];
+    final seen = _items.map((e) => '${e['id']}').toSet();
+    final more = <Map<String, dynamic>>[];
+    if (raw is List) {
+      for (final r in raw) {
+        if (r is Map && !seen.contains('${r['id']}')) {
+          more.add(Map<String, dynamic>.from(r));
+        }
+      }
+    }
+    setState(() {
+      _loadingMore = false;
+      _items = [..._items, ...more];
+      _total = warningInt(data['total']);
+    });
   }
 
   Future<void> _load() async {
@@ -177,8 +215,16 @@ class _AttendanceWarningsScreenState extends State<AttendanceWarningsScreen> {
             title: 'No attendance warnings match',
             subtitle: 'Change the filters or pull down to refresh.',
           )
-        else
+        else ...[
           ..._items.map(_row),
+          PagedListFooter(
+            shown: _items.length,
+            total: _total,
+            noun: 'warnings',
+            loading: _loadingMore,
+            onLoadMore: _loadMore,
+          ),
+        ],
       ],
     );
   }

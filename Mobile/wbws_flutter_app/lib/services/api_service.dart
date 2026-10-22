@@ -1494,8 +1494,14 @@ class ApiService {
       dept == 'edu' ? '/grades' : (dept == 'hr' ? '/hr' : '/mezmur');
 
   Future<ApiResponse> getReviewSubmissions(String dept,
-      {String status = 'attention', int page = 1}) {
-    final params = <String, String>{'page': '$page', 'per_page': '50'};
+      {String status = 'attention', int page = 1, int perPage = 50}) {
+    // Phase 3: with_total=1 asks edu for total/total_pages (mezmur
+    // always sends them); older servers ignore it.
+    final params = <String, String>{
+      'page': '$page',
+      'per_page': '$perPage',
+      'with_total': '1',
+    };
     if (dept == 'edu') {
       params['status_filter'] = status;
     } else {
@@ -1945,8 +1951,15 @@ class ApiService {
 
   Future<ApiResponse> getEnrollmentOverview() => get('/enrollment/overview');
 
-  Future<ApiResponse> searchEnrollment(String q, {int limit = 20}) =>
-      get('/enrollment/search', params: {'q': q, 'limit': '$limit'});
+  /// Phase 3: with_total=1 + offset — Load more after the first 20.
+  Future<ApiResponse> searchEnrollment(String q,
+          {int limit = 20, int offset = 0}) =>
+      get('/enrollment/search', params: {
+        'q': q,
+        'limit': '$limit',
+        'offset': '$offset',
+        'with_total': '1',
+      });
 
   Future<ApiResponse> enrollStudent(int memberId, int classId) =>
       post('/enrollment', body: {'member_id': memberId, 'class_id': classId});

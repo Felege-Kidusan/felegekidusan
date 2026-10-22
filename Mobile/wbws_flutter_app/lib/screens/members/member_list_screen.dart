@@ -9,6 +9,7 @@ import '../../services/local_db.dart';
 import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
 import '../../widgets/fast_list.dart';
+import '../../widgets/paged_list_footer.dart';
 import 'member_detail_screen.dart';
 import '../../widgets/qr_scan_sheet.dart';
 import '../../services/qr_attendance.dart';
@@ -35,6 +36,7 @@ class _MemberListScreenState extends State<MemberListScreen>
   int _localPagesLoaded = 0; // SQLite pages opened for the current query
   int _serverPage = 0; // deepest server page fetched for the query
   int _totalPages = 1; // server-reported page count for the query
+  int? _serverTotal; // Phase 3: server-reported member count for the query
   bool _initialLoading = false; // empty cache + first fetch in flight
   bool _refreshing = false; // background refresh in flight
   bool _loadingMore = false;
@@ -171,6 +173,7 @@ class _MemberListScreenState extends State<MemberListScreen>
       _localPagesLoaded = 0;
       _serverPage = 0;
       _totalPages = 1;
+      _serverTotal = null;
     }
     final search = _searchController.text.trim();
     final status = _statusFilter.isEmpty ? null : _statusFilter;
@@ -234,6 +237,7 @@ class _MemberListScreenState extends State<MemberListScreen>
         serverRows.addAll(items);
         final pagination = res.data!['pagination'] as Map? ?? {};
         _totalPages = (pagination['pages'] as num?)?.toInt() ?? 1;
+        _serverTotal = (pagination['total'] as num?)?.toInt() ?? _serverTotal;
         _serverPage = p;
       } else {
         ok = false;
@@ -272,6 +276,7 @@ class _MemberListScreenState extends State<MemberListScreen>
   Future<void> _loadMore() async {
     if (_loadingMore || _refreshing || _initialLoading) return;
     _loadingMore = true;
+    if (mounted) setState(() {}); // Phase 3: footer shows Loading…
     try {
       final search = _searchController.text.trim();
       final status = _statusFilter.isEmpty ? null : _statusFilter;
@@ -313,6 +318,7 @@ class _MemberListScreenState extends State<MemberListScreen>
           _serverPage++;
           final pagination = res.data!['pagination'] as Map? ?? {};
           _totalPages = (pagination['pages'] as num?)?.toInt() ?? 1;
+        _serverTotal = (pagination['total'] as num?)?.toInt() ?? _serverTotal;
           final ids = _members.map((m) => m['id']).toSet();
           final added = items.where((m) => !ids.contains(m['id'])).toList();
           if (added.isNotEmpty && mounted) {
@@ -327,8 +333,14 @@ class _MemberListScreenState extends State<MemberListScreen>
       }
     } finally {
       _loadingMore = false;
+      if (mounted) setState(() {});
     }
   }
+
+  /// Phase 3: more members exist (server total, else page count).
+  bool get _hasMoreMembers => _serverTotal != null
+      ? _members.length < _serverTotal!
+      : _serverPage < _totalPages;
 
   /// '…saved on this phone · updated 14:32' — concise freshness from
   /// the existing cached_members.updated_at (no framework, no schema).
@@ -499,21 +511,43 @@ class _MemberListScreenState extends State<MemberListScreen>
                             thumbColor: const Color(0x595A1212),
                             child: RefreshIndicator(
                               onRefresh: () => _loadMembers(),
-                              child: ListView.builder(
+                              // Phase 3: fixed-extent rows (fast) + a
+                              // visible footer: Showing N of T + Load more.
+                              child: CustomScrollView(
                                 controller: _scrollController,
-                                itemCount: _members.length,
-                                itemExtent: kFastRowHeight,
                                 cacheExtent: kListCacheExtent,
-                                addAutomaticKeepAlives: false,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12),
-                                itemBuilder: (context, index) {
-                                  // Flat zebra row — no Card/shadow/ripple.
-                                  // Fixed extent lets the viewport skip
-                                  // measuring (SliverFixedExtentList).
-                                  return _memberCard(
-                                      _members[index], index);
-                                },
+                                physics:
+                                    const AlwaysScrollableScrollPhysics(),
+                                slivers: [
+                                  SliverPadding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12),
+                                    sliver: SliverFixedExtentList(
+                                      itemExtent: kFastRowHeight,
+                                      delegate: SliverChildBuilderDelegate(
+                                        // Flat zebra row — no Card/shadow/ripple.
+                                        (context, index) => _memberCard(
+                                            _members[index], index),
+                                        childCount: _members.length,
+                                        addAutomaticKeepAlives: false,
+                                      ),
+                                    ),
+                                  ),
+                                  SliverToBoxAdapter(
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          12, 0, 12, 24),
+                                      child: PagedListFooter(
+                                        shown: _members.length,
+                                        total: _serverTotal,
+                                        noun: 'members',
+                                        loading: _loadingMore,
+                                        hasMore: _hasMoreMembers,
+                                        onLoadMore: _loadMore,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),

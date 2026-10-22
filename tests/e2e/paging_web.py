@@ -102,6 +102,15 @@ try:
     d = requests.get(BASE + '/api/v1/grades/submissions?with_total=1&page=2&per_page=50', headers=H).json()['data']
     ck('A07 v1 with_total: total + page 2 rows', d.get('total') == N_SUB and len(d.get('submissions', [])) == min(50, N_SUB - 50), {k: d.get(k) for k in ('total', 'page')})
 
+    # v1 enrollment search (mobile M4): old answer unchanged; offset + total opt-in.
+    d = requests.get(BASE + '/api/v1/enrollment/search?q=PGtest&limit=20', headers=H).json()
+    ck('A22 v1 enrollment search old call: 20 rows, no total', len(d.get('data', {}).get('members', [])) == 20 and 'total' not in d.get('data', {}), str(d)[:200])
+    d = requests.get(BASE + '/api/v1/enrollment/search?q=PGtest&limit=20&offset=20&with_total=1', headers=H).json().get('data', {})
+    first20 = [m['id'] for m in requests.get(BASE + '/api/v1/enrollment/search?q=PGtest&limit=20', headers=H).json()['data']['members']]
+    ck('A23 v1 enrollment search with_total + offset: total 130, next 20, no overlap', d.get('total') == 130 and len(d.get('members', [])) == 20 and not (set(first20) & {m['id'] for m in d.get('members', [])}), {k: d.get(k) for k in ('total', 'offset')})
+    d = requests.get(BASE + '/api/v1/enrollment/search?q=PGtest&limit=20&offset=120&with_total=1', headers=H).json().get('data', {})
+    ck('A24 v1 enrollment search last page: 10 rows', len(d.get('members', [])) == 10, len(d.get('members', [])))
+
     fin = session('audit_fin')
     st, d = jget(fin, '/admin/api_finance.php?action=member_fees')
     ck('A08 member_fees without page: old shape', st == 200 and 'fees' in d and 'total' not in d and len(d['fees']) == min(500, N_FEES), (st, len(d.get('fees', []))))

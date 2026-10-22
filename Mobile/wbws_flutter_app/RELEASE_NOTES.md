@@ -35,6 +35,23 @@ Owner request 2026-10-22. Works with the server change in the same release
 - New endpoint `GET /api/v1/grades/student-results`. No schema change; no new
   packages.
 
+**Lists: Load more (same build, owner request 2026-10-22).**
+
+- **Members:** the list still loads as you scroll, and now ends with
+  "Showing 60 of 440 members" and a **Load more (380 left)** button
+  ("✓ All 440 shown" at the end).
+- **Review inbox (Education / Mezmur):** shows "Showing 50 of 120 packets" and
+  **Load more**; extra pages are saved on the phone for offline use too.
+- **Fix — Mezmur review inbox was empty on the phone:** the server sends the
+  Mezmur list in a different field; the app now reads it.
+- **Attendance warnings:** more than 100 warnings can now be reached with
+  **Load more**.
+- **Education → Enroll a student:** search shows how many match and
+  **Load more** after the first 20.
+- Server: `GET /api/v1/enrollment/search` takes optional `offset` and
+  `with_total=1`; the review lists send totals with `with_total=1`. Older
+  apps get the same answer as before. No schema change; no new packages.
+
 ## 1.7.2 (build 39) — Teacher "My Timetable" (Weekly · Daily · Monthly)
 
 Mobile side of the Education timetable builder (web, `sql/077`). Read-only.

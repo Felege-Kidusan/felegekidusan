@@ -11,6 +11,7 @@ import '../../utils/ethiopian_calendar.dart';
 import '../../utils/theme.dart';
 import '../../utils/score_limit.dart';
 import '../../widgets/score_state_chip.dart';
+import '../../widgets/paged_list_footer.dart';
 
 /// ════════════════════════════════════════════════════════════
 /// Department review inbox (Phase 9) — the mobile mirror of the
@@ -23,6 +24,27 @@ import '../../widgets/score_state_chip.dart';
 /// zone; Return always requires a reason (server enforces too).
 /// The server stays authoritative; every decision is audited there.
 /// ════════════════════════════════════════════════════════════
+/// Phase 3: one page of the review list, whatever the server shape.
+/// edu: data.submissions (+ total/page/total_pages with with_total=1);
+/// mezmur: data.items + total/page/total_pages; old: submissions.items.
+/// total/totalPages are null when the server did not send them.
+({List<Map<String, dynamic>> rows, int? total, int page, int? totalPages})
+    parseReviewPage(Map<String, dynamic> data) {
+  final raw = data['submissions'] ?? data['items'];
+  final list = raw is Map ? raw['items'] : raw;
+  final rows = list is List
+      ? list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+      : <Map<String, dynamic>>[];
+  final meta = raw is Map ? raw : data;
+  int? asInt(dynamic v) => v is int ? v : int.tryParse('${v ?? ''}');
+  return (
+    rows: rows,
+    total: asInt(meta['total'] ?? data['total']),
+    page: asInt(meta['page'] ?? data['page']) ?? 1,
+    totalPages: asInt(meta['total_pages'] ?? data['total_pages']),
+  );
+}
+
 class ReviewInboxScreen extends StatefulWidget {
   /// 'edu' | 'mezmur' | 'hr'
   final String dept;
@@ -58,6 +80,14 @@ class _ReviewInboxScreenState extends State<ReviewInboxScreen>
   String? _fresh;
   StreamSubscription<bool>? _radioSub;
   final Set<String> _fetchedFilters = {};
+
+  // Phase 3 paging, per filter: the server total, the last page
+  // fetched and the page count. Load more appends the next page into
+  // the same local cache (merge-upsert) and rereads it.
+  final Map<String, int> _srvTotal = {};
+  final Map<String, int> _srvPage = {};
+  final Map<String, int> _srvTotalPages = {};
+  bool _loadingMore = false;
 
   static const _filters = [
     ['attention', 'Needs review'],
@@ -161,14 +191,21 @@ class _ReviewInboxScreenState extends State<ReviewInboxScreen>
       if (!mounted) return;
       if (res.success && res.data != null) {
         _fetchedFilters.add(_filter);
-        final raw = res.data!['submissions'];
-        final items = raw is Map ? raw['items'] : raw;
-        final rows = items is List
-            ? items
-                .whereType<Map>()
-                .map((e) => Map<String, dynamic>.from(e))
-                .toList()
-            : <Map<String, dynamic>>[];
+        // Phase 3: mezmur sends data.items (was read as 'submissions'
+        // only, so the mezmur inbox stayed empty); totals per filter.
+        final pg = parseReviewPage(res.data!);
+        final rows = pg.rows;
+        _srvPage[_filter] = 1;
+        if (pg.total != null) {
+          _srvTotal[_filter] = pg.total!;
+        } else {
+          _srvTotal.remove(_filter);
+        }
+        if (pg.totalPages != null) {
+          _srvTotalPages[_filter] = pg.totalPages!;
+        } else {
+          _srvTotalPages.remove(_filter);
+        }
         // Merge-upsert by (dept, id) — never a destructive replace.
         if (rows.isNotEmpty) {
           await _db.cacheReviewPackets(dept, rows);
@@ -205,6 +242,49 @@ class _ReviewInboxScreenState extends State<ReviewInboxScreen>
       _refreshing = false; // always resets — success, failure, exception
       if (mounted) setState(() {});
     }
+  }
+
+  /// Phase 3: fetch the next server page of the current filter, merge
+  /// it into the local cache and reread the store (UI == SQLite).
+  Future<void> _loadMore() async {
+    if (_loadingMore || _refreshing) return;
+    final f = _filter;
+    final next = (_srvPage[f] ?? 1) + 1;
+    setState(() => _loadingMore = true);
+    try {
+      final res =
+          await _api.getReviewSubmissions(widget.dept, status: f, page: next);
+      if (!mounted) return;
+      if (!(res.success && res.data != null)) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(res.isNetworkError
+                ? 'You appear to be offline.'
+                : (res.message ?? 'Could not load more.'))));
+        return;
+      }
+      final pg = parseReviewPage(res.data!);
+      if (pg.rows.isNotEmpty) {
+        await _db.cacheReviewPackets(widget.dept, pg.rows);
+      }
+      _srvPage[f] = pg.page;
+      if (pg.total != null) _srvTotal[f] = pg.total!;
+      if (pg.totalPages != null) _srvTotalPages[f] = pg.totalPages!;
+      final localNow = await _db.getCachedReviewPackets(widget.dept,
+          statusIn: _statusWindow(f));
+      if (!mounted || _filter != f) return;
+      setState(() {
+        _items = localNow;
+        if (localNow.isNotEmpty) _fresh = _freshest(localNow);
+      });
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
+  }
+
+  /// True while the server says more pages exist for this filter.
+  bool get _hasMorePages {
+    final tp = _srvTotalPages[_filter];
+    return tp != null && (_srvPage[_filter] ?? 1) < tp;
   }
 
   /// P1-D: a filter switch is a LOCAL read — no network request
@@ -423,7 +503,8 @@ class _ReviewInboxScreenState extends State<ReviewInboxScreen>
                               // in-flight background refresh shows a
                               // slim line above them.
                               itemCount: _items.length +
-                                  ((_error != null || _refreshing) ? 1 : 0),
+                                  ((_error != null || _refreshing) ? 1 : 0) +
+                                  (_srvTotal.containsKey(_filter) ? 1 : 0),
                               separatorBuilder: (_, __) =>
                                   const SizedBox(height: 8),
                               itemBuilder: (_, i) {
@@ -439,8 +520,20 @@ class _ReviewInboxScreenState extends State<ReviewInboxScreen>
                                         color: AppTheme.primary),
                                   );
                                 }
-                                final m = _items[
-                                    i - ((_error != null || _refreshing) ? 1 : 0)];
+                                final off =
+                                    (_error != null || _refreshing) ? 1 : 0;
+                                if (i - off >= _items.length) {
+                                  // Phase 3: Showing N of T + Load more.
+                                  return PagedListFooter(
+                                    shown: _items.length,
+                                    total: _srvTotal[_filter],
+                                    noun: 'packets',
+                                    loading: _loadingMore,
+                                    hasMore: _hasMorePages,
+                                    onLoadMore: _loadMore,
+                                  );
+                                }
+                                final m = _items[i - off];
                                 final status = '${m['status'] ?? ''}';
                                 return Material(
                                   color: AppTheme.cardLight,
