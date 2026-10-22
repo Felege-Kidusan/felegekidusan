@@ -20,16 +20,22 @@ No historical document has been deleted. Git history is the archive.
 |---|---|
 | [README.md](../README.md): project overview, stack, setup summary | Canonical |
 | [ENGINEERING_HANDOVER.md](ENGINEERING_HANDOVER.md): handover summary, source-of-truth boundaries, risks, unknowns, next stages | Canonical |
+| [CONTRIBUTING.md](../CONTRIBUTING.md): workflow, coding standards, database rules, tests, definition of done | Canonical |
+| [CHANGELOG.md](../CHANGELOG.md): curated change history, mobile build history, deployment record | Canonical (reconstructed 2026-10-22; maintained from now on) |
 | [BRANCHING.md](../BRANCHING.md): `main` vs `dev` rules | Canonical |
 | [PRODUCTION_WORKFLOW.md](PRODUCTION_WORKFLOW.md): repository roles, intended release policy and current state | Canonical (with a current-state section) |
 | [AGENTS.md](../AGENTS.md): rules for AI coding agents | Canonical |
 | [planning/system/PROJECT_RULES.md](planning/system/PROJECT_RULES.md): standing change protocol for AI-assisted work | Reference |
 | [ci_cd/GIT_CHEATSHEET.md](ci_cd/GIT_CHEATSHEET.md) | Reference |
 
-## 2. Architecture
+## 2. Product and architecture
 
 | Document | Status |
 |---|---|
+| [product/PRD.md](product/PRD.md): product requirements, with requirement IDs | **Canonical** (reconstructed baseline, draft for team review) |
+| [product/GLOSSARY.md](product/GLOSSARY.md): domain, calendar and technical terms | **Canonical** |
+| [architecture/TECHNICAL_DESIGN.md](architecture/TECHNICAL_DESIGN.md): technical design (arc42, C4 diagrams, runtime and deployment views) | **Canonical** (reconstructed baseline, draft for team review) |
+| [adr/README.md](adr/README.md): architecture decision records ADR-0001 to ADR-0020, plus a template | **Canonical** (reconstructed 2026-10-22) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | **Canonical** |
 | [FAILURE_INTELLIGENCE.md](FAILURE_INTELLIGENCE.md), [Mobile client contract](../Mobile/wbws_flutter_app/docs/FAILURE_INTELLIGENCE_CLIENT.md) | Reference |
 | [WEB_ADMIN_SYNC_MONITORING.md](WEB_ADMIN_SYNC_MONITORING.md) | Reference |
