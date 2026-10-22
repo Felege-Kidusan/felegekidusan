@@ -49,7 +49,7 @@ The `teacher` and `attendance_taker` roles are class-scoped, while `school_admin
 | Layer | Consumers | Authentication | Shape | Status |
 |---|---|---|---|---|
 | `admin/api_*.php` (46) | Admin pages and department dashboards | PHP session cookie; CSRF token on writes | `?action=` dispatch, JSON | Active. Holds most web business logic. Verified |
-| `backend/api/*.php` (21) | `frontend/js/*.js`, `frontend/layouts/base.php` | Inherited from the target file | Each file is a shim that `require`s an `admin/api_*.php` file (or `groups_api.php`); `init.php` only loads the Ethiopian date helper | Transitional. Their header comments say both paths work "during migration". Verified |
+| `backend/api/*.php` (21) | `frontend/js/*.js`, `frontend/layouts/base.php` | Inherited from the target file | 20 files are shims that `require` an `admin/api_*.php` file (or `groups_api.php`). `init.php` is the exception: it has its own logic and returns the dashboard bootstrap JSON (session user, school, theme, CSRF token, stats) | Transitional. Their header comments say both paths work "during migration". Verified |
 | `api/v1` (17 mapped resources) | Flutter app | Bearer access token plus rotating refresh token | `/api/v1/{resource}/{id}/{sub}`, JSON envelope | Active. Used by the mobile app. Verified |
 
 **FACT:** some business rules are implemented twice, once in `admin/api_*.php` and once in `api/v1/routes/*.php`. Examples: grades, attendance, Mezmur and notifications. **No document or code marker declares one layer canonical** for every domain. Before changing a rule, find every implementation, for example with `git grep` on the table or action name. Endpoint details are in [API.md](API.md).
@@ -74,7 +74,7 @@ Design history for the offline and sync work is in `docs/MOBILE_OFFLINE_SYNC_*.m
 - There is a single MariaDB schema. Code uses mysqli prepared statements in most places.
 - The schema evolves through numbered files in `sql/` that the owner applies by hand. **No migration ledger table exists.** See [DATABASE.md](DATABASE.md).
 - **Runtime schema changes exist.** Some code issues DDL at request time. For example, `admin/api_mezmur.php` calls `MezmurSchemaReconciler::apply`, and several services run `CREATE TABLE IF NOT EXISTS`. The actual production schema can therefore differ from what `sql/` implies.
-- The committed `database_schema.sql` is a partial, legacy snapshot (about 11 tables). It is **not** the current schema.
+- The committed `database_schema.sql` is a partial, legacy snapshot (11 tables). It is **not** the current schema.
 
 ## 6. Media and files
 

@@ -25,6 +25,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for structure, [API.md](API.md) for inter
 | Who may do what? | `admin/access_control.php`, `api/v1/core/acl.php`, in-endpoint checks | Older docs |
 | Owner decisions | Decision logs under `docs/planning/`, plus the owner | Historical audits |
 | Security and privacy findings | The owner's restricted register | This public repository |
+| How is the system structured? | [ARCHITECTURE.md](ARCHITECTURE.md), [API.md](API.md), [DATABASE.md](DATABASE.md) | [SSMS_SYSTEM_KNOWLEDGE_REPORT.md](planning/system/SSMS_SYSTEM_KNOWLEDGE_REPORT.md) (an AI-assisted baseline from `6d5a5f8`, reconciled 2026-10-22; useful for orientation) |
 
 ## 3. Branch and change rules
 
@@ -59,6 +60,7 @@ On `46fbaa7` (run `39744630068`):
 | U-7 | Who holds the Android signing keystore and the backup encryption key, and where | Owner statement | Owner |
 | U-8 | How the beta server is updated | Owner statement | Owner |
 | U-9 | Whether any caller outside `frontend/` uses `backend/api/*` | Web-server access logs, filtered by path | Owner / engineer |
+| U-10 | Current production MariaDB version. The last record is 11.4, from a 2026-10-02 schema dump (`sql/054_legacy_era_columns.sql` line 33) | The *Server version* shown on the phpMyAdmin home page | Owner |
 
 ## 6. Risk register (public summary)
 
@@ -87,7 +89,7 @@ Severity: Critical / High / Medium / Low. Confidence: Verified (checked against 
 | Stage | Purpose | Status | Exit criterion |
 |---|---|---|---|
 | 1. Baseline | Establish facts about the code, CI, deployment and documentation | **Done:** read-only baseline audit and this documentation pass (2026-10-22) | This document and the restricted register accepted by the owner |
-| 2. Requirements and architecture reconstruction | Record the actual business rules per department, and decide the target API layer and schema-management approach | Not started | A written, owner-approved requirements and architecture baseline, including answers to U-1 to U-9 |
+| 2. Requirements and architecture reconstruction | Record the actual business rules per department, and decide the target API layer and schema-management approach | Not started | A written, owner-approved requirements and architecture baseline, including answers to U-1 to U-10 |
 | 3. Independent review | An independent security and code review: per-action authorization matrix, dependency audit (`composer audit` has not been run), penetration test | Not started | A review report, with findings added to the restricted register |
 | 4. Approved remediation | Fix the agreed items one at a time, each with an approved plan, tests and a deployment record | Not started; the owner has deferred some items | Critical and High items closed or formally accepted |
 | 5. Engineering handover | Transfer to the receiving engineers: access, keys, runbooks, walkthrough | Preparation documented here | The receiving team can deploy, roll back and restore independently |

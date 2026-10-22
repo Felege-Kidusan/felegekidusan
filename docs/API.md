@@ -8,7 +8,7 @@
 |---|---|---|---|
 | REST v1 | `/api/v1/` | `api/v1/index.php` (`$routeMap`) → `api/v1/routes/<resource>.php` | Flutter app |
 | Admin JSON endpoints | `/admin/api_<name>.php` | Each file dispatches on `action` (query or body) | Admin pages and dashboards |
-| Compatibility shims | `/backend/api/<name>.php` | `require` of the matching `admin/api_*.php` file | `frontend/js/*` |
+| Compatibility shims | `/backend/api/<name>.php` | `require` of the matching `admin/api_*.php` file. The exception is `init.php`, which has its own logic (dashboard bootstrap JSON) | `frontend/js/*` |
 
 Why there are three layers is explained in [ARCHITECTURE.md §3](ARCHITECTURE.md#3-the-three-api-layers-unfinished-consolidation).
 
@@ -17,8 +17,10 @@ Why there are three layers is explained in [ARCHITECTURE.md §3](ARCHITECTURE.md
 ### REST v1 (`api/v1/core/auth.php`, `admin/backend/services/RefreshTokenService.php`)
 
 - **Token format:**
-  - The token is a **custom HMAC-SHA256 signed token** that uses a JWT-like three-part encoding. The signing secret is the `JWT_SECRET` constant.
-  - It is **not** a standards-based JWT implementation (no library and no `alg` negotiation). Do not use generic JWT tooling against it.
+  - The token is a **custom two-part token**: `<b64>.<sig>`, where `b64 = base64(JSON payload)` and `sig = hex(HMAC-SHA256(b64, API_TOKEN_SECRET))` (`createToken`, `verifyTokenState` in `api/v1/core/auth.php`). **VERIFIED.**
+  - Payload claims: `uid`, `usr`, `rol`, `nam`, `av` (authorization version), `iat`, `exp`, `typ`, `jti`.
+  - It is **not a JWT**: there is no header segment and no `alg` field, and the encoding is standard base64 rather than base64url. Generic JWT tools cannot parse it.
+  - `API_TOKEN_SECRET` is set from `JWT_SECRET` (`api/v1/core/auth.php`, line 9); the name `JWT_SECRET` is historical. The derived fallback on that line cannot be reached in practice, because `config.php` always defines `JWT_SECRET` first. If the secrets file loads without `JWT_SECRET`, `config.php` logs a critical error and uses a random per-request value, so every token fails verification (fail-safe).
 - **Transport:** the token is sent only in the `Authorization: Bearer <token>` header. Query-string tokens are rejected deliberately.
 - **Access token lifetime:** 900 seconds (`API_TOKEN_EXPIRY`).
   - App builds older than 16 got a 30-day legacy token until 2026-09-24 (`API_LEGACY_CLIENT_COMPAT_UNTIL`).

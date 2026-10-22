@@ -23,7 +23,7 @@ Composer is **not** needed: dependencies are committed in `vendor/`, and the ser
 2. **Database.** `bash tests/e2e/provision_env.sh` installs PHP and MariaDB, creates the test database, applies `database_schema.sql`, then `sql/` in a working order plus the legacy tables, and seeds a test world.
    - It requires Debian or Ubuntu with passwordless `sudo`.
    - It is **destructive**: it resets data. **Never point it at production.**
-   - It has been observed to stop partway in a freshly reset sandbox. If that happens, rerun it, or apply the remaining steps by hand from the script.
+   - On a freshly provisioned machine it has sometimes stopped partway (observed during earlier test-environment rebuilds; not systematically reproduced). If that happens, rerun it, or apply the remaining steps by hand from the script.
    - Test logins are created by the seed scripts. Their passwords are not documented here.
 3. **Serve.** From the repository root, run `php -S 0.0.0.0:8080 -t .`. The script header also shows a variant with workers.
    - E2E tests that call `admin/api_test_seed.php` need `ENABLE_TEST_DATA_TOOLS = true` in the **test** secrets file.

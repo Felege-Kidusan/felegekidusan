@@ -4,7 +4,12 @@
 
 ## 1. Engine and access
 
-- **Engine:** MariaDB. CI uses the `mariadb:11.4` service image. Production runs on shared hosting; its exact server version was not re-verified for this document.
+- **Engine:** MariaDB. CI uses the `mariadb:11.4` service image.
+- **Production version:**
+  - A production schema dump dated 2026-10-02 recorded **MariaDB 11.4**. This is cited in the headers of `sql/054_legacy_era_columns.sql` (line 33) and `sql/066_academic_year_charset_repair.sql` (line 5), and in [INCIDENT_2026-10-03_TRACKING_SCHEMA.md](INCIDENT_2026-10-03_TRACKING_SCHEMA.md).
+  - The current server version was **not re-verified** for this document.
+  - "MariaDB 10.6" in older headers (migrations `004`, `048`, `049` and `055`, and the `sql/preflight/` files) is a historical compatibility target, not the production version.
+  - Keep new DDL compatible with both.
 - **Character set:** new tables use `utf8mb4` / `utf8mb4_unicode_ci`. Legacy tables may differ. For example, `sql/066_academic_year_charset_repair.sql` exists because `academic_years` was `latin1` in production. Whether that repair has been applied is unverified.
 - **Access:**
   - Mostly mysqli prepared statements, through the connection opened in `config.php`, with PDO in a few files.
@@ -16,8 +21,9 @@
 | Source | What it is | Reliability |
 |---|---|---|
 | `sql/NNN_*.sql` (76 files, `001`–`078`) | Hand-written, mostly additive and idempotent migrations. The owner applies them in phpMyAdmin | Authoritative for **intended** changes. Applied state unknown (section 4) |
-| `database_schema.sql` | Legacy snapshot with about 11 tables | **Stale.** Not the current schema; used only as the first step of `tests/e2e/provision_env.sh` |
-| `admin/migrations/*.php`, `backend/migrations/*.php` | Early PHP migration scripts | Historical. Blocked from the web by `.htaccess` rewrite rules and CLI-only guards |
+| `database_schema.sql` | Legacy snapshot with **11** tables (`users`, `members`, `wbws_groups`, `wbws_group_leaders`, `cache_storage`, `departments`, `staff_positions`, `member_staff_positions`, `member_code_migrations`, `member_code_sequences`, `member_type_settings`) | **Stale.** Line 10 says it "documents all tables", which is incorrect. Its `users.role` enum lists 6 roles, while the application accepts 13. Not the current schema; used only as the first step of `tests/e2e/provision_env.sh` |
+| `admin/migrations/*.php`, `backend/migrations/*.php` | Early PHP migration scripts, including `admin/migrations/auto_fix_database.php` and `backend/migrations/auto_fix_database.php` | Historical. Blocked from the web by `.htaccess` rewrite rules and CLI-only guards. Do not run them against production |
+| `admin/get_schema.php` | Former schema-dump page | **Retired.** CLI-only stub; returns 404 over HTTP. Not a schema source |
 | Runtime DDL | `MezmurSchemaReconciler::apply`, called from `admin/api_mezmur.php`, can create or alter Mezmur tables at request time | Production can drift from `sql/` |
 | `tests/e2e/provision_env.sh` | Encodes the apply order that produces a working test database | The best available **executable** description of the schema; test-only |
 

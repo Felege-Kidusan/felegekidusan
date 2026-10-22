@@ -7,7 +7,7 @@ Last reviewed: 2026-10-22 against `main` = `46fbaa7`.
 | Label | Meaning |
 |---|---|
 | **Canonical** | Maintained. Describes the current system. If it disagrees with code, the code wins; fix the document |
-| **Reference** | Believed accurate for its narrow topic but not re-verified in the 2026-10-22 review |
+| **Reference** | Believed accurate for its narrow topic. Not re-verified in the 2026-10-22 review unless the entry says "reconciled" |
 | **Historical** | A point-in-time record (audit, plan, implementation note). Useful for *why*, not for *what is true now* |
 | **Superseded** | Replaced by the linked canonical document. A banner at the top says so; the content is preserved |
 | **Planning** | A proposal or decision record. Not authority to implement anything |
@@ -34,7 +34,7 @@ No historical document has been deleted. Git history is the archive.
 | [FAILURE_INTELLIGENCE.md](FAILURE_INTELLIGENCE.md), [Mobile client contract](../Mobile/wbws_flutter_app/docs/FAILURE_INTELLIGENCE_CLIENT.md) | Reference |
 | [WEB_ADMIN_SYNC_MONITORING.md](WEB_ADMIN_SYNC_MONITORING.md) | Reference |
 | [SECTION_AGE_GROUP_SOURCE_OF_TRUTH.md](SECTION_AGE_GROUP_SOURCE_OF_TRUTH.md) | Reference (domain decision, P71) |
-| [planning/system/SSMS_SYSTEM_KNOWLEDGE_REPORT.md](planning/system/SSMS_SYSTEM_KNOWLEDGE_REPORT.md) | Historical (2026-10-16 snapshot) |
+| [planning/system/SSMS_SYSTEM_KNOWLEDGE_REPORT.md](planning/system/SSMS_SYSTEM_KNOWLEDGE_REPORT.md): module inventory and change-impact map | Reference (architecture baseline from `6d5a5f8`, reconciled 2026-10-22 against `46fbaa7`; not the accepted handover) |
 | [Mobile/wbws_flutter_app/README.md](../Mobile/wbws_flutter_app/README.md) | Reference |
 
 ## 3. API and authorization
