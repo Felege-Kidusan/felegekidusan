@@ -3360,6 +3360,11 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
         div.textContent = String(text ?? '');
         return div.innerHTML;
     }
+    // A value passed as a JS string argument inside onclick="...":
+    // JSON-encode (valid JS literal), then HTML-attribute-encode.
+    function jsArg(v) {
+        return JSON.stringify(String(v ?? '')).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
 
     // MANAGE SHEET FUNCTIONS (Tabs, Preview, Edit)
     // ---------------------------------------------------------
@@ -4163,7 +4168,7 @@ function loadAtRisk() {
         countEl.innerHTML = '<span class="font-semibold text-red-600">' + ms.length + '</span> ' + escapeHtml(d.department_label) + ' members below ' + d.threshold + '% in ' + escapeHtml(d.month_label_am) + ' (' + escapeHtml(d.month_label) + ') · at least ' + d.min_sessions + ' sessions · rate = (present + excused + 0.5 × late) ÷ sessions';
         listEl.innerHTML = ms.length === 0 ? '<div class="text-center py-8 text-emerald-500 text-xs"><i class="fa-solid fa-check-circle text-2xl mb-2"></i><p>No member is below the threshold this month.</p></div>' :
             '<table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-2 py-1.5 text-left">Name</th><th class="px-2 py-1.5">Code</th><th class="px-2 py-1.5">' + (dept === 'edu' ? 'Class' : 'Section') + '</th><th class="px-2 py-1.5">Sessions</th><th class="px-2 py-1.5">Present</th><th class="px-2 py-1.5">Absent</th><th class="px-2 py-1.5">Rate</th><th class="px-2 py-1.5">Warnings</th><th class="px-2 py-1.5">Status</th><th class="px-2 py-1.5">Action</th></tr></thead><tbody>' +
-            ms.map(m => '<tr class="border-t border-slate-100 hover:bg-red-50"><td class="px-2 py-1.5 font-medium">'+escapeHtml(m.student_name+' '+m.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(m.member_code||'—')+'</code></td><td class="px-2 py-1.5 text-center">'+escapeHtml(m.group||'—')+'</td><td class="px-2 py-1.5 text-center">'+(m.sessions||0)+'</td><td class="px-2 py-1.5 text-center text-emerald-600">'+(m.present_days||0)+'</td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+(m.absent_days||0)+'</td><td class="px-2 py-1.5 text-center" style="color:'+(m.band==='low'?'#dc2626':'#d97706')+'">'+(m.rate==null?'—':m.rate+'%')+'</td><td class="px-2 py-1.5 text-center">'+(m.open_warnings>0?'<a class="text-orange-600 hover:underline" href="/admin/attendance_warnings.php?department='+dept+'&member_id='+m.id+'">'+m.open_warnings+' open</a>':'—')+'</td><td class="px-2 py-1.5 text-center">'+statusBadge(m.status)+(m.department_status==='inactive'?' <span class="text-[10px] text-slate-400">(inactive in dept.)</span>':'')+'</td><td class="px-2 py-1.5 text-center"><button onclick="quickStatusChange('+m.id+',\''+escapeHtml(m.student_name)+'\',\''+m.status+'\')" class="text-[10px] px-2 py-1 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"><i class="fa-solid fa-pen"></i></button></td></tr>').join('') +
+            ms.map(m => '<tr class="border-t border-slate-100 hover:bg-red-50"><td class="px-2 py-1.5 font-medium">'+escapeHtml(m.student_name+' '+m.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(m.member_code||'—')+'</code></td><td class="px-2 py-1.5 text-center">'+escapeHtml(m.group||'—')+'</td><td class="px-2 py-1.5 text-center">'+(m.sessions||0)+'</td><td class="px-2 py-1.5 text-center text-emerald-600">'+(m.present_days||0)+'</td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+(m.absent_days||0)+'</td><td class="px-2 py-1.5 text-center" style="color:'+(m.band==='low'?'#dc2626':'#d97706')+'">'+(m.rate==null?'—':m.rate+'%')+'</td><td class="px-2 py-1.5 text-center">'+(m.open_warnings>0?'<a class="text-orange-600 hover:underline" href="/admin/attendance_warnings.php?department='+dept+'&member_id='+m.id+'">'+m.open_warnings+' open</a>':'—')+'</td><td class="px-2 py-1.5 text-center">'+statusBadge(m.status)+(m.department_status==='inactive'?' <span class="text-[10px] text-slate-400">(inactive in dept.)</span>':'')+'</td><td class="px-2 py-1.5 text-center"><button onclick="quickStatusChange('+parseInt(m.id,10)+','+jsArg(m.student_name)+','+jsArg(m.status)+')" class="text-[10px] px-2 py-1 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"><i class="fa-solid fa-pen"></i></button></td></tr>').join('') +
             '</tbody></table>';
     });
 }
@@ -4179,7 +4184,7 @@ function searchForStatus() {
                 '<div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold '+(m.gender==='male'?'bg-blue-100 text-blue-600':'bg-pink-100 text-pink-600')+'">'+escapeHtml((m.student_name||'?').charAt(0))+'</div>' +
                 '<div><div class="text-xs font-semibold text-slate-700">'+escapeHtml(m.student_name+' '+m.father_name)+'</div><div class="text-[10px] text-slate-400">'+(m.member_code||'—')+' · '+(m.age_group||'')+'</div></div></div>' +
                 '<div class="flex items-center gap-2">'+statusBadge(m.status)+
-                '<button onclick="quickStatusChange('+m.id+',\''+escapeHtml(m.student_name+' '+m.father_name).replace(/'/g,"\\'")+'\',\''+m.status+'\')" class="px-3 py-1.5 bg-violet-100 text-violet-700 rounded-lg text-[10px] font-semibold hover:bg-violet-200"><i class="fa-solid fa-pen mr-1"></i>Change</button></div></div>'
+                '<button onclick="quickStatusChange('+parseInt(m.id,10)+','+jsArg(m.student_name+' '+m.father_name)+','+jsArg(m.status)+')" class="px-3 py-1.5 bg-violet-100 text-violet-700 rounded-lg text-[10px] font-semibold hover:bg-violet-200"><i class="fa-solid fa-pen mr-1"></i>Change</button></div></div>'
             ).join('') + '</div>';
     });
 }

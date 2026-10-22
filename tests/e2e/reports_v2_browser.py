@@ -203,9 +203,17 @@ with sync_playwright() as p:
         page.wait_for_timeout(1200)
         check(page.locator(".rc-starter.is-pinned:has-text('%s')" % vname).count() == 1, "pinned view shows as standing report")
     # delete it again (keeps the test DB tidy)
-    page.once("dialog", lambda d: d.accept())
+    # DC-3: a shared (department) view is deleted through the in-page
+    # danger dialog (MEDIUM: intent → read effects → type DELETE VIEW),
+    # never a native browser confirm().
     page.click("#rc-views .rc-view:has-text('%s') button[aria-label='Delete view']" % vname)
-    page.wait_for_timeout(1000)
+    page.locator("[role=alertdialog]").wait_for(state="visible", timeout=6000)
+    page.click("text=I want to delete this view")
+    page.click("text=I have read and understand these effects")
+    check(page.locator("[data-dcx-act=final]").is_disabled(), "delete view: final button locked until phrase typed")
+    page.fill(".dcx-in", "DELETE VIEW")
+    page.click("[data-dcx-act=final]")
+    page.wait_for_timeout(1200)
     check(page.locator("#rc-views .rc-view button:has-text('%s')" % vname).count() == 0, "view deleted")
     page.screenshot(path="/tmp/rc_views.png", full_page=False)
 
