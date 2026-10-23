@@ -1,0 +1,3410 @@
+# FKSS School API: OpenAPI 3.1 reference for /api/v1.
+# Reconstructed 2026-10-23 from api/v1/routes/*.php at main 46fbaa7.
+# Keep in step with the route files; they are the source of truth.
+openapi: 3.1.0
+info:
+  title: FKSS School API
+  version: '1.0'
+  summary: REST API used by the FKSS Android app.
+  description: 'Machine-readable reference for `/api/v1`.
+
+
+    **Status:** reconstructed on 2026-10-23 by reading `api/v1/index.php` and every file in `api/v1/routes/` at
+    `main` `46fbaa7`.
+
+
+    **What is verified:** paths, HTTP methods, which endpoints are public, the authentication scheme, the response
+    envelopes, pagination, and the query parameters listed.
+
+
+    **What is summarised:** most request bodies are shown as generic objects and most `data` payloads are not modelled
+    field by field. The route file named in each tag description is the source of truth for field-level detail and
+    role rules.
+
+
+    Narrative overview: [`docs/API.md`](../API.md). Single version (`v1`); compatibility is managed by app build
+    number (`X-App-Build`), not by URL versions.'
+servers:
+- url: /api/v1
+  description: Relative to the deployment host.
+security:
+- bearerAuth: []
+tags:
+- name: service
+  description: '`api/v1/index.php`'
+- name: auth
+  description: '`api/v1/routes/auth.php`, `api/v1/core/auth.php`, `RefreshTokenService`'
+- name: members
+  description: '`api/v1/routes/members.php`. Members are never registered through the API.'
+- name: attendance
+  description: '`api/v1/routes/attendance.php`'
+- name: attendance-warnings
+  description: '`api/v1/routes/attendance_warnings.php` (included by `attendance.php`)'
+- name: classes
+  description: '`api/v1/routes/classes.php`'
+- name: teachers
+  description: '`api/v1/routes/teachers.php`'
+- name: subjects
+  description: '`api/v1/routes/subjects.php`'
+- name: dashboard
+  description: '`api/v1/routes/dashboard.php`'
+- name: enrollment
+  description: '`api/v1/routes/enrollment.php`'
+- name: users
+  description: '`api/v1/routes/users.php` (self-service only)'
+- name: grades
+  description: '`api/v1/routes/grades.php`'
+- name: assessment-followups
+  description: '`api/v1/routes/assessment_followups.php` (included by `grades.php`)'
+- name: app
+  description: '`api/v1/routes/app.php`'
+- name: telemetry
+  description: '`api/v1/routes/telemetry.php`'
+- name: mezmur
+  description: '`api/v1/routes/mezmur.php`'
+- name: hr
+  description: '`api/v1/routes/hr.php` (retired)'
+- name: notifications
+  description: '`api/v1/routes/notifications.php`'
+- name: sync
+  description: '`api/v1/routes/sync.php`'
+- name: timetable
+  description: '`api/v1/routes/timetable.php` (read-only)'
+paths:
+  /:
+    get:
+      tags:
+      - service
+      summary: API information (name, version, status).
+      operationId: get
+      security: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /ping:
+    get:
+      tags:
+      - service
+      summary: Health check; same payload as `/`.
+      operationId: getPing
+      security: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /auth/login:
+    post:
+      tags:
+      - auth
+      summary: Sign in with username and password.
+      operationId: postAuthLogin
+      description: Sign in with username and password. Rate limited per IP (10 per minute).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/LoginResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /auth/refresh-token:
+    post:
+      tags:
+      - auth
+      summary: Rotate a refresh token (one-time use).
+      operationId: postAuthRefreshToken
+      description: Rotate a refresh token (one-time use). Replaying an old refresh token revokes the whole token
+        family.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/LoginResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /auth/logout:
+    post:
+      tags:
+      - auth
+      summary: Sign out.
+      operationId: postAuthLogout
+      description: Sign out. Revokes the presented refresh token when one is sent. Always answers `Signed out.`
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /auth/verify:
+    get:
+      tags:
+      - auth
+      summary: Check the access token and return the signed-in identity.
+      operationId: getAuthVerify
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /members:
+    get:
+      tags:
+      - members
+      summary: Paginated member list.
+      operationId: getMembers
+      description: Paginated member list. Information and Education staff only. The field set depends on role (phone
+        numbers only for PII roles).
+      parameters:
+      - $ref: '#/components/parameters/Page'
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 20
+      - name: search
+        in: query
+        schema:
+          type: string
+        description: Name or code; phone only for PII roles.
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - active
+          - warning
+          - inactive
+          - archived
+      - name: gender
+        in: query
+        schema:
+          type: string
+          enum:
+          - male
+          - female
+      - name: section
+        in: query
+        schema:
+          type: string
+      - name: age_group
+        in: query
+        schema:
+          type: string
+      - name: sort
+        in: query
+        schema:
+          type: string
+          enum:
+          - name
+          - newest
+          - oldest
+          - code
+          default: name
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /members/{id}:
+    get:
+      tags:
+      - members
+      summary: One member.
+      operationId: getMembersId
+      description: One member. The field set depends on role.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags:
+      - members
+      summary: Update a member.
+      operationId: putMembersId
+      description: Update a member. PII roles only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /members/{id}/attendance:
+    get:
+      tags:
+      - members
+      summary: Attendance history of one member (assigned class or PII role).
+      operationId: getMembersIdAttendance
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /members/{id}/department-status:
+    get:
+      tags:
+      - members
+      summary: Education / Mezmur department status of a member.
+      operationId: getMembersIdDepartmentStatus
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags:
+      - members
+      summary: Change the department status.
+      operationId: postMembersIdDepartmentStatus
+      description: Change the department status. HR and Information only; a reason is required.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /members/{id}/attendance-risk:
+    get:
+      tags:
+      - members
+      summary: Shared attendance-risk object per department (department-scoped).
+      operationId: getMembersIdAttendanceRisk
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attendance:
+    get:
+      tags:
+      - attendance
+      summary: Attendance sheet for one class and day (assigned class only).
+      operationId: getAttendance
+      parameters:
+      - name: class_id
+        in: query
+        required: true
+        schema:
+          type: integer
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+        description: Gregorian storage date (YYYY-MM-DD).
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags:
+      - attendance
+      summary: Save an attendance sheet.
+      operationId: postAttendance
+      description: Save an attendance sheet. Transactional; the class-day rule and class assignment are enforced.
+        Send `Idempotency-Key`.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attendance/submit:
+    post:
+      tags:
+      - attendance
+      summary: Submit a saved sheet for review.
+      operationId: postAttendanceSubmit
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attendance/daily-stats:
+    get:
+      tags:
+      - attendance
+      summary: Daily attendance statistics.
+      operationId: getAttendanceDailyStats
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attendance/summary:
+    get:
+      tags:
+      - attendance
+      summary: Attendance summary.
+      operationId: getAttendanceSummary
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attendance/warnings:
+    get:
+      tags:
+      - attendance-warnings
+      summary: List attendance warnings.
+      operationId: getAttendanceWarnings
+      description: List attendance warnings. Education, Mezmur, HR and Information may read; school and super admins
+        read only; teachers get 403.
+      parameters:
+      - name: department
+        in: query
+        schema:
+          type: string
+      - name: status
+        in: query
+        schema:
+          type: string
+      - name: kind
+        in: query
+        schema:
+          type: string
+      - name: stage
+        in: query
+        schema:
+          type: string
+      - name: member_id
+        in: query
+        schema:
+          type: integer
+      - name: q
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attendance/warnings/counts:
+    get:
+      tags:
+      - attendance-warnings
+      summary: Warning counts for badges.
+      operationId: getAttendanceWarningsCounts
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attendance/warnings/{warningId}:
+    get:
+      tags:
+      - attendance-warnings
+      summary: One warning with its history.
+      operationId: getAttendanceWarningsWarningId
+      parameters:
+      - name: warningId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attendance/warnings/{warningId}/close:
+    post:
+      tags:
+      - attendance-warnings
+      summary: Close a warning with an outcome.
+      operationId: postAttendanceWarningsWarningIdClose
+      parameters:
+      - name: warningId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WarningClose'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /classes:
+    get:
+      tags:
+      - classes
+      summary: 'Classes visible to the caller (teachers: assigned classes).'
+      operationId: getClasses
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /classes/{id}:
+    get:
+      tags:
+      - classes
+      summary: One class.
+      operationId: getClassesId
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /classes/{id}/students:
+    get:
+      tags:
+      - classes
+      summary: Students enrolled in a class.
+      operationId: getClassesIdStudents
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /teachers:
+    get:
+      tags:
+      - teachers
+      summary: Teacher list (no emails, no member phones).
+      operationId: getTeachers
+      description: Teacher list (no emails, no member phones). Education roles.
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /teachers/{id}:
+    get:
+      tags:
+      - teachers
+      summary: One teacher with this year's assignments.
+      operationId: getTeachersId
+      description: One teacher with this year's assignments. Education roles.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /subjects:
+    get:
+      tags:
+      - subjects
+      summary: Subject list.
+      operationId: getSubjects
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /dashboard/stats:
+    get:
+      tags:
+      - dashboard
+      summary: Dashboard statistics for the caller's role.
+      operationId: getDashboardStats
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /dashboard/recent:
+    get:
+      tags:
+      - dashboard
+      summary: Recent activity.
+      operationId: getDashboardRecent
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 5
+          maximum: 50
+          default: 20
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /enrollment/overview:
+    get:
+      tags:
+      - enrollment
+      summary: Enrollment overview.
+      operationId: getEnrollmentOverview
+      description: Enrollment overview. Education roles.
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /enrollment/search:
+    get:
+      tags:
+      - enrollment
+      summary: Search members to enroll.
+      operationId: getEnrollmentSearch
+      description: Search members to enroll. Education roles.
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /enrollment:
+    post:
+      tags:
+      - enrollment
+      summary: Enroll a member in a class.
+      operationId: postEnrollment
+      description: Enroll a member in a class. Education roles.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollRequest'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /users/me:
+    get:
+      tags:
+      - users
+      summary: Own profile.
+      operationId: getUsersMe
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      tags:
+      - users
+      summary: Update own profile.
+      operationId: patchUsersMe
+      description: 'Update own profile. `profile_version` is required (optimistic concurrency). Aliases: `/users/profile-update`,
+        `/users/update`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags:
+      - users
+      summary: Update own profile.
+      operationId: putUsersMe
+      description: 'Update own profile. `profile_version` is required (optimistic concurrency). Aliases: `/users/profile-update`,
+        `/users/update`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags:
+      - users
+      summary: Update own profile.
+      operationId: postUsersMe
+      description: 'Update own profile. `profile_version` is required (optimistic concurrency). Aliases: `/users/profile-update`,
+        `/users/update`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /users/me/profile-image:
+    get:
+      tags:
+      - users
+      summary: Download own profile image (ETag).
+      operationId: getUsersMeProfileImage
+      description: 'Download own profile image (ETag). Alias: `/users/profile-image`.'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags:
+      - users
+      summary: Upload own profile image (multipart).
+      operationId: postUsersMeProfileImage
+      description: 'Upload own profile image (multipart). Alias: `/users/profile-image`.'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags:
+      - users
+      summary: Remove own profile image.
+      operationId: deleteUsersMeProfileImage
+      description: 'Remove own profile image. `profile_version` is required. Alias: `/users/profile-image`.'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /users/change-password:
+    post:
+      tags:
+      - users
+      summary: Change own password (compatibility contract).
+      operationId: postUsersChangePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/bootstrap:
+    get:
+      tags:
+      - grades
+      summary: Everything the grade screens need in one call.
+      operationId: getGradesBootstrap
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/assessment-types:
+    get:
+      tags:
+      - grades
+      summary: Assessment types.
+      operationId: getGradesAssessmentTypes
+      description: 'Assessment types. Alias: `/grades/types`.'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/subjects:
+    get:
+      tags:
+      - grades
+      summary: Subjects for a class (`class_id`).
+      operationId: getGradesSubjects
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/assessments:
+    get:
+      tags:
+      - grades
+      summary: Assessments for a class and subject.
+      operationId: getGradesAssessments
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags:
+      - grades
+      summary: Create an assessment.
+      operationId: postGradesAssessments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/students:
+    get:
+      tags:
+      - grades
+      summary: Students with scores for an assessment (`assessment_id`).
+      operationId: getGradesStudents
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/save:
+    post:
+      tags:
+      - grades
+      summary: Save scores.
+      operationId: postGradesSave
+      description: Save scores. Scores above the assessment maximum are rejected (`422 INVALID_SCORES`); "Did not
+        take" is excluded from totals.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/submit:
+    post:
+      tags:
+      - grades
+      summary: Submit scores for review.
+      operationId: postGradesSubmit
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/summary:
+    get:
+      tags:
+      - grades
+      summary: Grade summary for a class.
+      operationId: getGradesSummary
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/student-results:
+    get:
+      tags:
+      - grades
+      summary: Results of one student.
+      operationId: getGradesStudentResults
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/submissions:
+    get:
+      tags:
+      - grades
+      summary: Grade submissions awaiting or after review.
+      operationId: getGradesSubmissions
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/submission:
+    get:
+      tags:
+      - grades
+      summary: One grade submission.
+      operationId: getGradesSubmission
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/submission-review:
+    post:
+      tags:
+      - grades
+      summary: Approve or return a grade submission.
+      operationId: postGradesSubmissionReview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/followups:
+    get:
+      tags:
+      - assessment-followups
+      summary: List assessment follow-ups (missed or failed assessments).
+      operationId: getGradesFollowups
+      description: List assessment follow-ups (missed or failed assessments). Teachers see only their assigned classes.
+      parameters:
+      - name: decision
+        in: query
+        schema:
+          type: string
+      - name: open
+        in: query
+        schema:
+          type: string
+          enum:
+          - '1'
+      - name: class_id
+        in: query
+        schema:
+          type: integer
+      - name: member_id
+        in: query
+        schema:
+          type: integer
+      - name: q
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/followups/counts:
+    get:
+      tags:
+      - assessment-followups
+      summary: Follow-up counts.
+      operationId: getGradesFollowupsCounts
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/followups/{followupId}:
+    get:
+      tags:
+      - assessment-followups
+      summary: One follow-up.
+      operationId: getGradesFollowupsFollowupId
+      parameters:
+      - name: followupId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/followups/{followupId}/decide:
+    post:
+      tags:
+      - assessment-followups
+      summary: Record a decision (`decision`, optional `note`).
+      operationId: postGradesFollowupsFollowupIdDecide
+      description: Record a decision (`decision`, optional `note`). Teacher (assigned) or Education.
+      parameters:
+      - name: followupId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /grades/followups/{followupId}/attempt:
+    post:
+      tags:
+      - assessment-followups
+      summary: Record a make-up attempt (`score`, optional `max_score`, `remarks`).
+      operationId: postGradesFollowupsFollowupIdAttempt
+      description: Record a make-up attempt (`score`, optional `max_score`, `remarks`). The original record is never
+        changed.
+      parameters:
+      - name: followupId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /app/config:
+    get:
+      tags:
+      - app
+      summary: Public app configuration and update policy.
+      operationId: getAppConfig
+      description: 'Public app configuration and update policy. No student data. Alias: `/app`.'
+      security: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /app/download:
+    get:
+      tags:
+      - app
+      summary: Stream the published Android APK, if one has been uploaded.
+      operationId: getAppDownload
+      security: []
+      parameters:
+      - name: abi
+        in: query
+        schema:
+          type: string
+        description: Optional CPU architecture of the requested APK.
+      responses:
+        '200':
+          description: APK file.
+          content:
+            application/vnd.android.package-archive:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /telemetry:
+    post:
+      tags:
+      - telemetry
+      summary: General telemetry ingestion.
+      operationId: postTelemetry
+      description: General telemetry ingestion. Anonymous installation data only; rate limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /telemetry/heartbeat:
+    post:
+      tags:
+      - telemetry
+      summary: Device heartbeat / launch ping.
+      operationId: postTelemetryHeartbeat
+      description: Device heartbeat / launch ping. Anonymous installation data only; rate limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /telemetry/event:
+    post:
+      tags:
+      - telemetry
+      summary: Telemetry event (sync, crash, update).
+      operationId: postTelemetryEvent
+      description: Telemetry event (sync, crash, update). Anonymous installation data only; rate limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/days:
+    get:
+      tags:
+      - mezmur
+      summary: List Mezmur attendance days (paginated).
+      operationId: getMezmurDays
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags:
+      - mezmur
+      summary: Get or create a day with a program label.
+      operationId: postMezmurDays
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/sections:
+    get:
+      tags:
+      - mezmur
+      summary: Mezmur sections.
+      operationId: getMezmurSections
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/sheet:
+    get:
+      tags:
+      - mezmur
+      summary: Roster sheet for a date, grouped by section (`date`).
+      operationId: getMezmurSheet
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags:
+      - mezmur
+      summary: Save a complete Mezmur attendance sheet (validated).
+      operationId: postMezmurSheet
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/analytics:
+    get:
+      tags:
+      - mezmur
+      summary: Member attendance aggregates (Mezmur department and above).
+      operationId: getMezmurAnalytics
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/hymns:
+    get:
+      tags:
+      - mezmur
+      summary: Hymn list.
+      operationId: getMezmurHymns
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/hymns/changes:
+    get:
+      tags:
+      - mezmur
+      summary: Hymn delta feed (`cursor`, `limit`).
+      operationId: getMezmurHymnsChanges
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/hymn:
+    get:
+      tags:
+      - mezmur
+      summary: One hymn (`id`).
+      operationId: getMezmurHymn
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags:
+      - mezmur
+      summary: Create or update a hymn.
+      operationId: postMezmurHymn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/hymn-status:
+    post:
+      tags:
+      - mezmur
+      summary: Publish or unpublish a hymn.
+      operationId: postMezmurHymnStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/audio:
+    get:
+      tags:
+      - mezmur
+      summary: Hymn audio access.
+      operationId: getMezmurAudio
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/audio-presign:
+    post:
+      tags:
+      - mezmur
+      summary: Get a pre-signed upload URL for hymn audio (object storage).
+      operationId: postMezmurAudioPresign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/audio-confirm:
+    post:
+      tags:
+      - mezmur
+      summary: Confirm a completed audio upload.
+      operationId: postMezmurAudioConfirm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/audio-remove:
+    post:
+      tags:
+      - mezmur
+      summary: Remove hymn audio.
+      operationId: postMezmurAudioRemove
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/lyrics-synced:
+    post:
+      tags:
+      - mezmur
+      summary: Save time-synced lyrics.
+      operationId: postMezmurLyricsSynced
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/art:
+    post:
+      tags:
+      - mezmur
+      summary: Upload hymn cover art (multipart).
+      operationId: postMezmurArt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/art-remove:
+    post:
+      tags:
+      - mezmur
+      summary: Remove hymn cover art.
+      operationId: postMezmurArtRemove
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/categories:
+    get:
+      tags:
+      - mezmur
+      summary: Hymn categories.
+      operationId: getMezmurCategories
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/category:
+    post:
+      tags:
+      - mezmur
+      summary: Create or update a category.
+      operationId: postMezmurCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/category-status:
+    post:
+      tags:
+      - mezmur
+      summary: Activate or deactivate a category.
+      operationId: postMezmurCategoryStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/category-image:
+    post:
+      tags:
+      - mezmur
+      summary: Upload a category image (multipart).
+      operationId: postMezmurCategoryImage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/category-image-remove:
+    post:
+      tags:
+      - mezmur
+      summary: Remove a category image.
+      operationId: postMezmurCategoryImageRemove
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/zemarians:
+    get:
+      tags:
+      - mezmur
+      summary: Singers (zemarians).
+      operationId: getMezmurZemarians
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/zemarian:
+    post:
+      tags:
+      - mezmur
+      summary: Create or update a singer.
+      operationId: postMezmurZemarian
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/zemarian-status:
+    post:
+      tags:
+      - mezmur
+      summary: Activate or deactivate a singer.
+      operationId: postMezmurZemarianStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/zemarian-image:
+    post:
+      tags:
+      - mezmur
+      summary: Upload a singer image (multipart).
+      operationId: postMezmurZemarianImage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/zemarian-image-remove:
+    post:
+      tags:
+      - mezmur
+      summary: Remove a singer image.
+      operationId: postMezmurZemarianImageRemove
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/submissions:
+    get:
+      tags:
+      - mezmur
+      summary: Mezmur attendance submissions.
+      operationId: getMezmurSubmissions
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/submission:
+    get:
+      tags:
+      - mezmur
+      summary: One submission (`id`).
+      operationId: getMezmurSubmission
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /mezmur/submission-review:
+    post:
+      tags:
+      - mezmur
+      summary: Approve or return a Mezmur attendance submission.
+      operationId: postMezmurSubmissionReview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /hr/{path}:
+    get:
+      tags:
+      - hr
+      summary: Retired.
+      operationId: getHrPath
+      description: Retired. HR no longer takes attendance (decisions of 2026-10-07 and 2026-10-18). Every HR path
+        answers `410` with code `HR_ATTENDANCE_RETIRED`.
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Any former HR path.
+      deprecated: true
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags:
+      - hr
+      summary: Retired.
+      operationId: postHrPath
+      description: Retired. HR no longer takes attendance (decisions of 2026-10-07 and 2026-10-18). Every HR path
+        answers `410` with code `HR_ATTENDANCE_RETIRED`.
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Any former HR path.
+      deprecated: true
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/summary:
+    get:
+      tags:
+      - notifications
+      summary: Badge counts and permissions.
+      operationId: getNotificationsSummary
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/feed:
+    get:
+      tags:
+      - notifications
+      summary: Alert history (`limit`, `offset`, `unread=1`, `type`, `before_id`).
+      operationId: getNotificationsFeed
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/announcements:
+    get:
+      tags:
+      - notifications
+      summary: Announcements for the caller.
+      operationId: getNotificationsAnnouncements
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/threads:
+    get:
+      tags:
+      - notifications
+      summary: The caller's message threads.
+      operationId: getNotificationsThreads
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/thread:
+    get:
+      tags:
+      - notifications
+      summary: One conversation (`id`); marks it read.
+      operationId: getNotificationsThread
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/targets:
+    get:
+      tags:
+      - notifications
+      summary: Audiences the caller may announce to.
+      operationId: getNotificationsTargets
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/partners:
+    get:
+      tags:
+      - notifications
+      summary: People the caller may message.
+      operationId: getNotificationsPartners
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/mark-read:
+    post:
+      tags:
+      - notifications
+      summary: Mark one alert read (`id`).
+      operationId: postNotificationsMarkRead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/mark-all-read:
+    post:
+      tags:
+      - notifications
+      summary: 'Mark all read (`scope`: alerts or announcements).'
+      operationId: postNotificationsMarkAllRead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/announcement-read:
+    post:
+      tags:
+      - notifications
+      summary: Mark an announcement read (`id`).
+      operationId: postNotificationsAnnouncementRead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/compose:
+    post:
+      tags:
+      - notifications
+      summary: Publish an announcement (permission-checked).
+      operationId: postNotificationsCompose
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/thread-start:
+    post:
+      tags:
+      - notifications
+      summary: Start a thread (`to[]`, `subject`, `body`).
+      operationId: postNotificationsThreadStart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/send-message:
+    post:
+      tags:
+      - notifications
+      summary: Send a message (`thread_id`, `body`).
+      operationId: postNotificationsSendMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/message-edit:
+    post:
+      tags:
+      - notifications
+      summary: Edit own message (`message_id`, `body`).
+      operationId: postNotificationsMessageEdit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/message-delete:
+    post:
+      tags:
+      - notifications
+      summary: Delete own message (`message_id`).
+      operationId: postNotificationsMessageDelete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /notifications/thread-read:
+    post:
+      tags:
+      - notifications
+      summary: Mark a thread read (`id`).
+      operationId: postNotificationsThreadRead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /sync/changes:
+    get:
+      tags:
+      - sync
+      summary: Changes after a cursor, oldest first.
+      operationId: getSyncChanges
+      description: Changes after a cursor, oldest first. Envelope `{items, next_cursor, server_time, has_more}`.
+        Permission-scoped per entity; only `attendance` is supported.
+      parameters:
+      - name: entity
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - attendance
+      - name: cursor
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /sync/state:
+    get:
+      tags:
+      - sync
+      summary: Head revision and retention floor for an entity, without rows.
+      operationId: getSyncState
+      parameters:
+      - name: entity
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - attendance
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /timetable/week:
+    get:
+      tags:
+      - timetable
+      summary: Weekly timetable of the signed-in teacher plus upcoming make-up classes.
+      operationId: getTimetableWeek
+      description: Weekly timetable of the signed-in teacher plus upcoming make-up classes. Education and admins
+        may pass `teacher_id`.
+      parameters:
+      - name: teacher_id
+        in: query
+        schema:
+          type: integer
+        description: Education and admin roles only; teachers are always forced onto their own id.
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /timetable/today:
+    get:
+      tags:
+      - timetable
+      summary: Today's lessons (recurring grid plus make-ups dated today).
+      operationId: getTimetableToday
+      parameters:
+      - name: teacher_id
+        in: query
+        schema:
+          type: integer
+        description: Education and admin roles only; teachers are always forced onto their own id.
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: FKSS HMAC token (not a JWT)
+      description: Access token from `/auth/login` or `/auth/refresh-token`, sent only in the `Authorization` header.
+        Format `<base64 payload>.<hex HMAC-SHA256>`; lifetime 15 minutes. Query-string tokens are rejected.
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema:
+        type: string
+      description: Client-generated key. A replay with the same key returns the stored response instead of writing
+        twice.
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          const: success
+        message:
+          type: string
+          description: Present when the handler returns a message.
+        data:
+          description: Payload; shape depends on the endpoint.
+    ErrorEnvelope:
+      type: object
+      required:
+      - status
+      - message
+      properties:
+        status:
+          const: error
+        message:
+          type: string
+          description: Human-readable message.
+        code:
+          type: string
+          description: Machine code when provided, e.g. `INVALID_REFRESH_TOKEN`, `HR_ATTENDANCE_RETIRED`.
+      additionalProperties: true
+    PaginatedEnvelope:
+      allOf:
+      - $ref: '#/components/schemas/SuccessEnvelope'
+      - type: object
+        properties:
+          data:
+            type: object
+            properties:
+              items:
+                type: array
+                items:
+                  type: object
+              pagination:
+                $ref: '#/components/schemas/Pagination'
+    Pagination:
+      type: object
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        pages:
+          type: integer
+        has_more:
+          type: boolean
+    LoginRequest:
+      type: object
+      required:
+      - username
+      - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    RefreshRequest:
+      type: object
+      required:
+      - refresh_token
+      properties:
+        refresh_token:
+          type: string
+    LogoutRequest:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+    LoginResult:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Access token (15 minutes).
+        refresh_token:
+          type: string
+          description: Rotating refresh token (90-day session).
+        expires_in:
+          type: integer
+          description: Access-token lifetime in seconds.
+        user:
+          type: object
+          properties:
+            id:
+              type: integer
+            username:
+              type: string
+            full_name:
+              type: string
+            email:
+              type:
+              - string
+              - 'null'
+            role:
+              type: string
+            is_active:
+              type: boolean
+            profile_image:
+              type: object
+              properties:
+                present:
+                  type: boolean
+                version:
+                  type:
+                  - string
+                  - 'null'
+                url:
+                  type:
+                  - string
+                  - 'null'
+            profile_version: {}
+            authorization_version:
+              type: integer
+              minimum: 1
+    WarningClose:
+      type: object
+      required:
+      - outcome
+      properties:
+        outcome:
+          type: string
+        note:
+          type: string
+    EnrollRequest:
+      type: object
+      required:
+      - member_id
+      - class_id
+      properties:
+        member_id:
+          type: integer
+        class_id:
+          type: integer
+  responses:
+    BadRequest:
+      description: Missing or invalid input.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Missing, invalid or expired token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: Role or scope does not allow this, or the feature is disabled for this deployment.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Unknown resource, endpoint or record.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    MethodNotAllowed:
+      description: HTTP method not supported.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: State conflict, for example an already-submitted sheet, `WORKFLOW_REJECTED`, or a stale `profile_version`
+        (`PROFILE_CONFLICT`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    PayloadTooLarge:
+      description: Upload too large.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unprocessable:
+      description: Validation failed (for example `INVALID_SCORES`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    TooManyRequests:
+      description: Rate limit reached.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Gone:
+      description: Endpoint retired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ServerError:
+      description: The service could not complete the request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'

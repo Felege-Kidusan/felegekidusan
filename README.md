@@ -111,17 +111,29 @@ Each item is VERIFIED unless marked otherwise. Detail and evidence: [ENGINEERING
 |---|---|
 | Index of all documents | [docs/README.md](docs/README.md) |
 | Engineering handover | [docs/ENGINEERING_HANDOVER.md](docs/ENGINEERING_HANDOVER.md) |
+| New engineer onboarding | [docs/ONBOARDING.md](docs/ONBOARDING.md) |
+| Product requirements (PRD) | [docs/product/PRD.md](docs/product/PRD.md) |
+| Technical design (TRD/SAD) | [docs/architecture/TECHNICAL_DESIGN.md](docs/architecture/TECHNICAL_DESIGN.md) |
+| Architecture decision records | [docs/adr/README.md](docs/adr/README.md) |
+| Glossary | [docs/product/GLOSSARY.md](docs/product/GLOSSARY.md) |
+| Change history | [CHANGELOG.md](CHANGELOG.md) |
+| How to contribute | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| API | [docs/API.md](docs/API.md) |
+| API (overview and OpenAPI 3.1) | [docs/API.md](docs/API.md), [docs/api/openapi.yaml](docs/api/openapi.yaml) |
 | Roles and permissions | [docs/ROLES_AND_PERMISSIONS.md](docs/ROLES_AND_PERMISSIONS.md) |
 | Database and migrations | [docs/DATABASE.md](docs/DATABASE.md) |
+| Data dictionary and ERD | [docs/DATA_DICTIONARY.md](docs/DATA_DICTIONARY.md) |
 | Development, testing, CI | [docs/DEVELOPMENT_AND_TESTING.md](docs/DEVELOPMENT_AND_TESTING.md) |
+| Test strategy | [docs/TEST_STRATEGY.md](docs/TEST_STRATEGY.md) |
+| Proposals (RFCs) | [docs/rfc/README.md](docs/rfc/README.md) |
 | Deployment, backups, mobile release | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
 | Security controls and reporting | [docs/SECURITY.md](docs/SECURITY.md) |
 | Branch rules | [BRANCHING.md](BRANCHING.md) |
 | Release workflow | [docs/PRODUCTION_WORKFLOW.md](docs/PRODUCTION_WORKFLOW.md) |
 
 ## Contribution, review and release
+
+The full working agreement (workflow, coding standards, database rules, tests, definition of done) is in **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 - **Repositories:**
   - Development happens in `suraman21/fkss-sunday-school-platform`. That repository was formerly named `suraman21/SSMS`, and the old URL redirects to it.

@@ -91,7 +91,7 @@ Design history for the offline and sync work is in `docs/MOBILE_OFFLINE_SYNC_*.m
 |---|---|---|
 | In-app notifications and messages | Announcements, threads, read state (`admin/api_notifications.php`, `admin/api_communication.php`, `api/v1/routes/notifications.php`) | Verified in code. No e-mail or SMS delivery was found |
 | Telegram Bot API | Operational failure alerts (`FailureAlertService`, `monitor/error_monitor.php`, `monitor/uptime_cron.php`). Disabled unless `MONITOR_TELEGRAM_ENABLED` is defined as true | Verified in code. Production configuration unverified |
-| AI providers (Gemini, OpenAI, Anthropic, OpenRouter) | Optional assistant (`admin/api_ai.php`, `admin/backend/ai_providers.php`). Provider keys are encrypted with `AI_ENC_KEY`; gated by `FEATURE_AI_CHATBOT` | Unverified: whether the feature is enabled in production and what data reaches the providers |
+| AI providers (Gemini, Groq, OpenRouter, OpenAI, Anthropic, or an OpenAI-compatible URL) | Optional assistant (`admin/api_ai.php`, `admin/backend/ai_providers.php`). Provider keys are encrypted with `AI_ENC_KEY`; gated by `FEATURE_AI_CHATBOT` | Unverified: whether the feature is enabled in production and what data reaches the providers |
 | Uptime monitor | `monitor/uptime_cron.php` needs a cPanel cron job | Unverified: whether a cron job is configured |
 | Third-party front-end assets | Tailwind (Play CDN) on some admin pages, Google Fonts, cdnjs (with SRI) | Verified in code |
 

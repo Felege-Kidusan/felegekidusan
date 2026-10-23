@@ -1,6 +1,6 @@
 # Documentation index
 
-Last reviewed: 2026-10-22 against `main` = `46fbaa7`.
+Last reviewed: 2026-10-23 against `main` = `46fbaa7`.
 
 **Status labels**
 
@@ -19,17 +19,25 @@ No historical document has been deleted. Git history is the archive.
 | Document | Status |
 |---|---|
 | [README.md](../README.md): project overview, stack, setup summary | Canonical |
+| [ONBOARDING.md](ONBOARDING.md): first-week path for a new engineer | Canonical |
 | [ENGINEERING_HANDOVER.md](ENGINEERING_HANDOVER.md): handover summary, source-of-truth boundaries, risks, unknowns, next stages | Canonical |
+| [CONTRIBUTING.md](../CONTRIBUTING.md): workflow, coding standards, database rules, tests, definition of done | Canonical |
+| [CHANGELOG.md](../CHANGELOG.md): curated change history, mobile build history, deployment record | Canonical (reconstructed 2026-10-22; maintained from now on) |
 | [BRANCHING.md](../BRANCHING.md): `main` vs `dev` rules | Canonical |
 | [PRODUCTION_WORKFLOW.md](PRODUCTION_WORKFLOW.md): repository roles, intended release policy and current state | Canonical (with a current-state section) |
 | [AGENTS.md](../AGENTS.md): rules for AI coding agents | Canonical |
 | [planning/system/PROJECT_RULES.md](planning/system/PROJECT_RULES.md): standing change protocol for AI-assisted work | Reference |
 | [ci_cd/GIT_CHEATSHEET.md](ci_cd/GIT_CHEATSHEET.md) | Reference |
 
-## 2. Architecture
+## 2. Product and architecture
 
 | Document | Status |
 |---|---|
+| [product/PRD.md](product/PRD.md): product requirements, with requirement IDs | **Canonical** (reconstructed baseline, draft for team review) |
+| [product/GLOSSARY.md](product/GLOSSARY.md): domain, calendar and technical terms | **Canonical** |
+| [architecture/TECHNICAL_DESIGN.md](architecture/TECHNICAL_DESIGN.md): technical design (arc42, C4 diagrams, runtime and deployment views) | **Canonical** (reconstructed baseline, draft for team review) |
+| [adr/README.md](adr/README.md): architecture decision records ADR-0001 to ADR-0020, plus a template | **Canonical** (reconstructed 2026-10-22) |
+| [rfc/README.md](rfc/README.md): proposals for significant changes; [RFC 0001](rfc/0001-repository-structure.md) repository structure and root clean-up | **Planning** (proposed 2026-10-23; nothing implemented) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | **Canonical** |
 | [FAILURE_INTELLIGENCE.md](FAILURE_INTELLIGENCE.md), [Mobile client contract](../Mobile/wbws_flutter_app/docs/FAILURE_INTELLIGENCE_CLIENT.md) | Reference |
 | [WEB_ADMIN_SYNC_MONITORING.md](WEB_ADMIN_SYNC_MONITORING.md) | Reference |
@@ -42,6 +50,7 @@ No historical document has been deleted. Git history is the archive.
 | Document | Status |
 |---|---|
 | [API.md](API.md) | **Canonical** |
+| [api/openapi.yaml](api/openapi.yaml): OpenAPI 3.1 reference for `/api/v1` (117 operations) | **Canonical** (reconstructed 2026-10-23; bodies summarised) |
 | [ROLES_AND_PERMISSIONS.md](ROLES_AND_PERMISSIONS.md) | **Canonical** (page-level; per-action rules unresolved) |
 
 ## 4. Database
@@ -49,6 +58,7 @@ No historical document has been deleted. Git history is the archive.
 | Document | Status |
 |---|---|
 | [DATABASE.md](DATABASE.md): engine, migration rules, inventory `001`–`078`, unverified applied state | **Canonical** |
+| [DATA_DICTIONARY.md](DATA_DICTIONARY.md): every table by domain, where it is defined, core ERD, declared foreign keys | **Canonical** (table level; from source, not production) |
 | [PRODUCTION_MIGRATION_NOTES.md](PRODUCTION_MIGRATION_NOTES.md) | Historical (2026-10-06 inventory of discoveries) |
 | [INCIDENT_2026-10-03_TRACKING_SCHEMA.md](INCIDENT_2026-10-03_TRACKING_SCHEMA.md) | Historical (incident record) |
 
@@ -69,6 +79,7 @@ Open findings are tracked in a restricted register held by the owner, not in thi
 | Document | Status |
 |---|---|
 | [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md): setup, suites, current CI failures and skips, acceptance policy | **Canonical** |
+| [TEST_STRATEGY.md](TEST_STRATEGY.md): test levels, coverage by risk, quality gates, path to a green pipeline | **Canonical** (proposed baseline 2026-10-23) |
 | [tests/audit/README.md](../tests/audit/README.md) | Reference |
 | [VISUAL_QA_GUIDE_2026-10-20.md](VISUAL_QA_GUIDE_2026-10-20.md) | Historical (manual QA guide for one release) |
 | [ci_cd/ARCHITECTURE.md](ci_cd/ARCHITECTURE.md) | **Superseded** (design proposal, 2026-09-05) |
