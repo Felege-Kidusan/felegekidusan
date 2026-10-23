@@ -137,7 +137,16 @@ html,body{margin:0;padding:0;background:transparent;overflow:hidden}
         if (e.data.texts && typeof e.data.texts === 'object') {
             Object.keys(e.data.texts).forEach(function (k) {
                 document.querySelectorAll('[data-idc-text="' + k + '"]').forEach(function (el) {
-                    el.textContent = e.data.texts[k];
+                    // Remember the server-rendered text once. An empty value means
+                    // "use the school default" on the real card
+                    // (id_card_template_layout.php), so show that default here too
+                    // instead of blanking the piece (front footer, back disclaimer).
+                    if (el.getAttribute('data-idc-default') === null) {
+                        el.setAttribute('data-idc-default', el.textContent);
+                    }
+                    var v = e.data.texts[k];
+                    v = (v === undefined || v === null) ? '' : String(v);
+                    el.textContent = v.trim() !== '' ? v : el.getAttribute('data-idc-default');
                 });
             });
         }
