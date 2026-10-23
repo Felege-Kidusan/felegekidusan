@@ -2588,7 +2588,7 @@ switch ($action) {
                     $conn,
                     $tcClass,
                     $tcYear,
-                    is_scalar($_GET['q'] ?? '') ? (string)$_GET['q'] : '',
+                    is_scalar($_GET['q'] ?? '') ? (string)($_GET['q'] ?? '') : '',
                     (int)($_GET['page'] ?? 1),
                     (int)($_GET['per_page'] ?? 25)
                 );
