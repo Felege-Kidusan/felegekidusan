@@ -20,7 +20,7 @@ Composer is **not** needed: dependencies are committed in `vendor/`, and the ser
    - `config.php` looks for `.fkss_env.php` (or the legacy `.wbws_env.php`) in, in order: the parent of the repository root, two levels up, and the repository root. If none exists, it **refuses to start**.
    - Create a test-only file from `env.example.php`. The CI job *Provision a test-only .fkss_env.php* shows the minimum keys.
    - Never commit this file. CI rejects tracked `*_env.php` files.
-2. **Database.** `bash tests/e2e/provision_env.sh` installs PHP and MariaDB, creates the test database, applies `database_schema.sql`, then `sql/` in a working order plus the legacy tables, and seeds a test world.
+2. **Database.** `bash tests/e2e/provision_env.sh` installs PHP and MariaDB, creates the test database, applies `sql/legacy/database_schema.sql`, then `sql/` in a working order plus the legacy tables, and seeds a test world.
    - It requires Debian or Ubuntu with passwordless `sudo`.
    - It is **destructive**: it resets data. **Never point it at production.**
    - On a freshly provisioned machine it has sometimes stopped partway (observed during earlier test-environment rebuilds; not systematically reproduced). If that happens, rerun it, or apply the remaining steps by hand from the script.

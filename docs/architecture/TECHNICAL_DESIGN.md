@@ -252,7 +252,7 @@ The full register, with evidence and remediation, is in [ENGINEERING_HANDOVER.md
 
 1. **Three API layers with duplicated rules.** Decide the canonical layer per domain, then consolidate behind services.
 2. **Very large files.** Dashboards of about 4,400–4,900 lines; `local_db.dart` about 7,500 lines. Split by feature, behind tests.
-3. **Schema management.** No migration ledger, a stale `database_schema.sql`, and runtime DDL. Introduce a ledger and a verified baseline.
+3. **Schema management.** No migration ledger, a stale `sql/legacy/database_schema.sql`, and runtime DDL. Introduce a ledger and a verified baseline.
 4. **Runtime parity.** CI runs PHP 8.4 while production runs 8.2.
 5. **Delivery pipeline.** Manual deploys, a red CI gate and a debug-signed APK.
 6. **Repository layout.** It mixes the web app, API, mobile app, tests and legacy folders at the root. A target structure should be agreed before any move, because paths are referenced by the server, the mobile app and the tests.

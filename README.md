@@ -59,7 +59,7 @@ There are **three API layers**; consolidation is unfinished. Read [docs/ARCHITEC
 | `Mobile/wbws_flutter_app/` | Flutter app (`fkss_app`) |
 | `sql/` | Numbered SQL migrations (`001`–`078`) and `preflight/` read-only checks |
 | `tests/` | `security/`, `e2e/`, `smoke/`, `audit/`, `mutation/`, `js/` |
-| `monitor/`, `app/`, `public_website_frontend/` | Error/uptime monitor, legacy PWA, standalone public site package |
+| `monitor/`, `app/` | Error/uptime monitor, legacy PWA |
 | `docs/` | Documentation. Start at [docs/README.md](docs/README.md) |
 
 ## Local development (summary)
@@ -99,7 +99,7 @@ Each item is VERIFIED unless marked otherwise. Detail and evidence: [ENGINEERING
 | Area | Limitation | Detail |
 |---|---|---|
 | Security boundaries | Web: PHP session, CSRF token and the role guard in `admin/access_control.php`. Mobile: custom HMAC bearer token (not a JWT). No independent security certification exists | [SECURITY.md](docs/SECURITY.md), [API.md](docs/API.md) |
-| Database and migrations | There is no migration ledger and the applied production schema is unverified. `database_schema.sql` is stale (11 tables). `sql/` cannot be applied linearly to an empty database. Mezmur tables can change at runtime | [DATABASE.md](docs/DATABASE.md) |
+| Database and migrations | There is no migration ledger and the applied production schema is unverified. `sql/legacy/database_schema.sql` is stale (11 tables). `sql/` cannot be applied linearly to an empty database. Mezmur tables can change at runtime | [DATABASE.md](docs/DATABASE.md) |
 | Runtime versions | CI uses PHP 8.4 while production uses PHP 8.2. Production MariaDB was 11.4 in a 2026-10-02 dump (not re-verified) | [DATABASE.md §1](docs/DATABASE.md#1-engine-and-access) |
 | Deployment | Manual SFTP to shared hosting: no shell, Composer or cron for the application, no staging, no rehearsed rollback. Server-side git metadata is not authoritative | [OPERATIONS.md](docs/OPERATIONS.md) |
 | Release evidence | The CI gate is red and 79 tests are skipped. The Android APK is debug-signed. Mobile 1.7.3+40 is not released | [DEVELOPMENT_AND_TESTING.md](docs/DEVELOPMENT_AND_TESTING.md), [OPERATIONS.md](docs/OPERATIONS.md) |

@@ -24,7 +24,7 @@
 
 **`age_group`** — canonical string codes `'7_13' | '14_17' | '18_plus'`:
 
-- `members.age_group` — `ENUM('7_13','14_17','18_plus')` (database_schema.sql:69; the historical 4th value `'under6'` was retired by sql/017 + sql/019).
+- `members.age_group` — `ENUM('7_13','14_17','18_plus')` (sql/legacy/database_schema.sql:69, the file formerly at the repository root; the historical 4th value `'under6'` was retired by sql/017 + sql/019).
 - `classes.age_group` — ENUM in migration 002, VARCHAR(20) in the 012 runtime baseline (deployments may hold either).
 - **A PHP source of truth already exists**: `App\Services\MemberCategory` (admin/backend/services/MemberCategory.php) — self-described "the ONLY source of truth": letters A/B/C, stored codes, Amharic labels **ህጻናት / ማዕከላዊያን / ወጣቶች**, English labels Children / Intermediate / Youth. Identity codes are generated from it (`EnrollmentService::generateMemberCode` → `MemberCategory::letterFor`; unknown group ⇒ PENDING, never guessed).
 - Legacy stray value `'18+'` is still accommodated defensively in `api_teachers.php:770` and `api_ai.php:233`.

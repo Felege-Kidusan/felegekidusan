@@ -171,7 +171,7 @@ Other stakeholders: the parents and guardians of students (data subjects; no sys
 | FR-ADM-07 | Encrypted database backups, created and downloaded by Super Admin | Implemented; restore never tested | `BackupService.php`; [OPERATIONS.md](../OPERATIONS.md) |
 | FR-ADM-08 | Android app release manager (APK upload, version, minimum build, forced update), first-party app telemetry, failure intelligence (crash signatures, issues, alerts) | Implemented | `AppReleaseManager.php`; `AppTelemetryService.php`; `FailureIssueService.php` |
 | FR-ADM-09 | Optional AI assistant with administrator-configured providers | Implemented (feature-flagged; production state unknown) | `admin/api_ai.php`; `admin/backend/ai_providers.php` |
-| FR-WEB-01 | Public website content managed through a CMS: gallery, programmes, schedule, teachers, social links | Implemented | `admin/api_cms.php`; `public_website_frontend/` |
+| FR-WEB-01 | Public website content managed through a CMS: gallery, programmes, schedule, teachers, social links | Implemented | `admin/api_cms.php`; `index.php`, `public_gallery.php` |
 
 ## 6. Android app requirements
 | ID | Requirement | Status | Source |

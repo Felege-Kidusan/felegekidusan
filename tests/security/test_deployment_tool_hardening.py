@@ -58,7 +58,7 @@ class DeploymentToolHardeningTests(unittest.TestCase):
         self.assertIn("database_schema\\.sql", self.apache)
 
     def test_diagnostics_enforce_direct_non_http_contracts(self):
-        for relative in ("leak_detector.php", "admin/leak_detector.php"):
+        for relative in ("admin/leak_detector.php",):
             source = (ROOT / relative).read_text(encoding="utf-8")
             self.assertIn("PHP_SAPI !== 'cli'", source, relative)
         retired = (ROOT / "admin/get_schema.php").read_text(encoding="utf-8")

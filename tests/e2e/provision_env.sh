@@ -79,7 +79,7 @@ sudo -n mariadb -e "
   FLUSH PRIVILEGES;"
 
 echo "== 4. base schema + migrations (working order) =="
-sudo -n mariadb "$DB_NAME" < database_schema.sql
+sudo -n mariadb "$DB_NAME" < sql/legacy/database_schema.sql
 apply() { sudo -n mariadb "$DB_NAME" < "$1" 2>/tmp/prov_e \
   || echo "  (known-stale, patched below): $1"; }
 # Baselines FIRST: they formalize the runtime schema the numbered
