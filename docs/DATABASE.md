@@ -6,7 +6,7 @@
 
 - **Engine:** MariaDB. CI uses the `mariadb:11.4` service image.
 - **Production version:**
-  - A production schema dump dated 2026-10-02 recorded **MariaDB 11.4**. This is cited in the headers of `sql/054_legacy_era_columns.sql` (line 33) and `sql/066_academic_year_charset_repair.sql` (line 5), and in [INCIDENT_2026-10-03_TRACKING_SCHEMA.md](INCIDENT_2026-10-03_TRACKING_SCHEMA.md).
+  - A production schema dump dated 2026-10-02 recorded **MariaDB 11.4**. This is cited in the headers of `sql/054_legacy_era_columns.sql` (line 33) and `sql/066_academic_year_charset_repair.sql` (line 5), and in [INCIDENT_2026-10-03_TRACKING_SCHEMA.md](incidents/INCIDENT_2026-10-03_TRACKING_SCHEMA.md).
   - The current server version was **not re-verified** for this document.
   - "MariaDB 10.6" in older headers (migrations `004`, `048`, `049` and `055`, and the `sql/preflight/` files) is a historical compatibility target, not the production version.
   - Keep new DDL compatible with both.

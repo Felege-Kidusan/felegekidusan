@@ -57,6 +57,7 @@ These checks protect the folder clean-up ([RFC 0001](rfc/0001-repository-structu
 |---|---|
 | `test_structure_include_paths.py` | A moved or renamed PHP file that other files still `require`/`include`. Every static link must point to an existing file (760 links at `9dd317f`). Links built from variables (41) are pinned in a reviewed list; a new one fails until someone reviews it |
 | `test_structure_boundaries.py` | (1) Website code loading files from `tests/`, `sql/`, `docs/`, `Mobile/`, `scripts/`, `tools/` or `.github/`. (2) The root `.htaccess` losing its block on those folders, `vendor/` and repository file types. (3) A command-line or cron script in a website folder without a `PHP_SAPI` guard or a `.htaccess` deny. (4) New `.md`, `.sql`, `.sh`, `.py` and similar files inside `admin/`, `api/v1/` or `app/`, where the root block does not reach (those folders have their own rewrite rules) |
+| `test_docs_links.py` | A moved or renamed document that other documents still link to, or a moved document whose own links no longer work. Every relative Markdown link and `#section` anchor must resolve (third-party folders excluded) |
 
 Shared code lives in `tests/security/structure_paths.py`.
 
@@ -133,6 +134,6 @@ Until a restore succeeds, treat backups as **unproven**.
 **Incident response (current, informal):**
 1. The owner is the single point of contact.
 2. Contain the problem by rolling back the code (section 3) or disabling the feature through its `FEATURE_*` flag in the secrets file.
-3. Record what happened in `docs/` (see `docs/INCIDENT_2026-10-03_TRACKING_SCHEMA.md` for an example).
+3. Record what happened in `docs/incidents/` (see `docs/incidents/INCIDENT_2026-10-03_TRACKING_SCHEMA.md` for an example).
 
 Security incidents follow [SECURITY.md](SECURITY.md). A written incident-response plan with roles and contact paths does not exist yet.

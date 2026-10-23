@@ -140,7 +140,7 @@ Three API surfaces exist (see [ARCHITECTURE.md §3](../../ARCHITECTURE.md#3-the-
    - Services: `AcademicTrackingService.php`, `AssessmentTypeService.php`, `AssignmentService.php`, `EnrollmentService.php`, `EducationAnalyticsService.php`, `ReportCardService.php`, `SubjectDurationPolicy.php`, `TimetableService.php`.
 5. **Finance.** Transactions, budgets, categories, member fees, ledger validation (`admin/api_finance.php`).
 6. **Material.** Categories, items, requests, transactions (`admin/api_material.php`).
-7. **HR.** Registration and promotion, HR submissions, HR attendance. HR attendance taking was retired (see `docs/ATTENDANCE_REWORK_2026-10.md`).
+7. **HR.** Registration and promotion, HR submissions, HR attendance. HR attendance taking was retired (see `docs/attendance/ATTENDANCE_REWORK_2026-10.md`).
    - Services: `HrAttendanceService.php`, `HrSubmissionService.php`.
    - APIs: `admin/api_hr_*`, `api/v1/routes/hr.php`.
 8. **Groups.** Group management, leaders, members (`admin/backend/groups_api.php`).

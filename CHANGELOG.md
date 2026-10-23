@@ -9,6 +9,7 @@ A curated history of notable changes to FKSS, newest first.
 
 ## Unreleased
 
+- Repository structure, Option 1 Step 2c ([RFC 0001](docs/rfc/0001-repository-structure.md#8-option-1-tidy-without-moving-web-files)): 33 historical records moved from the top of `docs/` into topic folders (`mobile_offline_sync/`, `academic_tracking/`, `communication/`, `responsive_ui/`, `attendance/`, `incidents/`, `audits/`), with names and contents unchanged; the 16 main guides stay where they were. Links in the index and guides updated. New CI test `tests/security/test_docs_links.py` checks every relative Markdown link. No code changed.
 - Repository structure, Option 1 Step 2b ([RFC 0001](docs/rfc/0001-repository-structure.md#8-option-1-tidy-without-moving-web-files)): the 19 old PHP migration scripts in `admin/migrations/` and `backend/migrations/` moved unchanged to `sql/legacy/php-migrations/`, next to the legacy schema. They can no longer run from there (by design). Tests and test-setup notes updated. No website file changed; the old web paths stay blocked.
 - Repository structure, Option 1 Step 2a ([RFC 0001](docs/rfc/0001-repository-structure.md#8-option-1-tidy-without-moving-web-files)): the three command-line scripts in `tools/` (`attendance_rollout_2026.php`, `find_stored_mojibake.php`, `fix_mojibake.py`) moved to `scripts/`, so all operator scripts live in one folder. Tests and usage notes updated. No website file changed; both folders stay blocked from the web.
 - Repository structure, Option 1 Step 1 ([RFC 0001](docs/rfc/0001-repository-structure.md)): safety checks before any folder tidy-up. Two CI tests (`tests/security/test_structure_include_paths.py`, `test_structure_boundaries.py`) catch broken `require`/`include` paths, website code that depends on non-website folders, a weakened root `.htaccess` block, unguarded command-line scripts, and private file types in folders the root block does not reach. A read-only live checker (`scripts/check_live_urls.py` and `scripts/live_urls.json`) compares 43 key URLs on dev or production. No application file changed.
@@ -100,7 +101,7 @@ Manual SFTP deployment; see [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - "Visual Intelligence" dashboards and engine (2026-10-02, `c332227` … `2e926cb`).
 
 ### Fixed
-- Tracking schema incident: queries tolerate a pre-`056` database (2026-10-03, `36432b0`, `0189f30`; [incident record](docs/INCIDENT_2026-10-03_TRACKING_SCHEMA.md)).
+- Tracking schema incident: queries tolerate a pre-`056` database (2026-10-03, `36432b0`, `0189f30`; [incident record](docs/incidents/INCIDENT_2026-10-03_TRACKING_SCHEMA.md)).
 - Academic-year save on a `latin1` table (2026-10-08, `2d8af60`, `sql/066_academic_year_charset_repair.sql`).
 
 ## 2026-09-12 to 2026-09-28: communication, offline-first, profiles, analytics
