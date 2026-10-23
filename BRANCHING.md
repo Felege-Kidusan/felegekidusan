@@ -9,8 +9,8 @@
 
 | Branch | Lives in | What it is | Who deploys from it |
 |---|---|---|---|
-| **`main`** | `suraman21/SSMS` **and** `Felege-Kidusan/felegekidusan` (identical commits) | The real system. Production web server + **production phone app "FKSS"** (`https://felegekidusan.com/api/v1`, package `com.arkeonethiopia.fkss`). | Production server (`git pull`), dev server (`git pull`), production APK builds. |
-| **`dev`** | `suraman21/SSMS` **only** | `main` **+ exactly one commit** that re‑targets the *phone app* at the test server: **"FKSS Beta"**, `https://felegekidusan.arkeonethiopia.com/api/v1`, package `com.arkeonethiopia.fkss.beta`, BETA chip on the login screen. Server code is byte‑identical to `main`. | Beta APK builds only (`Mobile/HOW_TO_BUILD_BETA.md`). It may also be pulled on the dev server — the server files are the same as `main`. |
+| **`main`** | `suraman21/fkss-sunday-school-platform` (formerly `suraman21/SSMS`) **and** `Felege-Kidusan/felegekidusan` (identical commits) | The real system. Production web server + **production phone app "FKSS"** (`https://felegekidusan.com/api/v1`, package `com.arkeonethiopia.fkss`). | Production server (manual SFTP upload of changed files; see `docs/OPERATIONS.md`), dev server, production APK builds. |
+| **`dev`** | `suraman21/fkss-sunday-school-platform` **only** | `main` **+ exactly one commit** that re‑targets the *phone app* at the test server: **"FKSS Beta"**, `https://felegekidusan.arkeonethiopia.com/api/v1`, package `com.arkeonethiopia.fkss.beta`, BETA chip on the login screen. Server code is byte‑identical to `main`. | Beta APK builds only (`Mobile/HOW_TO_BUILD_BETA.md`, a file that exists on `dev` only; *Branch guard* rejects it on `main`). It may also be pulled on the dev server — the server files are the same as `main`. |
 
 `dev` always contains the full latest system: after every push to `main`, `main` is merged **into** `dev` (`git checkout dev && git merge main`). Pulling `dev` therefore gives *everything that is on main* plus the beta app settings.
 
@@ -30,7 +30,7 @@
 | `.github/workflows/branch-guard.yml` | runs on every push / PR to `main` | Fails CI if beta values (`arkeonethiopia.com/api`, `fkss.beta`, `FKSS Beta`, `isBeta`) appear on `main`, or if a PR into `main` comes from `dev`. |
 | `AGENTS.md` (repo root) | read automatically by AI coding tools | Repeats this rule in the first lines. |
 | `.github/PULL_REQUEST_TEMPLATE.md` | every PR | Checklist item "not from `dev`". |
-| Build step | `flutter build` runs the full test suite (see `RELEASE_NOTES.md` header) | A production APK cannot be built from a tree that carries beta values. |
+| Build step | `Mobile/wbws_flutter_app/scripts/build-release.ps1` runs `flutter test` before building (unless `-SkipTests` is passed). A plain `flutter build apk` does **not** run tests | A production APK built through the script fails if the tree carries beta values. |
 
 ## Day‑to‑day
 
@@ -42,10 +42,14 @@ cd Mobile/wbws_flutter_app && flutter build apk --release        # → FKSS Beta
 # Production app (after testing):
 git checkout main && git pull origin main
 cd Mobile/wbws_flutter_app && flutter build apk --release        # → FKSS
+# (for a real release use scripts/build-release.ps1; see Mobile/wbws_flutter_app/docs/RELEASE.md)
 
 # Servers:
-#   production server  → git pull (main) from Felege-Kidusan/felegekidusan
-#   dev server         → git pull (main or dev — server files are identical)
+#   production server  → manual SFTP upload of the changed files of an approved
+#                        main commit (docs/OPERATIONS.md). The production server
+#                        does not deploy with git pull.
+#   dev server         → updated from main or dev (server files are identical);
+#                        the exact mechanism is not documented here.
 ```
 
 If you are an AI agent and the task seems to require breaking rule 1–3: **stop and ask the owner**; do not proceed.

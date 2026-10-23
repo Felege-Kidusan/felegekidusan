@@ -6,11 +6,25 @@
 > are deliberately unchanged in Step 1 — see
 > [PRODUCTION_MIGRATION_NOTES.md](PRODUCTION_MIGRATION_NOTES.md).
 
+## Current state (verified 2026-10-22)
+
+The policy below was adopted on 2026-10-07. Part of it is **not** in effect today. The table shows where practice differs.
+
+| Policy element | Actual state, 2026-10-22 |
+|---|---|
+| Changes reach production `main` through a sync pull request with one approving review | Pull requests #1–#10 used the sync flow until 2026-10-08. Since then, approved commits have been **pushed directly** to `main` in both repositories, which are kept identical (both at `46fbaa7`) |
+| Production `main` is protected | **No branch protection is active** on the production repository: protection for private repositories is unavailable on the current GitHub plan. The development repository's `main` requires only the *Branch guard* job (`main must build the production app`). No review is required, and administrators are exempt (rechecked 2026-10-22) |
+| Every job must be green before merge | *Backend checks* has been **failing** on `main` since `b9cbb0f` (2026-10-19). See [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md#3-current-ci-status) |
+| Deployment is not configured | It is still not automated. Production is deployed by a **manual SFTP upload** of changed files, with a backup and checksum verification. See [OPERATIONS.md](OPERATIONS.md#2-code-deployment-manual-sftp) |
+| Development repository URL | Renamed to `suraman21/fkss-sunday-school-platform`. The old `suraman21/SSMS` URL redirects |
+
+Restoring the intended policy is a recommendation in [ENGINEERING_HANDOVER.md](ENGINEERING_HANDOVER.md). Until then, treat the sections below as the **intended** workflow.
+
 ## Repository roles
 
 | | Development repository | Production repository |
 |---|---|---|
-| URL | https://github.com/suraman21/SSMS | https://github.com/Felege-Kidusan/felegekidusan |
+| URL | https://github.com/suraman21/fkss-sunday-school-platform (formerly `suraman21/SSMS`) | https://github.com/Felege-Kidusan/felegekidusan |
 | Purpose | development, feature work, experimentation, testing, development CI | production-ready code, approved releases, production CI, release history |
 
 **Rules**
@@ -21,7 +35,7 @@
 - The development repository remains the working source of truth; this
   repository receives approved states of it.
 
-## Branch strategy
+## Branch strategy (intended policy)
 
 - `main` — the production branch. Protected: changes arrive by pull request
   with green CI and one approving review; force pushes and deletions are
@@ -57,7 +71,7 @@ manual approval + merge  =  production release on main
 
 Step by step:
 
-1. Develop on `feature/*` / `fix/*` branches in **suraman21/SSMS**.
+1. Develop on `feature/*` / `fix/*` branches in **suraman21/fkss-sunday-school-platform**.
 2. Open the pull request there; `backend-checks.yml` must pass.
 3. Merge to development `main` after review.
 4. A maintainer pushes the approved commit here as a PR source branch:
@@ -88,14 +102,16 @@ Two workflows run on every push to `main` and every pull request:
 CI needs no secrets, no production database and no credentials. A pull
 request is not mergeable until every job is green.
 
-## Production approval principle
+## Production approval principle (intended policy)
 
 - Every change to production `main` requires a pull request, green CI and at
   least one human approval.
 - CI is a gate, never an approver: no auto-merge, no auto-deploy.
 - Deployment is a deliberate manual act by a named person.
 
-## Deployment — not configured yet
+## Deployment — not automated
+
+> **Current practice:** manual SFTP deployment by the owner; see [OPERATIONS.md](OPERATIONS.md). The text below is the original 2026-10-07 statement, kept for history.
 
 **Nothing in this repository deploys anywhere.** There are no deploy keys, no
 server credentials, no webhooks and no deployment jobs. This is intentional

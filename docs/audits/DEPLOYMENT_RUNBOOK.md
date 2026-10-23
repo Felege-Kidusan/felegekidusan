@@ -1,5 +1,8 @@
 # 🚀 Go-Live Runbook — WBSS / FKSS
 
+> **Historical go-live runbook (marked 2026-10-22).** This 2026-10-06 runbook is retained unchanged. Individual steps may still be useful, but it is **not** the current procedure. Verify each step against [OPERATIONS.md](../OPERATIONS.md) and [DATABASE.md](../DATABASE.md) before using it.
+
+
 **Read this ONE document to deploy.** It puts every "what you must do" step from the audit reports in the exact order to do them. Each step says what to do and how to confirm it worked. Do them top to bottom. Don't skip.
 
 > **Build 24 authorization/outbox release:** also complete the mandatory staged

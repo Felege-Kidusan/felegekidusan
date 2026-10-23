@@ -1,5 +1,13 @@
 # ENTERPRISE SOFTWARE SECURITY AUDIT, HARDENING & SECURE IMPLEMENTATION REPORT
 
+> **Superseded — historical record (marked 2026-10-22).** This report (2026-09-27) is retained unchanged as history. Its status line ("production ready / conditionally certified") is **not** an independent certification, and later evidence contradicts several of its statements:
+> - the later remediation audit concludes that the codebase is not production ready (`docs/audits/SSMS_REMEDIATION_AUDIT_2026-10-02.md`);
+> - runtime DDL still exists (`MezmurSchemaReconciler`);
+> - some admin pages load third-party CDN assets.
+>
+> Current security documentation: [docs/SECURITY.md](docs/SECURITY.md).
+
+
 **Target System:** Sunday School Management System (FKSS / WBWS)  
 **Assessment Date:** September 27, 2026  
 **Security Standard:** Enterprise Software Security Engineering Protocol (95-Section Standard)  

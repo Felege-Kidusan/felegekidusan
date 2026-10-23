@@ -1,5 +1,8 @@
 # CI/CD architecture for SSMS
 
+> **Historical design proposal (marked 2026-10-22).** Written on 2026-09-05 as a proposal ("nothing here is built yet"). It is retained unchanged. The CI that actually exists, and its current status, are described in [DEVELOPMENT_AND_TESTING.md](../DEVELOPMENT_AND_TESTING.md).
+
+
 Written for someone new to Git. Every term is explained the first time it
 appears. Nothing here is built yet — this is the design to agree on first.
 

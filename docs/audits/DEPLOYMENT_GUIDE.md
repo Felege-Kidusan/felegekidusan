@@ -1,5 +1,8 @@
 # FKSS Content Management System — Deployment Guide
 
+> **Historical — superseded (marked 2026-10-22).** This guide describes the 2026-09-05 rollout of the content-management feature and is retained unchanged. The current deployment procedure is in [OPERATIONS.md](../OPERATIONS.md).
+
+
 This adds a full content-management system so staff can edit the public website without touching code.
 
 ## What it does

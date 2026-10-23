@@ -1,92 +1,136 @@
-# FKSS — Sunday School Management Platform
+# FKSS — Sunday School Management System
 
-**A production school-management platform for Felege Kidusan (FKSS/WBWS) Sunday schools** — member management, academics, attendance, reporting, communications, and a Flutter mobile app with offline-first sync.
+FKSS (also referred to in the code as SSMS and, in older files, WBWS/WBSS) is the management system of the Felege Kidusan Sunday School. It replaces spreadsheets and paper records for member registration, education (classes, assessments, report cards, timetable, attendance), the Mezmur (hymn) ministry, communications and reporting. Staff use a PHP web application; teachers and department staff also use an Android app built with Flutter that works offline and synchronises with the server.
 
-![Status](https://img.shields.io/badge/status-production-blue) ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?logo=php&logoColor=white) ![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white) ![MySQL](https://img.shields.io/badge/MySQL-8.0%2B-4479A1?logo=mysql&logoColor=white) ![Tests](https://img.shields.io/badge/tests-1%2C301%20passed%20%2F%201%2C347-success) ![CI](https://img.shields.io/badge/CI-active-success)
+> **Status (2026-10-22, `main` = `46fbaa7`).** The system is in production use.
+> - The automated *Backend checks* gate is currently **failing**: 2 failing tests and 79 skipped tests. See [Testing and CI](docs/DEVELOPMENT_AND_TESTING.md#3-current-ci-status).
+> - Production deployments are manual. See [Operations](docs/OPERATIONS.md).
+> - The project is being prepared for an engineering handover. Start with [docs/ENGINEERING_HANDOVER.md](docs/ENGINEERING_HANDOVER.md).
+> - No independent security certification exists.
 
----
+## Principal capabilities
 
-## Branches — read `BRANCHING.md` first
-
-| Branch | Purpose |
+| Area | What exists in the code |
 |---|---|
-| `main` | The system. Identical in `suraman21/SSMS` and the production repo `Felege-Kidusan/felegekidusan`; builds the production phone app **FKSS** (`felegekidusan.com`). |
-| `dev` (`suraman21/SSMS` only) | `main` + **one** commit re‑targeting the phone app at the test server → **FKSS Beta** (`felegekidusan.arkeonethiopia.com`, package `com.arkeonethiopia.fkss.beta`). Always kept current by merging `main` **into** it. |
+| Members | Registration (HR), temporary → permanent promotion, guardian/sibling linking ("Family Link"), import/export, ID cards with QR codes, archiving |
+| Education | Classes, subjects, teacher assignments, enrolment, assessments with a maximum score, submission → review/approval workflow, report cards, timetable builder, school calendar (holidays / days off) |
+| Attendance | Class-day attendance (web and mobile), lesson-level sessions, monthly roll-ups, attendance warnings and department status |
+| Mezmur | Hymn catalogue, lyrics with timing, audio stored in object storage, department attendance and submissions |
+| Communication | Announcements, notifications, threaded messages (web and mobile) |
+| Reporting | Reporting centre with saved views, Excel/PDF exports, department analytics |
+| Administration | Users and roles, branding, app-release manager (APK distribution and update policy), system health, encrypted database backups, failure intelligence and mobile telemetry |
+| Mobile app | Offline cache and outboxes (attendance, grades, HR, Mezmur, messages), background sync, app lock (PIN/biometric), in-app update from the server |
 
-**⛔ `dev` is never merged into `main` and never pushed to the production repo** (owner rule, enforced by `tests/security/test_mobile_target_environment.py` and `.github/workflows/branch-guard.yml`).
+## Technology stack
 
-## Overview
+| Layer | Technology | Evidence |
+|---|---|---|
+| Server runtime | PHP **8.2** in production (shared hosting, LiteSpeed, no shell access, no Composer, no cron assumed). CI lints and tests on PHP 8.4 | `AGENTS.md`, `.github/workflows/backend-checks.yml` |
+| Database | MariaDB (CI: `mariadb:11.4`). Access mostly through **mysqli** (about 150 files), with PDO in a few places | `backend-checks.yml`, `config.php` |
+| PHP libraries | Committed in `vendor/` (PhpSpreadsheet 5.9, OpenSpout, ZipStream). TCPDF and phpqrcode are bundled in `admin/` | `composer.lock` |
+| Web front end | Server-rendered PHP pages with vanilla JavaScript (`admin/js`, `frontend/js`) | — |
+| REST API | `/api/v1`. Custom HMAC-signed bearer tokens (*not* standard JWT) with rotating refresh sessions | [docs/API.md](docs/API.md) |
+| Mobile | Flutter (CI: 3.44.9, stable), Dart ≥ 3.3, `sqflite`, `flutter_secure_storage`, `local_auth`. App version on `main`: **1.7.3+40** | `Mobile/wbws_flutter_app/pubspec.yaml` |
+| Tests | Python `pytest` suites (security, regression, e2e with Python Playwright), PHP harnesses, Flutter unit tests | [docs/DEVELOPMENT_AND_TESTING.md](docs/DEVELOPMENT_AND_TESTING.md) |
+| CI | GitHub Actions: *Backend checks*, *Production integrity*, *Branch guard* | `.github/workflows/` |
 
-FKSS replaces fragmented spreadsheets and paper records with one platform used by HR, Education, Mezmur (hymn ministry), Information, and school administration departments:
-
-- **Web admin** — PHP 8.1+ modular monolith with department workspaces (HR, Education, Mezmur, Info, School Admin, Super Admin), member registration & family linkage, grade entry & report cards, attendance, analytics & export centre, notifications, and branding controls
-- **REST API v1** — JWT auth, rate limiting, CSP/HSTS, role-based access per endpoint
-- **Flutter mobile app** (`fkss_app`) — Android + iOS, **offline-first SQLite sync**, biometric/PIN app lock (PBKDF2, brute-force backoff), report cards, Mezmur playback, resumable APK distribution
-- **Database** — MySQL 8 / MariaDB 10.6+, 49 incremental migrations, views, triggers, audit trails
-
-## Engineering highlights
-
-| Area | What we do |
-|---|---|
-| **Testing** | 1,347 automated tests — 1,301 passed, 0 failed, 46 environment-skipped. Unit + security + contract + E2E (Playwright) + mutation + smoke suites under `tests/` |
-| **CI** | GitHub Actions: `backend-checks` and `production-integrity` workflows gate every change |
-| **Security** | OWASP Top 10 / ASVS / MASVS-mapped audit & hardening — zero runtime DDL, strict exception masking, SRI + CSP + HSTS, secrets outside the webroot with fail-closed startup. Full write-up in [`ENTERPRISE_SECURITY_AUDIT_REPORT.md`](./ENTERPRISE_SECURITY_AUDIT_REPORT.md) |
-| **Engineering process** | Conventional commits, phase planning docs, ADRs, incident reports and observability audits under [`docs/`](./docs) |
-| **Release workflow** | Development happens here → reviewed release PRs → production repository [Felege-Kidusan/felegekidusan](https://github.com/Felege-Kidusan/felegekidusan) (see `docs/PRODUCTION_WORKFLOW.md`) |
-
-## Architecture
+## Architecture at a glance
 
 ```
-┌────────────────────┐     ┌──────────────────────┐     ┌─────────────┐
-│  Flutter mobile     │────▶│  REST API v1 (PHP)    │────▶│  MySQL 8    │
-│  (offline SQLite    │◀────│  JWT · rate limiting  │◀────│  49 migr.   │
-│   sync, app lock)   │     │  role-based access    │     │  audit log  │
-└────────────────────┘     └──────────┬───────────┘     └─────────────┘
-                                      │
-                           ┌──────────▼───────────┐
-                           │  PHP admin web        │
-                           │  HR · Education ·     │
-                           │  Mezmur · Info ·      │
-                           │  School/Super Admin   │
-                           └──────────────────────┘
+ Browser (staff) ──► admin/*.php pages ──► admin/api_*.php  (session + CSRF)
+                     frontend/pages   ──► backend/api/*.php (shims → admin/api_*.php)
+ Android app ──────► /api/v1/{resource}/{id}/{action}  (bearer token)
+                                │
+                     admin/backend/services/*  (shared domain services)
+                                │
+                     MariaDB  ·  object storage (Mezmur media)  ·  Telegram (alerts)
 ```
 
-## Tech stack
+There are **three API layers**; consolidation is unfinished. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing any endpoint.
 
-| Layer | Technologies |
+## Repository layout
+
+| Path | Contents |
 |---|---|
-| Backend | PHP 8.1+, Apache (`mod_rewrite`, `mod_headers`), Composer |
-| API | REST v1, JWT, PDO prepared statements |
-| Mobile | Flutter 3.x / Dart, SQLite offline sync, background producers |
-| Frontend | Vanilla JS + themed PHP views, WCAG-oriented visual analytics engine |
-| Database | MySQL 8 / MariaDB 10.6+, `utf8mb4_unicode_ci` |
-| Tests | pytest, Playwright, custom security/mutation harnesses |
-| CI/CD | GitHub Actions → PR-based production sync |
+| `admin/` | Staff web application: pages, department dashboards, `api_*.php` endpoints, `backend/` services, JS/CSS |
+| `api/v1/` | REST API used by the mobile app |
+| `backend/api/` | Compatibility shims that delegate to `admin/api_*.php`, plus `init.php` (dashboard bootstrap) |
+| `frontend/` | Newer router-style pages (dashboard, Mezmur, finance, education assignments/teachers) |
+| `Mobile/wbws_flutter_app/` | Flutter app (`fkss_app`) |
+| `sql/` | Numbered SQL migrations (`001`–`078`) and `preflight/` read-only checks |
+| `tests/` | `security/`, `e2e/`, `smoke/`, `audit/`, `mutation/`, `js/` |
+| `monitor/`, `app/`, `public_website_frontend/` | Error/uptime monitor, legacy PWA, standalone public site package |
+| `docs/` | Documentation. Start at [docs/README.md](docs/README.md) |
 
-## Getting started
+## Local development (summary)
+
+The full, verified procedure and its caveats are in [docs/DEVELOPMENT_AND_TESTING.md](docs/DEVELOPMENT_AND_TESTING.md).
+
+1. You need:
+   - PHP 8.2 (production parity) or 8.4 (CI parity) with mysqli, pdo_mysql, mbstring, curl, xml, gd, zip and bcmath. These are the extensions CI and `provision_env.sh` install.
+   - MariaDB, Python 3.11 or later, and Flutter for mobile work.
+2. Create a secrets file named `.fkss_env.php` **outside the web root**, using `env.example.php` as the template. `config.php` refuses to start if the file is missing. Never commit it.
+3. Build a disposable test database with `tests/e2e/provision_env.sh`. It is destructive and test-only, and expects Debian/Ubuntu with passwordless `sudo`. **Never run it against production.**
+4. Serve the repository root with PHP's built-in server, as the e2e harnesses do (`php -S 0.0.0.0:8080 -t .`).
+
+## Testing and CI
 
 ```bash
-git clone https://github.com/suraman21/fkss-sunday-school-platform.git
-cd fkss-sunday-school-platform
-composer install
-cp env.example.php /path/outside/webroot/env.php   # secrets live ABOVE the webroot
-# import sql/001_*.sql … 049_*.sql into MySQL, then configure the env file
+python3 -m pytest tests/security -q          # security / regression suite (as in CI)
+cd Mobile/wbws_flutter_app && flutter test     # Flutter unit tests
 ```
 
-> The application **fails closed** if its secrets file is missing — see `config.php` for details.
+Latest CI run on `main` (`46fbaa7`, 2026-10-22):
 
-## Testing
+| Job | Result |
+|---|---|
+| PHP lint | pass (363 files) |
+| Flutter tests | pass (657 tests) |
+| Migration numbering | pass |
+| Android debug APK | pass |
+| Security and regression suite | **fail** (2 failed, 2,793 passed, 79 skipped; the job also fails whenever any test is skipped) |
 
-```bash
-pytest tests/                  # security / audit / contract suites
-npx playwright test            # browser E2E (tests/e2e)
-```
+Details and the work needed to make the gate trustworthy again: [docs/DEVELOPMENT_AND_TESTING.md](docs/DEVELOPMENT_AND_TESTING.md).
+
+## Known limitations (summary)
+
+Each item is VERIFIED unless marked otherwise. Detail and evidence: [ENGINEERING_HANDOVER.md §6](docs/ENGINEERING_HANDOVER.md#6-risk-register-public-summary).
+
+| Area | Limitation | Detail |
+|---|---|---|
+| Security boundaries | Web: PHP session, CSRF token and the role guard in `admin/access_control.php`. Mobile: custom HMAC bearer token (not a JWT). No independent security certification exists | [SECURITY.md](docs/SECURITY.md), [API.md](docs/API.md) |
+| Database and migrations | There is no migration ledger and the applied production schema is unverified. `database_schema.sql` is stale (11 tables). `sql/` cannot be applied linearly to an empty database. Mezmur tables can change at runtime | [DATABASE.md](docs/DATABASE.md) |
+| Runtime versions | CI uses PHP 8.4 while production uses PHP 8.2. Production MariaDB was 11.4 in a 2026-10-02 dump (not re-verified) | [DATABASE.md §1](docs/DATABASE.md#1-engine-and-access) |
+| Deployment | Manual SFTP to shared hosting: no shell, Composer or cron for the application, no staging, no rehearsed rollback. Server-side git metadata is not authoritative | [OPERATIONS.md](docs/OPERATIONS.md) |
+| Release evidence | The CI gate is red and 79 tests are skipped. The Android APK is debug-signed. Mobile 1.7.3+40 is not released | [DEVELOPMENT_AND_TESTING.md](docs/DEVELOPMENT_AND_TESTING.md), [OPERATIONS.md](docs/OPERATIONS.md) |
+| Backups | Backups are kept in the same hosting account; restore has never been tested | [OPERATIONS.md](docs/OPERATIONS.md) |
 
 ## Documentation
 
-Serious engineering write-ups live in [`docs/`](./docs): phased delivery plans (academic tracking, mobile offline sync), incident post-mortems, failure-intelligence and observability audits, responsive audits, and the production workflow.
+| Topic | Canonical document |
+|---|---|
+| Index of all documents | [docs/README.md](docs/README.md) |
+| Engineering handover | [docs/ENGINEERING_HANDOVER.md](docs/ENGINEERING_HANDOVER.md) |
+| Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| API | [docs/API.md](docs/API.md) |
+| Roles and permissions | [docs/ROLES_AND_PERMISSIONS.md](docs/ROLES_AND_PERMISSIONS.md) |
+| Database and migrations | [docs/DATABASE.md](docs/DATABASE.md) |
+| Development, testing, CI | [docs/DEVELOPMENT_AND_TESTING.md](docs/DEVELOPMENT_AND_TESTING.md) |
+| Deployment, backups, mobile release | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
+| Security controls and reporting | [docs/SECURITY.md](docs/SECURITY.md) |
+| Branch rules | [BRANCHING.md](BRANCHING.md) |
+| Release workflow | [docs/PRODUCTION_WORKFLOW.md](docs/PRODUCTION_WORKFLOW.md) |
 
-## Links
+## Contribution, review and release
 
-- **Production:** [Felege-Kidusan/felegekidusan](https://github.com/Felege-Kidusan/felegekidusan)
-- **Security audit:** [`ENTERPRISE_SECURITY_AUDIT_REPORT.md`](./ENTERPRISE_SECURITY_AUDIT_REPORT.md)
+- **Repositories:**
+  - Development happens in `suraman21/fkss-sunday-school-platform`. That repository was formerly named `suraman21/SSMS`, and the old URL redirects to it.
+  - `Felege-Kidusan/felegekidusan` is the private production repository.
+  - Their `main` branches are kept identical.
+- **Beta branch:** `dev` builds the beta mobile app. It is **never** merged into `main`. See [BRANCHING.md](BRANCHING.md).
+- **Changes:** use a feature or documentation branch and a pull request against `main`. Changes to application logic, schema, migrations, deployment or production configuration need the owner's explicit approval.
+- **Migrations:** applied to production manually by the owner.
+- **Deployment:** a manual SFTP upload of the changed files, with a backup and checksum verification. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
+- **Security issues:** do **not** report them in public issues or pull requests. Contact the project owner privately. See [docs/SECURITY.md](docs/SECURITY.md).
+
+No licence file is present in this repository.
