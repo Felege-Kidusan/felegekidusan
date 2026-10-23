@@ -28,7 +28,7 @@ def group(path):
     if path.startswith('Mobile/wbws_flutter_app/') and not any(x in path for x in ('/lib/', '/test/', '/tool/')):
         return 'mobile-platform/assets'
     if Path(path).suffix in SOURCE or Path(path).name == '.htaccess':
-        return 'application-source' if not path.startswith('tools/') else 'test/tooling'
+        return 'application-source' if not path.startswith(('scripts/', 'tools/')) else 'test/tooling'
     return 'asset/configuration'
 
 

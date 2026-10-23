@@ -17,7 +17,7 @@ ROOT CAUSE (proven from the production phpMyAdmin dump):
   • PHP 8.1+ mysqli default report mode raises that as an exception, so
     save_academic_year's outer catch returned the generic message and the
     friendly errno-1062 branch below execute() was unreachable.
-  • Prior art: tools/find_stored_mojibake.php already lists
+  • Prior art: scripts/find_stored_mojibake.php (then tools/) already lists
     academic_years.year_name as a historically double-encoded column.
 
 FIX (pinned here):

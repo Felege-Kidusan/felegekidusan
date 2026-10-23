@@ -15,7 +15,7 @@ class StaticSafetyTests(unittest.TestCase):
         if not cgi:
             self.skipTest('PHP CGI is required to execute HTTP-denial guards independently of Apache.')
         scripts = [*ROOT.glob('tests/smoke/*.php'), ROOT/'tests/e2e/seed.php',
-                   ROOT/'tests/audit/db_fixture.php', ROOT/'tools/find_stored_mojibake.php']
+                   ROOT/'tests/audit/db_fixture.php', ROOT/'scripts/find_stored_mojibake.php']
         for script in scripts:
             with self.subTest(file=str(script.relative_to(ROOT))):
                 env = dict(os.environ, REDIRECT_STATUS='1', REQUEST_METHOD='GET', SCRIPT_FILENAME=str(script))
