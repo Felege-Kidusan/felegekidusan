@@ -34,6 +34,7 @@ This is the procedure actually used, most recently for `46fbaa7` on 2026-10-22, 
    - Recompute checksums of the uploaded server files and compare them with the commit; every file must match.
    - Smoke-check the staff login page (`/admin/index.php`) and the mobile configuration endpoint (`/api/v1/app/config`).
    - Check the error monitor.
+   - Run `python3 scripts/check_live_urls.py --server production` (see [section 2.2](#22-folder-structure-safety-checks)).
 7. **Record** the deployed commit, the file list, the checksum result and any migrations in the owner's deployment log.
 
 ### 2.1 Server folders that Git does not create
@@ -45,6 +46,35 @@ Some folders are deliberately ignored by Git (`.gitignore`) but the code needs t
 | `admin/id_cards/assets/qr/` | ID-card generation and QR renewal (`admin/id_cards/generate_id_card.php`, `IdentityCodeService`) | ID-card generation answers "ID-card generation is temporarily unavailable" and the error log says "The deployment-managed ID-card QR directory is unavailable". This happened on production on 2026-10-23: the folder had never been created there, and it was created that day |
 
 The wider list of writable folders is in [`audits/DEPLOYMENT_RUNBOOK.md`](audits/DEPLOYMENT_RUNBOOK.md) ("Stage 3 — File permissions"). It has not been re-verified against production.
+
+### 2.2 Folder-structure safety checks
+
+These checks protect the folder clean-up ([RFC 0001](rfc/0001-repository-structure.md)). Run them before and after **any** change that moves, renames or deletes files.
+
+**1. In CI (automatic), part of `tests/security`:**
+
+| Test | What it stops |
+|---|---|
+| `test_structure_include_paths.py` | A moved or renamed PHP file that other files still `require`/`include`. Every static link must point to an existing file (760 links at `9dd317f`). Links built from variables (41) are pinned in a reviewed list; a new one fails until someone reviews it |
+| `test_structure_boundaries.py` | (1) Website code loading files from `tests/`, `sql/`, `docs/`, `Mobile/`, `scripts/`, `tools/` or `.github/`. (2) The root `.htaccess` losing its block on those folders, `vendor/` and repository file types. (3) A command-line or cron script in a website folder without a `PHP_SAPI` guard or a `.htaccess` deny. (4) New `.md`, `.sql`, `.sh`, `.py` and similar files inside `admin/`, `api/v1/` or `app/`, where the root block does not reach (those folders have their own rewrite rules) |
+
+Shared code lives in `tests/security/structure_paths.py`.
+
+**2. On the live sites (manual, read-only):**
+
+```
+python3 scripts/check_live_urls.py --server dev
+python3 scripts/check_live_urls.py --server production
+```
+
+- It requests 43 URLs from `scripts/live_urls.json` and compares only the HTTP status: public pages, staff login, API, blocked folders and blocked scripts.
+- It is read-only. It uses GET only, never logs in, never follows redirects and discards page content.
+- **Every request has a unique cache-busting query.** A plain request for a private file through the CDN can make the CDN keep a copy for 30 days. Never probe private files with plain URLs.
+- **Exit codes:** 0 = all as expected; 1 = a real difference; 2 = only transient errors.
+- **Transient errors:** the CDN sometimes answers 520–525 for a single request. The script retries twice and reports leftovers as transient, not as failures.
+- **Known server difference:** `/app/` and `/app/manifest.json` answer differently on production, because production's `app/` folder is managed on the server.
+- **Baseline:** recorded on 2026-10-23 at `9dd317f`; dev and production both 43 of 43.
+- **Changes:** change an expected status only with a reason in the pull request.
 
 **Deployed version:** the repository does not record what is deployed, and nothing on the server reliably records it either. The owner's deployment record is authoritative. Do not infer the deployed version from server-side files.
 
