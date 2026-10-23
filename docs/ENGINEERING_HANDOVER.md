@@ -44,6 +44,7 @@ On `46fbaa7` (run `39744630068`):
 - **Failing:** the security and regression suite: 2 failed, 2,793 passed, 79 skipped.
   - Both failures come from tests whose expectations no longer match deliberate code or comment changes.
   - The skips need a seeded server or `openpyxl` in CI.
+  - Update 2026-10-24: both failures fixed (test-only); the 79 skips remain, so the suite is still red.
 - **Production integrity** and **Branch guard** pass.
 - Details: [DEVELOPMENT_AND_TESTING.md §3](DEVELOPMENT_AND_TESTING.md#3-current-ci-status).
 

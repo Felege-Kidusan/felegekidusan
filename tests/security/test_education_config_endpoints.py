@@ -31,6 +31,7 @@ being stored, rejected, or refused to a role fails against that baseline.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import unittest
@@ -481,9 +482,14 @@ class ReportsStillUseTheBackendPolicyTests(unittest.TestCase):
         # 1.6.10: the renderer is the foldable booklet; it only paints the
         # server's numbers (semester scores, final_percentage, grade) and
         # must never compute or weight anything itself.
-        for forbidden in ("s1_weight", "s2_weight", "* 0.", "/ 2"):
+        for forbidden in ("s1_weight", "s2_weight", "* 0."):
             self.assertNotIn(forbidden, src,
                              "the report card must display, not calculate: %r" % forbidden)
+        # Division by two. A "/" straight after another "/" is a JavaScript
+        # line comment (for example "// 2026-10-22"), never a division, so it
+        # is not counted.
+        self.assertIsNone(re.search(r"(?<!/)/ 2", src),
+                          "the report card must display, not calculate: '/ 2'")
         self.assertIn("final_percentage", src,
                       "the renderer paints the backend's final figure")
 

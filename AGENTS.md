@@ -29,7 +29,7 @@ Documentation index: **`docs/README.md`**; engineering handover:
 - Never touch the production database or server; never force‑push.
 - Run `python3 -m pytest tests -q --ignore=tests/mutation` and
   `flutter test` before committing; both must be green for the code you
-  touched. CI on `main` currently has known failures and skips — see
+  touched. CI on `main` currently has known skips — see
   `docs/DEVELOPMENT_AND_TESTING.md`; report results truthfully and never
   claim a green gate that did not run.
 - This repository is public: never commit member data, credentials,

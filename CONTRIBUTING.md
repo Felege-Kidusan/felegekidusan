@@ -82,7 +82,7 @@ Recommended first reads, in order: [PRD](docs/product/PRD.md) → [Technical des
   cd Mobile/wbws_flutter_app && flutter test
   ```
 - Add or update tests for every behaviour change, especially authorization (one test per role that must be refused), personal-data exposure and validation rules.
-- **Known state:** *Backend checks* currently fails on `main` (2 known failures, 79 skips). Your PR must not add failures or unexplained skips. Fixing the known ones is welcome ([DEVELOPMENT_AND_TESTING.md §3](docs/DEVELOPMENT_AND_TESTING.md#3-current-ci-status)).
+- **Known state:** *Backend checks* currently fails on `main` because 79 tests are skipped (the 2 known failures were fixed on 2026-10-24). Your PR must not add failures or unexplained skips. Fixing the known ones is welcome ([DEVELOPMENT_AND_TESTING.md §3](docs/DEVELOPMENT_AND_TESTING.md#3-current-ci-status)).
 - Never weaken or delete a test to make CI pass without an agreed reason in the PR.
 
 ## 7. Documentation
