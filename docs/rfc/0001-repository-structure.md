@@ -1,0 +1,90 @@
+# RFC 0001: Repository structure and root clean-up
+
+| | |
+|---|---|
+| **Status** | Proposed (2026-10-23). Nothing in this RFC has been implemented |
+| **Author** | Engineering (documentation pass) |
+| **Decision owner** | Project owner, with the technical team |
+| **Evidence base** | `main` at `46fbaa7`: `git ls-files`, `.htaccess` rules, and a reference search for every path named below |
+
+## 1. Summary
+
+The repository root has about 40 entries: web entry points, legacy folders, a vendored dependency tree, tooling and documents side by side. Reviewers read this as disorder. This RFC proposes a **phased** clean-up that first changes **nothing the running site depends on**, and only later, with testing and an approved deployment, moves code.
+
+## 2. Constraints (why we cannot just move folders)
+
+| Constraint | Evidence | Consequence |
+|---|---|---|
+| The repository root **is** the web root on shared hosting, deployed by file upload | [OPERATIONS.md §2](../OPERATIONS.md#2-code-deployment-manual-sftp) | Every move changes a public URL |
+| Printed member ID cards carry QR codes that open `member.php` | `member.php` header; referenced from 63 files, including the app's QR scanner (`Mobile/wbws_flutter_app/lib/services/qr_attendance.dart`) | `member.php` must keep its URL **permanently** |
+| Installed Android builds call fixed paths (`/api/v1/...`) and cannot be updated remotely | [ADR-0005](../adr/0005-direct-apk-distribution.md) | API paths are frozen for the life of field builds |
+| `frontend/js/*` calls `backend/api/*` shims | [API.md §1](../API.md#1-entry-points) | Shims stay until callers are migrated |
+| No Composer on the host | [ADR-0001](../adr/0001-php-monolith-on-shared-hosting.md) | `vendor/` is committed on purpose (it is listed in `.gitignore`, but its files are tracked) |
+| Tests assert on root paths | `tests/security/test_deployment_tool_hardening.py`, `test_id_card_subsystem_hardening.py` reference `leak_detector.php` and `branding_defaults.php` | Any move updates tests in the same change |
+| Access rules are path-based | `.htaccess` line 48 denies `sql`, `docs`, `tests`, `scripts`, `tools`, `vendor`, `Mobile`, `.github` | Moving a file into or out of these folders changes whether the web can reach it |
+
+## 3. Current root inventory
+
+| Entry | What it is | Proposal |
+|---|---|---|
+| `index.php`, `member.php`, `public_gallery.php`, `register_submit.php`, `robots.txt`, `.htaccess` | Public web entry points | **Keep** (URLs) |
+| `config.php`, `school_config.php`, `branding_defaults.php`, `env.example.php` | Configuration loaded by every request | **Keep** (included by path) |
+| `admin/`, `api/`, `backend/`, `frontend/`, `app/`, `monitor/`, `themes/`, `css/`, `js/`, `uploads/` | Application code and assets served by the web | **Keep** in Phase 1; see Phase 3 |
+| `sql/`, `tests/`, `docs/`, `scripts/`, `tools/`, `Mobile/`, `.github/` | Non-web material, already blocked from the web | **Keep** |
+| `vendor/`, `composer.json`, `composer.lock` | PHP libraries, committed for shared hosting | **Keep**; document why (Phase 0) |
+| `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `BRANCHING.md`, `.editorconfig`, `.gitignore` | Standard project files | **Keep** |
+| `ENTERPRISE_SECURITY_AUDIT_REPORT.md` | Superseded audit (2026-09-27), kept as history | **Move** to `docs/audits/` (Phase 1) |
+| `database_schema.sql` | Legacy, partial schema (11 tables) | **Move** to `sql/legacy/` with a README (Phase 1); 15 files reference it |
+| `leak_detector.php` | Branding check run after deployment | **Review** (Phase 1); referenced by `admin/access_control.php` and tests |
+| `index.html` | Static page alongside `index.php` | **Review** (Phase 1); confirm whether the server ever serves it |
+| `cgi-bin/` | Hosting-created folder (`Options -Indexes` only) | **Keep** (hosting artifact) |
+| `public_website_frontend/` | A standalone copy of the landing site; no code references it, it is not blocked from the web, and it has already drifted (its `public_gallery.js` differs from `js/public_gallery.js`) | **Decide** (Phase 1): remove from the tree, or move under `docs/` as an archived design reference |
+
+## 4. Proposal
+
+### Phase 0: explain, do not move (documentation only; no deployment)
+
+- Keep the **Repository layout** section of `README.md` as the single map of the root, and add the reasons above (web root, frozen URLs, committed `vendor/`).
+- Adopt this RFC process (`docs/rfc/`) for structural changes.
+
+**Risk:** none. **Rollback:** not needed.
+
+### Phase 1: tidy non-runtime files (small pull requests; one move each)
+
+Each item is its own pull request containing the move, every reference update, and passing tests:
+1. `ENTERPRISE_SECURITY_AUDIT_REPORT.md` → `docs/audits/2026-09-27-enterprise-security-audit.md` (update 2 links; content unchanged).
+2. `database_schema.sql` → `sql/legacy/database_schema.sql` (update 15 references; check that no tool loads it by path).
+3. `public_website_frontend/`: owner decides between removal and archiving; first confirm whether a copy exists on the server.
+4. `index.html` and `leak_detector.php`: confirm their use, then keep or move with references and tests updated.
+
+**Risk:** low; these files are not part of normal page loads. **Deployment:** items 2–4 change files on the server and need an approved deployment; item 1 does not. **Rollback:** revert the pull request.
+
+### Phase 2: per-folder guidance
+
+- A short README in each top-level code folder, **only** where the web server cannot serve it (or with a deny rule added in the same change), so that documentation does not become a public file.
+
+**Risk:** low, but touches `.htaccess`, so it needs review and an approved deployment.
+
+### Phase 3: long-term structure (separate RFCs; not before the API consolidation)
+
+- Retire `backend/api/*` shims after `frontend/js/*` is migrated to the admin endpoints.
+- Move application code under a single `src/` (or `app/`) with autoloading, leaving only entry points at the web root.
+- Separate a `public/` web root from code, if the hosting allows setting the document root.
+
+**Risk:** high; affects every request. Requires full regression testing, a staged rollout and a rollback plan.
+
+## 5. Non-goals
+
+- No moves before the technical review meeting.
+- No change to public URLs, API paths or the database.
+- No removal of historical evidence. Files are moved with `git mv`, so their history is kept.
+
+## 6. Open questions for the owner
+
+1. Is `public_website_frontend/` still needed, and is a copy deployed?
+2. Is `index.html` ever served instead of `index.php`? `.htaccess` sets no `DirectoryIndex`, so the hosting default decides which file answers `/`, and `robots.txt` explicitly allows `/index.html`. Check with a request to the live site before changing either file.
+3. Is it possible to set a separate document root on the current hosting (affects Phase 3)?
+
+## 7. Decision
+
+*Pending.* Record the outcome here (accepted, accepted with changes, or rejected), with the date. If accepted, record any resulting architectural decision as an ADR in [`docs/adr/`](../adr/README.md).

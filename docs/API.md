@@ -60,24 +60,24 @@ The 17 resources below are mapped in `api/v1/index.php`. `attendance_warnings.ph
 | Resource | Actions / sub-paths found in the route file |
 |---|---|
 | `auth` | `login`, `logout`, `refresh-token`, `verify` |
-| `members` | GET list/detail, POST, PUT (field shaping by role) |
+| `members` | GET list and detail, PUT, `attendance`, `attendance-risk`, `department-status` (GET/POST); field shaping by role. There is no POST: members are never registered through the API (the route file's header comment still lists one) |
 | `attendance` | `submit`, `summary`, `daily-stats`; warnings via `attendance_warnings.php` |
 | `classes` | GET |
 | `dashboard` | `stats`, `recent` |
 | `teachers` | GET |
 | `enrollment` | `overview`, `search`, POST |
 | `subjects` | GET |
-| `users` | `me`, `profile-update`, `profile-image`, `change-password`, `update`; admin GET/POST/PUT/PATCH/DELETE |
+| `users` | Self-service only: `me` (GET; PATCH/PUT/POST to update, aliases `profile-update` and `update`), `me/profile-image` (GET/POST/DELETE, alias `profile-image`), `change-password` |
 | `grades` | `bootstrap`, `subjects`, `students`, `assessments`, `assessment-types`, `types`, `save`, `submit`, `submission`, `submissions`, `submission-review`, `student-results`, `summary`, `followups` |
 | `app` | `config` (update policy), `download` (APK) |
-| `telemetry` | `event` |
+| `telemetry` | POST only: `/telemetry`, `heartbeat`, `event` (public, rate limited) |
 | `mezmur` | `hymns`, `hymn`, `hymn-status`, `categories`, `category`, `category-status`, `category-image`, `category-image-remove`, `lyrics-synced`, `audio-presign`, `audio-confirm`, `audio`, `audio-remove`, `art`, `art-remove`, `sections`, `days`, `sheet`, `submission`, `submissions`, `submission-review`, `analytics` |
-| `hr` | `sheet`, `submission-review` |
+| `hr` | **Retired.** Every path answers `410 HR_ATTENDANCE_RETIRED` (decisions of 2026-10-07 and 2026-10-18) |
 | `notifications` | `feed`, `summary`, `announcements`, `announcement-read`, `compose`, `targets`, `partners`, `threads`, `thread`, `thread-start`, `thread-read`, `send-message`, `message-edit`, `message-delete`, `mark-read`, `mark-all-read` |
 | `sync` | `changes`, `state` |
-| `timetable` | read endpoints for the teacher timetable (see the route file) |
+| `timetable` | `week`, `today` (GET only) |
 
-The action names above were extracted from the route files with a pattern search. Some routes branch on the HTTP method without an action name. **The route file is the source of truth.**
+The table was re-checked against the route code on 2026-10-23 (each `if ($method …)` branch, not only header comments). The full list of 117 operations is in [`api/openapi.yaml`](api/openapi.yaml). Some routes branch on the HTTP method without an action name. **The route file is the source of truth.**
 
 ## 5. Admin endpoints (`admin/api_*.php`)
 
@@ -97,6 +97,6 @@ The 46 files, grouped by domain:
 
 ## 6. Unresolved and open items
 
-- There is no machine-readable contract (OpenAPI) and no contract tests between `admin/api_*` and `api/v1` for shared rules.
+- A machine-readable contract for `/api/v1` now exists: [`api/openapi.yaml`](api/openapi.yaml) (OpenAPI 3.1, added 2026-10-23). It covers paths, methods, authentication and envelopes; most bodies are summarised. There is still no OpenAPI for `admin/api_*`, and no contract tests between the two layers for shared rules.
 - The deprecation plan for `backend/api/*` shims is undocumented. Unknown: whether any external caller uses them besides `frontend/`.
 - The per-action authorization inside each `admin/api_*.php` file is not tabulated (see [ROLES_AND_PERMISSIONS.md](ROLES_AND_PERMISSIONS.md)).
