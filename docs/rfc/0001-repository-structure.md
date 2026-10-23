@@ -36,7 +36,7 @@ The repository root has about 40 entries: web entry points, legacy folders, a ve
 | `ENTERPRISE_SECURITY_AUDIT_REPORT.md` | Superseded audit (2026-09-27), kept as history | **Move** to `docs/audits/` (Phase 1) |
 | `database_schema.sql` | Legacy, partial schema (11 tables) | **Move** to `sql/legacy/` with a README (Phase 1); 15 files reference it |
 | `leak_detector.php` | Branding check run after deployment | **Review** (Phase 1); referenced by `admin/access_control.php` and tests |
-| `index.html` | Static page alongside `index.php` | **Review** (Phase 1); confirm whether the server ever serves it |
+| `index.html` | Static page alongside `index.php` | **Removed** (2026-10-23): never served at `/`, no requests in the October access logs, no references |
 | `cgi-bin/` | Hosting-created folder (`Options -Indexes` only) | **Keep** (hosting artifact) |
 | `public_website_frontend/` | A standalone copy of the landing site; no code references it, it is not blocked from the web, and it has already drifted (its `public_gallery.js` differs from `js/public_gallery.js`) | **Decide** (Phase 1): remove from the tree, or move under `docs/` as an archived design reference |
 
@@ -82,7 +82,7 @@ Each item is its own pull request containing the move, every reference update, a
 ## 6. Open questions for the owner
 
 1. Is `public_website_frontend/` still needed, and is a copy deployed?
-2. Is `index.html` ever served instead of `index.php`? `.htaccess` sets no `DirectoryIndex`, so the hosting default decides which file answers `/`, and `robots.txt` explicitly allows `/index.html`. Check with a request to the live site before changing either file.
+2. Is `index.html` ever served instead of `index.php`? `.htaccess` sets no `DirectoryIndex`, so the hosting default decides which file answers `/`, and `robots.txt` explicitly allows `/index.html`. Check with a request to the live site before changing either file. **Answered 2026-10-23:** both servers serve `index.php` at `/`; `index.html` had no requests in the October access logs. It was removed and the `robots.txt` line dropped.
 3. Is it possible to set a separate document root on the current hosting (affects Phase 3)?
 
 ## 7. Decision
@@ -99,7 +99,7 @@ Each item is its own pull request containing the move, every reference update, a
 | `public_website_frontend/` | **Removed** | No PHP, JavaScript, mobile, test, CI or server-rule reference; the live homepage is `index.php` with the root `css/` and `js/`; 0 requests in the available access logs (21–23 Oct 2026) |
 | `backend/id_cards/libs/` | **Removed** (26 files) | Byte-identical to `admin/id_cards/libs/`. The two `backend/id_cards/` shims load the `admin/` pages, which include libraries with `__DIR__`, so the `admin/` copy is always used. No relative `libs/` include exists. Unlike the `admin/` copy, this folder was not denied by the web server, so its demo script `phpqrcode/index.php` (which writes files from request data) was publicly runnable |
 
-Found during the analysis, not changed (outside Phase 1): `index.html` at the root is an old page with the previous school name and is still reachable at `/index.html`; the live homepage is served by `index.php`. Recommended for Phase 2.
+Found during the analysis, not changed (outside Phase 1): `index.html` at the root is an old page with the previous school name and is still reachable at `/index.html`; the live homepage is served by `index.php`. Recommended for Phase 2. Removed on 2026-10-23.
 
 ## 8. Option 1: tidy without moving web files
 
