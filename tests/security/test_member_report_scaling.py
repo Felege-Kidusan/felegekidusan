@@ -32,7 +32,9 @@ class MemberReportScalingTests(unittest.TestCase):
 
     def test_service_has_a_hard_5000_row_bound_and_unbuffered_mysql_cursor(self):
         self.assertIn("public const MAX_ROWS = 5000", self.service)
-        self.assertIn("PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false", self.service)
+        # Unbuffered MySQL cursor, PHP 8.2-8.5 compatible (Pdo\\Mysql from 8.4).
+        self.assertIn("\\Pdo\\Mysql::ATTR_USE_BUFFERED_QUERY", self.service)
+        self.assertIn("setAttribute($bufferedAttr, false)", self.service)
         self.assertIn("LIMIT \" . self::MAX_ROWS", self.service)
         self.assertIn("ORDER BY `student_name` ASC, `father_name` ASC, `id` ASC", self.service)
         self.assertIn("$format === 'csv' ? self::ROW_COLUMNS : self::PRINT_COLUMNS", self.service)
