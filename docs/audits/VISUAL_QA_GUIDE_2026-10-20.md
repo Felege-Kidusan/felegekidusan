@@ -1,6 +1,6 @@
 # Visual QA Guide — what changed on the dashboards and how to see it
 
-> **Historical (2026-10-20).** A point-in-time guide for one release. It was written in an AI-assisted session, and section 5 is a conversational offer that no longer applies. For current behaviour, see [docs/README.md](README.md) and the canonical documents. Content is preserved unchanged below.
+> **Historical (2026-10-20).** A point-in-time guide for one release. It was written in an AI-assisted session, and section 5 is a conversational offer that no longer applies. For current behaviour, see [docs/README.md](../README.md) and the canonical documents. Content is preserved unchanged below.
 
 _For the owner. Covers everything shipped since the attendance‑alerting work began (2026‑10‑19 → 2026‑10‑20): Attendance Alerting Phases 1–6, Analytics Hub / HR change, Reporting Centre V2, dashboard card fix, production‑readiness audit, Timetable (web T‑1 + mobile T‑3). Facts come from the repo at `e9e996a`._
 

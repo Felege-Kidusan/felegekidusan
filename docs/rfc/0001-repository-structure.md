@@ -117,7 +117,12 @@ Decisions:
 | 1 | Safety checks: include-path and boundary tests, live URL checker ([OPERATIONS.md §2.2](../OPERATIONS.md#22-folder-structure-safety-checks)) | Done (PR #16) |
 | 2a | `tools/` (3 CLI scripts) → `scripts/` | Done in the repository. Production still has the old `public_html/tools/` copy (blocked from the web); moving it to a backup folder waits for the owner |
 | 2b | `admin/migrations/` and `backend/migrations/` (19 old PHP migrations) → `sql/legacy/php-migrations/admin/` and `…/backend/` | Done in the repository, moved unchanged (they can no longer run from the new folder, by design). Production still has the old copies (blocked from the web); moving them to a backup folder waits for the owner |
-| 2c | Sort loose files in `docs/` into topic folders | Planned |
+| 2c | Sort loose files in `docs/` into topic folders | Done. 33 historical records moved into `mobile_offline_sync/`, `academic_tracking/`, `communication/`, `responsive_ui/`, `attendance/`, `incidents/` and `audits/`; the 16 main guides stay at the top of `docs/`. Links fixed; new CI test `test_docs_links.py` checks every relative Markdown link |
 | 2d | Folder guides (README per top-level folder) and naming rules | Planned |
 
-Known outdated comment (fix with the next real change to that file): `admin/backend/services/AttendanceRiskService.php` line 53 still says `tools/attendance_rollout_2026.php`.
+Known outdated comments (fix each with the next real change to that file; they are comments only and change no behaviour):
+- `admin/backend/services/AttendanceRiskService.php` line 53 still says `tools/attendance_rollout_2026.php` (now `scripts/`).
+- `admin/components/notification_center.php` line 6 still says `docs/COMMUNICATION_UX_OVERHAUL.md` (now `docs/communication/`).
+- `Mobile/wbws_flutter_app/android/app/src/main/kotlin/com/arkeonethiopia/fkss/BackgroundSyncProducer.kt` line 45 still says `docs/MOBILE_OFFLINE_SYNC_S3_A8_PHASE1_ANDROID_BACKGROUND_PRODUCER_ADR.md` (now `docs/mobile_offline_sync/`).
+
+`sql/042_notification_center.sql` line 6 mentions `docs/NOTIFICATION_SYSTEM_OVERHAUL.md` (now `docs/communication/`). It is an applied migration, a dated record, so it is not changed.

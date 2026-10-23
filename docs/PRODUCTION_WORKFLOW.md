@@ -4,7 +4,7 @@
 > defines how code travels from development to production, who approves it,
 > and what CI enforces. Application configuration, domains and deployment
 > are deliberately unchanged in Step 1 — see
-> [PRODUCTION_MIGRATION_NOTES.md](PRODUCTION_MIGRATION_NOTES.md).
+> [PRODUCTION_MIGRATION_NOTES.md](audits/PRODUCTION_MIGRATION_NOTES.md).
 
 ## Current state (verified 2026-10-22)
 
@@ -154,7 +154,7 @@ post-deploy health verification             (runbook STAGE 5)
 
 ## Related documents
 
-- `docs/PRODUCTION_MIGRATION_NOTES.md` — inventory of migration discoveries, intentionally unchanged
+- `docs/audits/PRODUCTION_MIGRATION_NOTES.md` — inventory of migration discoveries, intentionally unchanged
 - `docs/ci_cd/ARCHITECTURE.md`, `docs/ci_cd/GIT_CHEATSHEET.md` — development workflow
 - `docs/audits/DEPLOYMENT_RUNBOOK.md` — server-side go-live procedure
 - `Mobile/HOW_TO_SHIP_AN_UPDATE.md` — current manual deployment procedure

@@ -59,8 +59,8 @@ No historical document has been deleted. Git history is the archive.
 |---|---|
 | [DATABASE.md](DATABASE.md): engine, migration rules, inventory `001`–`078`, unverified applied state | **Canonical** |
 | [DATA_DICTIONARY.md](DATA_DICTIONARY.md): every table by domain, where it is defined, core ERD, declared foreign keys | **Canonical** (table level; from source, not production) |
-| [PRODUCTION_MIGRATION_NOTES.md](PRODUCTION_MIGRATION_NOTES.md) | Historical (2026-10-06 inventory of discoveries) |
-| [INCIDENT_2026-10-03_TRACKING_SCHEMA.md](INCIDENT_2026-10-03_TRACKING_SCHEMA.md) | Historical (incident record) |
+| [PRODUCTION_MIGRATION_NOTES.md](audits/PRODUCTION_MIGRATION_NOTES.md) | Historical (2026-10-06 inventory of discoveries) |
+| [INCIDENT_2026-10-03_TRACKING_SCHEMA.md](incidents/INCIDENT_2026-10-03_TRACKING_SCHEMA.md) | Historical (incident record) |
 
 ## 5. Security
 
@@ -81,7 +81,7 @@ Open findings are tracked in a restricted register held by the owner, not in thi
 | [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md): setup, suites, current CI failures and skips, acceptance policy | **Canonical** |
 | [TEST_STRATEGY.md](TEST_STRATEGY.md): test levels, coverage by risk, quality gates, path to a green pipeline | **Canonical** (proposed baseline 2026-10-23) |
 | [tests/audit/README.md](../tests/audit/README.md) | Reference |
-| [VISUAL_QA_GUIDE_2026-10-20.md](VISUAL_QA_GUIDE_2026-10-20.md) | Historical (manual QA guide for one release) |
+| [VISUAL_QA_GUIDE_2026-10-20.md](audits/VISUAL_QA_GUIDE_2026-10-20.md) | Historical (manual QA guide for one release) |
 | [ci_cd/ARCHITECTURE.md](ci_cd/ARCHITECTURE.md) | **Superseded** (design proposal, 2026-09-05) |
 | [ci_cd/SEARCH_LOAD_AND_ERRORS.md](ci_cd/SEARCH_LOAD_AND_ERRORS.md) | Historical (P43) |
 
@@ -102,13 +102,15 @@ Open findings are tracked in a restricted register held by the owner, not in thi
 
 These records explain why features look the way they do. Check the code before relying on any statement in them.
 
+On 2026-10-23 they moved from the top of `docs/` into topic folders ([RFC 0001](rfc/0001-repository-structure.md) step 2c), with file names unchanged. Each folder has a short README. Paths written inside the records still show their old place directly under `docs/`.
+
 | Area | Documents |
 |---|---|
-| Academic tracking | [Phase 0](ACADEMIC_TRACKING_PHASE0.md), [1](ACADEMIC_TRACKING_PHASE1.md), [2](ACADEMIC_TRACKING_PHASE2.md), [3](ACADEMIC_TRACKING_PHASE3.md), [4](ACADEMIC_TRACKING_PHASE4.md), [5](ACADEMIC_TRACKING_PHASE5.md) |
-| Attendance | [ATTENDANCE_REWORK_2026-10.md](ATTENDANCE_REWORK_2026-10.md); attendance-alerting and class-day documents under [planning/](planning/README.md) |
-| Communication | [NOTIFICATION_SYSTEM_OVERHAUL.md](NOTIFICATION_SYSTEM_OVERHAUL.md), [COMMUNICATION_UX_OVERHAUL.md](COMMUNICATION_UX_OVERHAUL.md), [MOBILE_COMMUNICATION_PARITY.md](MOBILE_COMMUNICATION_PARITY.md) |
-| Mobile offline sync (S0–S3) | [S0 audit](MOBILE_OFFLINE_SYNC_S0_AUDIT.md), [S0.5/S1a](MOBILE_OFFLINE_SYNC_S0_5_S1A_VERIFICATION.md), [S1](MOBILE_OFFLINE_SYNC_S1_OBSERVABILITY.md), [S2 F-20](MOBILE_OFFLINE_SYNC_S2_BACKGROUND_F20.md), [S2 A.1](MOBILE_OFFLINE_SYNC_S2_A1_BACKGROUND_CORE.md), [A.2](MOBILE_OFFLINE_SYNC_S2_A2_TRIGGER_WIRING.md), [A.3](MOBILE_OFFLINE_SYNC_S2_A3_READINESS_AUDIT.md), [A.4](MOBILE_OFFLINE_SYNC_S2_A4_OPPORTUNITY_WIRING.md), [A.5](MOBILE_OFFLINE_SYNC_S2_A5_TEST_SEAM.md), [A.6](MOBILE_OFFLINE_SYNC_S2_A6_MIGRATION_RUNTIME.md), [A.7](MOBILE_OFFLINE_SYNC_S2_A7_HYMN_ATTEMPT_LEDGER.md), [S3 A.8](MOBILE_OFFLINE_SYNC_S3_A8_ANDROID_BACKGROUND_PRODUCER.md), [A.8 ADR](MOBILE_OFFLINE_SYNC_S3_A8_PHASE1_ANDROID_BACKGROUND_PRODUCER_ADR.md), [A.9](MOBILE_OFFLINE_SYNC_S3_A9_ANDROID_BUILD_VERIFICATION.md), [A.10 / F-19](MOBILE_OFFLINE_SYNC_F19_DEPENDENCY_LOCKFILE_REMEDIATION.md), [A.11](MOBILE_OFFLINE_SYNC_A11_DART_SQLITE_RUNTIME_VERIFICATION.md), [A.12](MOBILE_OFFLINE_SYNC_S3_A12_ANDROID_COLD_START.md), [A.13](MOBILE_OFFLINE_SYNC_S3_A13_PRODUCTION_RUNTIME_VERIFICATION.md) |
-| Responsive UI | [RESPONSIVE_AUDIT_FILE_BY_FILE.md](RESPONSIVE_AUDIT_FILE_BY_FILE.md), [RESPONSIVE_BOTTOM_NAV_FIX.md](RESPONSIVE_BOTTOM_NAV_FIX.md), [education/MOBILE_RESPONSIVE_P70.md](education/MOBILE_RESPONSIVE_P70.md), [mezmur_player/DASHBOARD_RESPONSIVE_P68.md](mezmur_player/DASHBOARD_RESPONSIVE_P68.md) |
+| Academic tracking | [Phase 0](academic_tracking/ACADEMIC_TRACKING_PHASE0.md), [1](academic_tracking/ACADEMIC_TRACKING_PHASE1.md), [2](academic_tracking/ACADEMIC_TRACKING_PHASE2.md), [3](academic_tracking/ACADEMIC_TRACKING_PHASE3.md), [4](academic_tracking/ACADEMIC_TRACKING_PHASE4.md), [5](academic_tracking/ACADEMIC_TRACKING_PHASE5.md) |
+| Attendance | [ATTENDANCE_REWORK_2026-10.md](attendance/ATTENDANCE_REWORK_2026-10.md); attendance-alerting and class-day documents under [planning/](planning/README.md) |
+| Communication | [NOTIFICATION_SYSTEM_OVERHAUL.md](communication/NOTIFICATION_SYSTEM_OVERHAUL.md), [COMMUNICATION_UX_OVERHAUL.md](communication/COMMUNICATION_UX_OVERHAUL.md), [MOBILE_COMMUNICATION_PARITY.md](communication/MOBILE_COMMUNICATION_PARITY.md) |
+| Mobile offline sync (S0–S3) | [S0 audit](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S0_AUDIT.md), [S0.5/S1a](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S0_5_S1A_VERIFICATION.md), [S1](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S1_OBSERVABILITY.md), [S2 F-20](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S2_BACKGROUND_F20.md), [S2 A.1](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S2_A1_BACKGROUND_CORE.md), [A.2](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S2_A2_TRIGGER_WIRING.md), [A.3](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S2_A3_READINESS_AUDIT.md), [A.4](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S2_A4_OPPORTUNITY_WIRING.md), [A.5](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S2_A5_TEST_SEAM.md), [A.6](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S2_A6_MIGRATION_RUNTIME.md), [A.7](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S2_A7_HYMN_ATTEMPT_LEDGER.md), [S3 A.8](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S3_A8_ANDROID_BACKGROUND_PRODUCER.md), [A.8 ADR](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S3_A8_PHASE1_ANDROID_BACKGROUND_PRODUCER_ADR.md), [A.9](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S3_A9_ANDROID_BUILD_VERIFICATION.md), [A.10 / F-19](mobile_offline_sync/MOBILE_OFFLINE_SYNC_F19_DEPENDENCY_LOCKFILE_REMEDIATION.md), [A.11](mobile_offline_sync/MOBILE_OFFLINE_SYNC_A11_DART_SQLITE_RUNTIME_VERIFICATION.md), [A.12](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S3_A12_ANDROID_COLD_START.md), [A.13](mobile_offline_sync/MOBILE_OFFLINE_SYNC_S3_A13_PRODUCTION_RUNTIME_VERIFICATION.md) |
+| Responsive UI | [RESPONSIVE_AUDIT_FILE_BY_FILE.md](responsive_ui/RESPONSIVE_AUDIT_FILE_BY_FILE.md), [RESPONSIVE_BOTTOM_NAV_FIX.md](responsive_ui/RESPONSIVE_BOTTOM_NAV_FIX.md), [education/MOBILE_RESPONSIVE_P70.md](education/MOBILE_RESPONSIVE_P70.md), [mezmur_player/DASHBOARD_RESPONSIVE_P68.md](mezmur_player/DASHBOARD_RESPONSIVE_P68.md) |
 | Mezmur (web) | [LYRICS_SYNC.md](mezmur_player/LYRICS_SYNC.md), [KARAOKE_SYNC_AUDIT_P50.md](mezmur_player/KARAOKE_SYNC_AUDIT_P50.md), [KARAOKE_SYNC_FIX_P50.md](mezmur_player/KARAOKE_SYNC_FIX_P50.md), [LYRICS_ANIMATION_P51.md](mezmur_player/LYRICS_ANIMATION_P51.md), [LYRICS_ACCESSIBILITY_P52.md](mezmur_player/LYRICS_ACCESSIBILITY_P52.md), [LYRICS_SPOTIFY_STYLE_P53.md](mezmur_player/LYRICS_SPOTIFY_STYLE_P53.md), [HYMN_ART_P66.md](mezmur_player/HYMN_ART_P66.md), [PLAYER_UI_P67.md](mezmur_player/PLAYER_UI_P67.md) |
 | Mezmur (mobile) | [Mobile/wbws_flutter_app/docs/mezmur_player/](../Mobile/wbws_flutter_app/docs/mezmur_player/), [mobile audits](../Mobile/wbws_flutter_app/docs/audits/) |
 | Mobile (other) | [Mobile/TEACHER_APP_WEAKNESS_REPORT.md](../Mobile/TEACHER_APP_WEAKNESS_REPORT.md) (historical working note) |
