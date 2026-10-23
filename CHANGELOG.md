@@ -9,6 +9,7 @@ A curated history of notable changes to FKSS, newest first.
 
 ## Unreleased
 
+- Repository structure, Phase 1 ([RFC 0001](docs/rfc/0001-repository-structure.md)): the superseded 2026-09-27 audit report moved to `docs/audits/`; `database_schema.sql` moved to `sql/legacy/`; removed the unused copy `public_website_frontend/`, the duplicate root `leak_detector.php` (the working copy stays in `admin/`), and the duplicate QR library `backend/id_cards/libs/` (also closes a publicly runnable demo script). No URL used by the site, the API or the app changed.
 - Documentation: engineering handover, reconciled system knowledge report, reconstructed PRD, technical design, decision records, glossary, changelog and contributing guide (documentation pull requests; not merged at the time of writing).
 
 ## Production deployment record

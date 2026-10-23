@@ -5,7 +5,7 @@
 > - runtime DDL still exists (`MezmurSchemaReconciler`);
 > - some admin pages load third-party CDN assets.
 >
-> Current security documentation: [docs/SECURITY.md](docs/SECURITY.md).
+> Current security documentation: [docs/SECURITY.md](../SECURITY.md).
 
 
 **Target System:** Sunday School Management System (FKSS / WBWS)  

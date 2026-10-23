@@ -21,7 +21,7 @@
 | Source | What it is | Reliability |
 |---|---|---|
 | `sql/NNN_*.sql` (76 files, `001`–`078`) | Hand-written, mostly additive and idempotent migrations. The owner applies them in phpMyAdmin | Authoritative for **intended** changes. Applied state unknown (section 4) |
-| `database_schema.sql` | Legacy snapshot with **11** tables (`users`, `members`, `wbws_groups`, `wbws_group_leaders`, `cache_storage`, `departments`, `staff_positions`, `member_staff_positions`, `member_code_migrations`, `member_code_sequences`, `member_type_settings`) | **Stale.** Line 10 says it "documents all tables", which is incorrect. Its `users.role` enum lists 6 roles, while the application accepts 13. Not the current schema; used only as the first step of `tests/e2e/provision_env.sh` |
+| `sql/legacy/database_schema.sql` | Legacy snapshot with **11** tables (`users`, `members`, `wbws_groups`, `wbws_group_leaders`, `cache_storage`, `departments`, `staff_positions`, `member_staff_positions`, `member_code_migrations`, `member_code_sequences`, `member_type_settings`) | **Stale.** Line 10 says it "documents all tables", which is incorrect. Its `users.role` enum lists 6 roles, while the application accepts 13. Not the current schema; used only as the first step of `tests/e2e/provision_env.sh`. Moved from the repository root on 2026-10-23 ([RFC 0001](rfc/0001-repository-structure.md)) |
 | `admin/migrations/*.php`, `backend/migrations/*.php` | Early PHP migration scripts, including `admin/migrations/auto_fix_database.php` and `backend/migrations/auto_fix_database.php` | Historical. Blocked from the web by `.htaccess` rewrite rules and CLI-only guards. Do not run them against production |
 | `admin/get_schema.php` | Former schema-dump page | **Retired.** CLI-only stub; returns 404 over HTTP. Not a schema source |
 | Runtime DDL | `MezmurSchemaReconciler::apply`, called from `admin/api_mezmur.php`, can create or alter Mezmur tables at request time | Production can drift from `sql/` |
@@ -137,6 +137,6 @@ The summaries are taken from each file's header comment. "Tables created" lists 
 ## 6. Recommended next steps (documented, not implemented)
 
 1. Introduce a migration ledger table and a one-off, owner-run back-fill based on the schema comparison in section 4.
-2. Replace `database_schema.sql` with a generated structure-only baseline from a verified database, or delete it after review.
+2. Replace `sql/legacy/database_schema.sql` with a generated structure-only baseline from a verified database, or delete it after review.
 3. Move `MezmurSchemaReconciler` DDL into numbered migrations.
 4. Add a CI job that builds a database from a baseline plus `sql/` and compares it with the expected structure.

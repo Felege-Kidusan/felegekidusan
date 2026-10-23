@@ -30,7 +30,7 @@ Everything runs as one PHP code base in one hosting account. There are no backgr
 | Department dashboards | `admin/dashboards/` (`hr-dept.php`, `info-dept.php`, `edu_dept.php`, `super-admin.php`, `school_admin.php`, …); the Mezmur dashboard is `frontend/pages/mezmur_dept.php` | Large single files: `hr-dept.php` is about 4,900 lines; `info-dept.php` and `edu_dept.php` are about 4,400–4,500 each. Verified |
 | JSON endpoints | `admin/api_*.php` (46 files) | Session-authenticated. State-changing requests require a CSRF token. Usually dispatch on an `action` parameter. Verified |
 | Domain services | `admin/backend/services/*.php` | For example `RefreshTokenService`, `SecurityRateLimiter`, `AdminSessionGuard`, `SecurityAuditService`, `BackupService`, `FailureAlertService`, `MezmurMediaService`, `MemberFileService`. Verified |
-| Libraries | `vendor/` (Composer, committed); `admin/backend/pdf/tcpdf`; phpqrcode (more than one copy) | There is no Composer run on the server. Verified |
+| Libraries | `vendor/` (Composer, committed); `admin/backend/pdf/tcpdf`; phpqrcode (`admin/id_cards/libs/`; the duplicate copy in `backend/id_cards/libs/` was removed 2026-10-23) | There is no Composer run on the server. Verified |
 
 ### Department model
 
@@ -74,7 +74,7 @@ Design history for the offline and sync work is in `docs/MOBILE_OFFLINE_SYNC_*.m
 - There is a single MariaDB schema. Code uses mysqli prepared statements in most places.
 - The schema evolves through numbered files in `sql/` that the owner applies by hand. **No migration ledger table exists.** See [DATABASE.md](DATABASE.md).
 - **Runtime schema changes exist.** Some code issues DDL at request time. For example, `admin/api_mezmur.php` calls `MezmurSchemaReconciler::apply`, and several services run `CREATE TABLE IF NOT EXISTS`. The actual production schema can therefore differ from what `sql/` implies.
-- The committed `database_schema.sql` is a partial, legacy snapshot (11 tables). It is **not** the current schema.
+- The committed `sql/legacy/database_schema.sql` (moved from the repository root on 2026-10-23) is a partial, legacy snapshot (11 tables). It is **not** the current schema.
 
 ## 6. Media and files
 
@@ -102,6 +102,6 @@ Design history for the offline and sync work is in `docs/MOBILE_OFFLINE_SYNC_*.m
 3. Runtime DDL and no migration ledger (section 5).
 4. CI tests PHP 8.4 while production runs PHP 8.2.
 5. Legacy naming (WBWS/WBSS/SSMS/FKSS) across files, the database file name and the PWA.
-6. Duplicated vendored libraries (phpqrcode).
+6. Duplicated vendored libraries (phpqrcode). Resolved 2026-10-23: one copy remains, in `admin/id_cards/libs/`.
 
 Prioritisation is in [ENGINEERING_HANDOVER.md](ENGINEERING_HANDOVER.md).

@@ -18,7 +18,7 @@ class AuthorizationScopeVersionTests(unittest.TestCase):
         cls.migration = (ROOT / "sql/048_user_authorization_scope.sql").read_text(
             encoding="utf-8"
         )
-        cls.schema = (ROOT / "database_schema.sql").read_text(encoding="utf-8")
+        cls.schema = (ROOT / "sql/legacy/database_schema.sql").read_text(encoding="utf-8")
         cls.auth = (ROOT / "api/v1/core/auth.php").read_text(encoding="utf-8")
         cls.route = (ROOT / "api/v1/routes/auth.php").read_text(encoding="utf-8")
         cls.refresh = (

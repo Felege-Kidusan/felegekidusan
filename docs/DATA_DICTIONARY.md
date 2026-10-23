@@ -1,6 +1,6 @@
 # Data dictionary (table level)
 
-**Status:** reconstructed 2026-10-23 from `main` at `46fbaa7` by scanning every schema source (`database_schema.sql`, `admin/migrations/*.php`, `sql/*.sql`) for `CREATE TABLE` statements and declared foreign keys, and by counting references in application code. **Not compared with the production database**; the applied production state is unverified (see [DATABASE.md §4](DATABASE.md#4-applied-state-in-production-unverified)).
+**Status:** reconstructed 2026-10-23 from `main` at `46fbaa7` by scanning every schema source (`sql/legacy/database_schema.sql`, `admin/migrations/*.php`, `sql/*.sql`) for `CREATE TABLE` statements and declared foreign keys, and by counting references in application code. **Not compared with the production database**; the applied production state is unverified (see [DATABASE.md §4](DATABASE.md#4-applied-state-in-production-unverified)).
 
 **Scope:** one row per table, grouped by domain. Column-level detail lives in the defining migration and in later `ALTER TABLE` migrations; this page tells you where to look. Purpose lines are one-sentence summaries taken from the defining migration and the code that uses each table.
 
@@ -9,7 +9,7 @@
 - **113 table definitions** found in source; older documents say "about 100" for the live schema. The difference is explained by legacy and retired tables (for example finance/materials from a legacy PHP migration). Which of these exist in production is unverified.
 - **68 declared foreign keys.** Many relations are enforced in code only; for example the Family Link tables declare none.
 - **5 tables are not referenced** by application code (candidates for review, not for deletion).
-- **Defined in:** the first file, in migration order, that creates the table. `database_schema.sql` and `admin/migrations/*.php` are legacy sources; versioned `sql/NNN_*.sql` migrations are the current mechanism ([ADR-0004](adr/0004-manual-idempotent-sql-migrations.md)).
+- **Defined in:** the first file, in migration order, that creates the table. `sql/legacy/database_schema.sql` and `admin/migrations/*.php` are legacy sources; versioned `sql/NNN_*.sql` migrations are the current mechanism ([ADR-0004](adr/0004-manual-idempotent-sql-migrations.md)).
 - **Code refs:** number of application files (PHP/JS outside `sql/`, `docs/`, `tests/` and migrations) that mention the table name.
 
 ## 2. Core entity relationships
@@ -74,22 +74,22 @@ erDiagram
 | `api_refresh_legacy_exchanges` | Records of one-time exchanges of legacy long-lived app tokens. | `sql/010_refresh_token_rotation.sql` | 1 |
 | `api_refresh_sessions` | Rotating refresh-token sessions (token families, revocation). | `sql/010_refresh_token_rotation.sql` | 2 |
 | `security_rate_limits` | Counters for login and API rate limiting. | `sql/008_security_rate_limits.sql` | 2 |
-| `users` | Staff and app accounts: username, password hash, role, `authorization_version`, profile fields. | `database_schema.sql` | 92 · legacy definition |
+| `users` | Staff and app accounts: username, password hash, role, `authorization_version`, profile fields. | `sql/legacy/database_schema.sql` | 92 · legacy definition |
 | `wbws_audit_log` | Audit trail of sensitive changes (historical WBWS naming). | `sql/013_application_schema_completion.sql` | 1 |
 
 ### Members and registration
 
 | Table | Purpose | Defined in | Code refs |
 |---|---|---|---|
-| `departments` | Departments. | `database_schema.sql` | 38 · legacy definition |
+| `departments` | Departments. | `sql/legacy/database_schema.sql` | 38 · legacy definition |
 | `member_changes` | Change requests or history for member records. | `admin/migrations/002_add_academic_attendance_workflow.php` | 2 · legacy definition |
-| `member_code_migrations` | History of member-code format changes. | `database_schema.sql` | 4 · legacy definition |
-| `member_code_sequences` | Member-code counters. | `database_schema.sql` | **Not referenced** by application code |
+| `member_code_migrations` | History of member-code format changes. | `sql/legacy/database_schema.sql` | 4 · legacy definition |
+| `member_code_sequences` | Member-code counters. | `sql/legacy/database_schema.sql` | **Not referenced** by application code |
 | `member_department_periods` | Periods a member is active in a department (Education / Mezmur); drives department status. | `sql/071_department_status_and_policy.sql` | 3 |
-| `member_staff_positions` | Members holding staff positions. | `database_schema.sql` | 3 · legacy definition |
-| `member_type_settings` | Settings per member type. | `database_schema.sql` | 1 · legacy definition |
-| `members` | Member register (the central entity): identity, contact, section/age group, status, member code. | `database_schema.sql` | 113 · legacy definition |
-| `staff_positions` | Staff positions per department. | `database_schema.sql` | 4 · legacy definition |
+| `member_staff_positions` | Members holding staff positions. | `sql/legacy/database_schema.sql` | 3 · legacy definition |
+| `member_type_settings` | Settings per member type. | `sql/legacy/database_schema.sql` | 1 · legacy definition |
+| `members` | Member register (the central entity): identity, contact, section/age group, status, member code. | `sql/legacy/database_schema.sql` | 113 · legacy definition |
+| `staff_positions` | Staff positions per department. | `sql/legacy/database_schema.sql` | 4 · legacy definition |
 
 ### Family Link (guardians)
 
@@ -227,7 +227,7 @@ erDiagram
 |---|---|---|---|
 | `ai_chat_history` | AI assistant chat history. | `sql/013_application_schema_completion.sql` | 1 |
 | `ai_provider_configs` | AI provider configuration. | `sql/013_application_schema_completion.sql` | 1 |
-| `cache_storage` | Generic cache table. | `database_schema.sql` | **Not referenced** by application code |
+| `cache_storage` | Generic cache table. | `sql/legacy/database_schema.sql` | **Not referenced** by application code |
 | `system_branding` | Branding (name, logos, colours). | `sql/012_runtime_schema_baseline.sql` | 5 |
 | `system_settings` | Key-value system settings, including feature flags. | `sql/013_application_schema_completion.sql` | 3 |
 
@@ -260,9 +260,9 @@ erDiagram
 
 | Table | Purpose | Defined in | Code refs |
 |---|---|---|---|
-| `wbws_group_leaders` | Group leaders. | `database_schema.sql` | 4 · legacy definition |
+| `wbws_group_leaders` | Group leaders. | `sql/legacy/database_schema.sql` | 4 · legacy definition |
 | `wbws_group_members` | Group membership. | `sql/013_application_schema_completion.sql` | 4 |
-| `wbws_groups` | Member groups. | `database_schema.sql` | 5 · legacy definition |
+| `wbws_groups` | Member groups. | `sql/legacy/database_schema.sql` | 5 · legacy definition |
 
 ## 4. Declared foreign keys
 
@@ -344,5 +344,5 @@ erDiagram
 ## 5. Known gaps
 
 - No column-level dictionary yet. Recommended: generate one from a schema-only export of a provisioned test database (never from production data), and keep it under version control.
-- Legacy schema sources (`database_schema.sql`, `admin/migrations/*.php`) overlap with versioned migrations; see [DATABASE.md §2](DATABASE.md#2-sources-of-schema-truth-and-their-limits).
+- Legacy schema sources (`sql/legacy/database_schema.sql`, `admin/migrations/*.php`) overlap with versioned migrations; see [DATABASE.md §2](DATABASE.md#2-sources-of-schema-truth-and-their-limits).
 - Tables not referenced by code should be reviewed by the owner before any change; nothing here recommends deleting data.

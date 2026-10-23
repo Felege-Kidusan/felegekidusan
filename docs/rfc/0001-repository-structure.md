@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed (2026-10-23). Nothing in this RFC has been implemented |
+| **Status** | **Phase 1 approved by the owner (2026-10-23) and implemented** on branch `chore/structure-phase1`; awaiting confirmation on the dev server before production. Phases 2 and 3 remain proposed |
 | **Author** | Engineering (documentation pass) |
 | **Decision owner** | Project owner, with the technical team |
 | **Evidence base** | `main` at `46fbaa7`: `git ls-files`, `.htaccess` rules, and a reference search for every path named below |
@@ -87,4 +87,16 @@ Each item is its own pull request containing the move, every reference update, a
 
 ## 7. Decision
 
-*Pending.* Record the outcome here (accepted, accepted with changes, or rejected), with the date. If accepted, record any resulting architectural decision as an ADR in [`docs/adr/`](../adr/README.md).
+**2026-10-23: Phase 1 approved by the owner**, with the condition that every removal is proven not to affect the system, and that it is confirmed on the dev server before production.
+
+### Phase 1 outcome
+
+| Item | Done | Evidence that nothing depends on it |
+|---|---|---|
+| Superseded audit report | Moved to [`docs/audits/ENTERPRISE_SECURITY_AUDIT_REPORT_2026-09-27.md`](../audits/ENTERPRISE_SECURITY_AUDIT_REPORT_2026-09-27.md) | Referenced only by documentation; already denied by `.htaccess` |
+| `database_schema.sql` | Moved to [`sql/legacy/`](../../sql/legacy/README.md) | Users updated: `tests/e2e/provision_env.sh` and two tests. CI never loads it. The `.htaccess` rule still matches the new path |
+| Root `leak_detector.php` | **Removed** (changed from "move to `tools/`") | Byte-identical to `admin/leak_detector.php`, whose relative paths only work from `admin/`; the root copy looked for the configuration outside the project. The `admin/` copy and its HTTP blocks stay |
+| `public_website_frontend/` | **Removed** | No PHP, JavaScript, mobile, test, CI or server-rule reference; the live homepage is `index.php` with the root `css/` and `js/`; 0 requests in the available access logs (21–23 Oct 2026) |
+| `backend/id_cards/libs/` | **Removed** (26 files) | Byte-identical to `admin/id_cards/libs/`. The two `backend/id_cards/` shims load the `admin/` pages, which include libraries with `__DIR__`, so the `admin/` copy is always used. No relative `libs/` include exists. Unlike the `admin/` copy, this folder was not denied by the web server, so its demo script `phpqrcode/index.php` (which writes files from request data) was publicly runnable |
+
+Found during the analysis, not changed (outside Phase 1): `index.html` at the root is an old page with the previous school name and is still reachable at `/index.html`; the live homepage is served by `index.php`. Recommended for Phase 2.

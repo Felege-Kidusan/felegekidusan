@@ -67,7 +67,7 @@ No historical document has been deleted. Git history is the archive.
 | Document | Status |
 |---|---|
 | [SECURITY.md](SECURITY.md): verified controls, secrets (key names only), reporting | **Canonical** |
-| [ENTERPRISE_SECURITY_AUDIT_REPORT.md](../ENTERPRISE_SECURITY_AUDIT_REPORT.md) | **Superseded** (claims contradicted; see banner) |
+| [audits/ENTERPRISE_SECURITY_AUDIT_REPORT_2026-09-27.md](audits/ENTERPRISE_SECURITY_AUDIT_REPORT_2026-09-27.md) | **Superseded** (claims contradicted; see banner). Moved from the repository root on 2026-10-23 |
 | [audits/SSMS_REMEDIATION_AUDIT_2026-10-02.md](audits/SSMS_REMEDIATION_AUDIT_2026-10-02.md) | Historical |
 | [audits/SECURITY_AUDIT.md](audits/SECURITY_AUDIT.md) | Historical (2026-09-05) |
 | [audits/production-2026-09-07/REPORT.md](audits/production-2026-09-07/REPORT.md) | Historical |
@@ -144,4 +144,3 @@ Several historical documents were produced with AI assistance. They are evidence
 
 | Document | Status |
 |---|---|
-| [public_website_frontend/README.md](../public_website_frontend/README.md) | Reference (standalone public site package) |

@@ -68,7 +68,7 @@ The system is feature-gated (`FeatureGate`), with per-deployment toggles for AI,
 | Mobile | Flutter/Dart (provider, sqflite, flutter_secure_storage, http) | `pubspec.yaml` |
 | PDF | TCPDF (vendored) | `admin/backend/pdf/tcpdf/` |
 | Spreadsheet | PhpSpreadsheet 5.9, OpenSpout | `composer.lock`, `vendor/` |
-| QR | phpqrcode (vendored, two copies) | `admin/id_cards/libs/phpqrcode/`, `backend/id_cards/libs/phpqrcode/` |
+| QR | phpqrcode (vendored) | `admin/id_cards/libs/phpqrcode/` (the second copy, `backend/id_cards/libs/`, was removed on 2026-10-23, RFC 0001) |
 | Auth (web) | PHP sessions, CSRF tokens, rate limiter, session revalidation | `config.php`, `admin/backend/login.php`, `SecurityRateLimiter.php`, `AdminSessionGuard.php` |
 | Auth (API) | Custom HMAC-SHA256 two-part token plus rotating refresh sessions | `api/v1/core/auth.php`, `RefreshTokenService.php` |
 | Date system | Ethiopian calendar helpers | `admin/backend/ethiopian_date.php`, `backend/core/ethiopian_date.php` |
@@ -150,7 +150,7 @@ Three API surfaces exist (see [ARCHITECTURE.md §3](../../ARCHITECTURE.md#3-the-
 10. **Notifications.** Notification centre, reads, bell (`admin/api_notifications.php`).
 11. **Mezmur (hymns).** Categories, hymns, word index, singers, attendance, submissions, media (R2), art, analytics.
     - Services: `Mezmur*Service.php`, `MezmurSchemaReconciler.php` (runtime DDL).
-12. **CMS/Public website.** Gallery, programmes, schedule, social links, teachers (`admin/api_cms.php`, `public_website_frontend/`).
+12. **CMS/Public website.** Gallery, programmes, schedule, social links, teachers (`admin/api_cms.php`, `index.php`, `public_gallery.php`; the unused copy `public_website_frontend/` was removed on 2026-10-23, RFC 0001).
 13. **ID cards.** Generation, templates, QR (`admin/id_cards/`, `backend/id_cards/`).
 14. **AI assistant (optional).** `admin/backend/ai_providers.php`, `admin/api_ai.php`, dashboard widgets.
 15. **App release and telemetry.** `AppReleaseManager.php`, `AppTelemetryService.php`, `admin/api_app_release.php`, `admin/api_telemetry.php`, `api/v1/routes/{app,telemetry}.php`.

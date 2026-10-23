@@ -41,7 +41,7 @@ class IdentityManagementV2Tests(unittest.TestCase):
         cls.type_service = rd("admin/backend/services/MemberTypeService.php")
         cls.sql_019 = rd("sql/019_member_types_and_under6_removal.sql")
         cls.sql_020 = rd("sql/020_identity_v2.sql")
-        cls.schema_baseline = rd("database_schema.sql")
+        cls.schema_baseline = rd("sql/legacy/database_schema.sql")
         cls.super_admin = rd("admin/dashboards/super-admin.php")
         cls.js = rd("admin/js/super_admin.js")
         cls.section = rd("admin/dashboards/sections/identity_codes_section.php")
