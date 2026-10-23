@@ -564,7 +564,7 @@ h1{font-size:22px;margin-bottom:8px;color:#f1f5f9}
             E_NOTICE => 'Notice', E_CORE_ERROR => 'Core Error', E_CORE_WARNING => 'Core Warning',
             E_COMPILE_ERROR => 'Compile Error', E_COMPILE_WARNING => 'Compile Warning',
             E_USER_ERROR => 'User Error', E_USER_WARNING => 'User Warning',
-            E_USER_NOTICE => 'User Notice', E_STRICT => 'Strict',
+            E_USER_NOTICE => 'User Notice', 2048 => 'Strict', // E_STRICT (deprecated since PHP 8.4)
             E_RECOVERABLE_ERROR => 'Recoverable Error',
             E_DEPRECATED => 'Deprecated', E_USER_DEPRECATED => 'User Deprecated',
         ];

@@ -253,6 +253,11 @@ try {
 
 // --- PDO Connection (used by some pages like users.php) ---
 $pdo = null;
+// PHP 8.4+ exposes the MySQL driver constants on Pdo\Mysql; the PDO::MYSQL_ATTR_*
+// aliases are deprecated since PHP 8.5. Same value on every version.
+$ssmsMysqlInitCommand = class_exists('Pdo\Mysql', false)
+    ? \Pdo\Mysql::ATTR_INIT_COMMAND
+    : constant('PDO::MYSQL_ATTR_INIT_COMMAND');
 try {
     $pdo = new PDO(
         "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
@@ -262,7 +267,7 @@ try {
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
-            PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"
+            $ssmsMysqlInitCommand => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"
         ]
     );
 } catch (PDOException $e) {

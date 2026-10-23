@@ -8,7 +8,7 @@ This repository is public. Host names, ports, accounts, server paths and network
 
 | Environment | Branch | Notes |
 |---|---|---|
-| Production | `main` | Shared hosting: LiteSpeed, PHP 8.2, MariaDB. It sits behind a CDN/WAF proxy. File access is SFTP only; there is no shell, Composer or cron for the application, and no Python or Redis |
+| Production | `main` | Shared hosting: LiteSpeed, MariaDB, PHP 8.5 (observed from the server error log on 2026-10-23; earlier records say 8.2 and 8.4, and the host can change it without notice). It sits behind a CDN/WAF proxy. File access is SFTP only; there is no shell, Composer or cron for the application, and no Python or Redis |
 | Beta | `dev` | A separate server and a separate beta Android app. Only beta settings live on `dev`; see [BRANCHING.md](../BRANCHING.md) |
 | Staging for production | — | **None.** Changes are verified locally (section 2) and then deployed |
 
@@ -28,11 +28,23 @@ This is the procedure actually used, most recently for `46fbaa7` on 2026-10-22, 
    - Download the current server version of **every file that will be overwritten** into a dated local folder.
    - Record each file's checksum, and note which files are new.
 5. **Upload** only the listed files over SFTP, preserving paths.
+   - **Deleted files are not removed by an upload.** For every file the release deletes (`git diff --name-status` shows `D`), move the server copy into a dated backup folder outside `public_html` instead of deleting it, so it can be put back.
+   - Confirm the server folders in [section 2.1](#21-server-folders-that-git-does-not-create) exist.
 6. **Verify.**
    - Recompute checksums of the uploaded server files and compare them with the commit; every file must match.
    - Smoke-check the staff login page (`/admin/index.php`) and the mobile configuration endpoint (`/api/v1/app/config`).
    - Check the error monitor.
 7. **Record** the deployed commit, the file list, the checksum result and any migrations in the owner's deployment log.
+
+### 2.1 Server folders that Git does not create
+
+Some folders are deliberately ignored by Git (`.gitignore`) but the code needs them at runtime. A fresh server, or a server set up by copying files, will not have them. Create them over SFTP with permission `755`, owned by the hosting account.
+
+| Folder | Needed by | What breaks without it |
+|---|---|---|
+| `admin/id_cards/assets/qr/` | ID-card generation and QR renewal (`admin/id_cards/generate_id_card.php`, `IdentityCodeService`) | ID-card generation answers "ID-card generation is temporarily unavailable" and the error log says "The deployment-managed ID-card QR directory is unavailable". This happened on production on 2026-10-23: the folder had never been created there, and it was created that day |
+
+The wider list of writable folders is in [`audits/DEPLOYMENT_RUNBOOK.md`](audits/DEPLOYMENT_RUNBOOK.md) ("Stage 3 — File permissions"). It has not been re-verified against production.
 
 **Deployed version:** the repository does not record what is deployed, and nothing on the server reliably records it either. The owner's deployment record is authoritative. Do not infer the deployed version from server-side files.
 

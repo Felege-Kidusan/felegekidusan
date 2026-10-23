@@ -97,10 +97,14 @@ final class MemberExportService
         if (function_exists('set_time_limit')) {
             @set_time_limit(0);
         }
-        if (!defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY')) {
+        // Pdo\Mysql constants exist from PHP 8.4; PDO::MYSQL_ATTR_* is deprecated in 8.5.
+        $bufferedAttr = class_exists('Pdo\Mysql', false)
+            ? \Pdo\Mysql::ATTR_USE_BUFFERED_QUERY
+            : (defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY') ? constant('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY') : null);
+        if ($bufferedAttr === null) {
             throw new RuntimeException('Unbuffered database exports are unavailable.');
         }
-        if (!$pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false)) {
+        if (!$pdo->setAttribute($bufferedAttr, false)) {
             throw new RuntimeException('Could not enable unbuffered database export.');
         }
         $statement = self::query($pdo, $tier, $yearId, null);

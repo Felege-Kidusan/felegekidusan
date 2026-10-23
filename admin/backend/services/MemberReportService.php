@@ -112,10 +112,14 @@ final class MemberReportService
             throw new InvalidArgumentException('Invalid report row projection.');
         }
         if ($this->driver() === 'mysql') {
-            if (!defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY')) {
+            // Pdo\Mysql constants exist from PHP 8.4; PDO::MYSQL_ATTR_* is deprecated in 8.5.
+            $bufferedAttr = class_exists('Pdo\Mysql', false)
+                ? \Pdo\Mysql::ATTR_USE_BUFFERED_QUERY
+                : (defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY') ? constant('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY') : null);
+            if ($bufferedAttr === null) {
                 throw new RuntimeException('Unbuffered report queries are unavailable.');
             }
-            if (!$this->connection->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false)) {
+            if (!$this->connection->setAttribute($bufferedAttr, false)) {
                 throw new RuntimeException('Could not enable the report row stream.');
             }
         }
