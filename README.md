@@ -50,17 +50,35 @@ There are **three API layers**; consolidation is unfinished. Read [docs/ARCHITEC
 
 ## Repository layout
 
+The web server's document root is the repository root (production: `public_html`). Folders marked **website** are served by the web server; the others are blocked by the root `.htaccess` and are never needed at run time. Do not add documentation files inside website folders ([CONTRIBUTING.md §9](CONTRIBUTING.md#9-naming-and-where-files-go)).
+
+**Website folders**
+
 | Path | Contents |
 |---|---|
-| `admin/` | Staff web application: pages, department dashboards, `api_*.php` endpoints, `backend/` services, JS/CSS |
-| `api/v1/` | REST API used by the mobile app |
-| `backend/api/` | Compatibility shims that delegate to `admin/api_*.php`, plus `init.php` (dashboard bootstrap) |
-| `frontend/` | Newer router-style pages (dashboard, Mezmur, finance, education assignments/teachers) |
-| `Mobile/wbws_flutter_app/` | Flutter app (`fkss_app`) |
-| `sql/` | Numbered SQL migrations (`001`–`078`) and `preflight/` read-only checks |
-| `tests/` | `security/`, `e2e/`, `smoke/`, `audit/`, `mutation/`, `js/` |
-| `monitor/`, `app/` | Error/uptime monitor, legacy PWA |
+| `admin/` | Staff web application: pages, department dashboards (`dashboards/`), `api_*.php` endpoints, business services (`backend/services/`), ID cards (`id_cards/`), JS/CSS, maintenance tools (`tools/`: backups, health check, data repair) |
+| `api/v1/` | REST API used by the mobile app (`routes/`, `core/`) |
+| `backend/` | Compatibility shims that delegate to `admin/` (`api/`, `auth/`, `core/`, `id_cards/`, `users/`), plus `api/init.php` (dashboard bootstrap) |
+| `frontend/` | Newer router-style pages (`pages/`, `layouts/`, `js/`): dashboard, Mezmur, finance, education assignments and teachers |
+| `app/` | Legacy installable web app (PWA) |
+| `monitor/` | Error and uptime monitor |
+| `themes/` | Shared design system and per-school themes (`fkss/`, `wbss/`) |
+| `css/`, `js/` | Styles and script for the public gallery page |
+| `uploads/` | Server-side upload folders; only placeholders and `.htaccess` rules are tracked |
+| `cgi-bin/` | Placeholder; its `.htaccess` only turns off folder listing |
+| Root files | Public entry points (`index.php`, `member.php`, `public_gallery.php`, `register_submit.php`), shared settings (`config.php`, `school_config.php`, `branding_defaults.php`), `env.example.php` (template for the secrets file), `robots.txt`. `index.html` is an old static home page; the server shows `index.php` at `/` |
+
+**Not served by the web server**
+
+| Path | Contents |
+|---|---|
+| `Mobile/` | Flutter app in `wbws_flutter_app/`, plus icon and splash source images used by its build. See [Mobile/README.md](Mobile/README.md) |
+| `sql/` | Numbered SQL migrations (`001`–`078`), read-only checks (`preflight/`) and archived legacy schema sources (`legacy/`). See [sql/README.md](sql/README.md) |
+| `tests/` | Automated tests: `security/` (runs in CI), `e2e/`, `smoke/`, `audit/`, `mutation/`, `js/`, `fixtures/`. See [tests/README.md](tests/README.md) |
+| `scripts/` | Command-line tools for the operator: live URL check, production promotion, database restore, one-off data tools. See [scripts/README.md](scripts/README.md) |
 | `docs/` | Documentation. Start at [docs/README.md](docs/README.md) |
+| `vendor/` | Third-party PHP libraries, committed because the server has no Composer step (`composer.json`, `composer.lock`) |
+| `.github/` | CI workflows and the pull-request template |
 
 ## Local development (summary)
 

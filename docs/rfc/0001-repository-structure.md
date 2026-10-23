@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Phase 1 approved by the owner (2026-10-23) and implemented**, including the production server. **Option 1 approved (2026-10-23)**: Step 1 (safety checks) done; Step 2 (tidy non-web folders) in progress, see [section 8](#8-option-1-tidy-without-moving-web-files). Phase 3 remains proposed |
+| **Status** | **Phase 1 approved by the owner (2026-10-23) and implemented**, including the production server. **Option 1 approved (2026-10-23)**: Step 1 (safety checks) done; Step 2 (tidy non-web folders) done in the repository; removing the old copies from the production server waits for the owner, see [section 8](#8-option-1-tidy-without-moving-web-files). Phase 3 remains proposed |
 | **Author** | Engineering (documentation pass) |
 | **Decision owner** | Project owner, with the technical team |
 | **Evidence base** | `main` at `46fbaa7`: `git ls-files`, `.htaccess` rules, and a reference search for every path named below |
@@ -118,7 +118,7 @@ Decisions:
 | 2a | `tools/` (3 CLI scripts) → `scripts/` | Done in the repository. Production still has the old `public_html/tools/` copy (blocked from the web); moving it to a backup folder waits for the owner |
 | 2b | `admin/migrations/` and `backend/migrations/` (19 old PHP migrations) → `sql/legacy/php-migrations/admin/` and `…/backend/` | Done in the repository, moved unchanged (they can no longer run from the new folder, by design). Production still has the old copies (blocked from the web); moving them to a backup folder waits for the owner |
 | 2c | Sort loose files in `docs/` into topic folders | Done. 33 historical records moved into `mobile_offline_sync/`, `academic_tracking/`, `communication/`, `responsive_ui/`, `attendance/`, `incidents/` and `audits/`; the 16 main guides stay at the top of `docs/`. Links fixed; new CI test `test_docs_links.py` checks every relative Markdown link |
-| 2d | Folder guides (README per top-level folder) and naming rules | Planned |
+| 2d | Folder guides and naming rules | Done. Guides added to the four non-website folders (`scripts/`, `sql/`, `tests/`, `Mobile/`); the README folder map now covers every top-level folder and says which are website folders; naming rules in CONTRIBUTING §9. No README inside website folders (they are served), `.github/` (GitHub would show it instead of the root README) or `vendor/` (Composer replaces it) |
 
 Known outdated comments (fix each with the next real change to that file; they are comments only and change no behaviour):
 - `admin/backend/services/AttendanceRiskService.php` line 53 still says `tools/attendance_rollout_2026.php` (now `scripts/`).
