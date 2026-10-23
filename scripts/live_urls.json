@@ -1,0 +1,394 @@
+{
+  "_about": "Expected HTTP status per URL for scripts/check_live_urls.py. Baseline recorded 2026-10-23 on dev and production at 9dd317f (both matched except the app/ rows). Change an entry only with a reason in the PR.",
+  "servers": {
+    "production": "https://felegekidusan.com",
+    "dev": "https://felegekidusan.arkeonethiopia.com"
+  },
+  "checks": [
+    {
+      "path": "/",
+      "group": "public",
+      "expect": [
+        200
+      ],
+      "why": "Public home page"
+    },
+    {
+      "path": "/member.php",
+      "group": "public",
+      "expect": [
+        200
+      ],
+      "why": "Member page (must never move)"
+    },
+    {
+      "path": "/public_gallery.php",
+      "group": "public",
+      "expect": [
+        200
+      ],
+      "why": "Public gallery (must never move)"
+    },
+    {
+      "path": "/register_submit.php",
+      "group": "public",
+      "expect": [
+        405
+      ],
+      "why": "Registration endpoint exists; GET is refused (POST only)"
+    },
+    {
+      "path": "/admin/",
+      "group": "staff",
+      "expect": [
+        200
+      ],
+      "why": "Staff login page"
+    },
+    {
+      "path": "/admin/index.php",
+      "group": "staff",
+      "expect": [
+        200
+      ],
+      "why": "Staff login page by file name"
+    },
+    {
+      "path": "/admin/dashboard.php",
+      "group": "staff",
+      "expect": [
+        302
+      ],
+      "why": "Dashboard redirects to login when not signed in"
+    },
+    {
+      "path": "/admin/tools/backup.php",
+      "group": "staff",
+      "expect": [
+        302,
+        403
+      ],
+      "why": "Admin tool: login redirect or blocked, never runs for visitors"
+    },
+    {
+      "path": "/api/v1/",
+      "group": "api",
+      "expect": [
+        200
+      ],
+      "why": "Mobile API front controller answers"
+    },
+    {
+      "path": "/api/v1/members",
+      "group": "api",
+      "expect": [
+        401
+      ],
+      "why": "Mobile API refuses requests without a token"
+    },
+    {
+      "path": "/app/manifest.json",
+      "group": "app",
+      "expect": {
+        "production": [
+          404
+        ],
+        "dev": [
+          200
+        ]
+      },
+      "why": "Known server difference: production public_html/app/ is server-managed and untracked"
+    },
+    {
+      "path": "/app/",
+      "group": "app",
+      "expect": {
+        "production": [
+          403
+        ],
+        "dev": [
+          200
+        ]
+      },
+      "why": "Known server difference: production public_html/app/ is server-managed and untracked"
+    },
+    {
+      "path": "/config.php",
+      "group": "guard",
+      "expect": [
+        200
+      ],
+      "why": "Runs but only prints 'Direct access not allowed' (25 bytes); never shows code"
+    },
+    {
+      "path": "/sql/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: database scripts"
+    },
+    {
+      "path": "/sql/legacy/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: legacy database scripts"
+    },
+    {
+      "path": "/docs/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: documentation"
+    },
+    {
+      "path": "/docs/OPERATIONS.md",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: documentation file"
+    },
+    {
+      "path": "/tests/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: tests"
+    },
+    {
+      "path": "/scripts/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: scripts"
+    },
+    {
+      "path": "/tools/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: tools"
+    },
+    {
+      "path": "/vendor/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: Composer libraries"
+    },
+    {
+      "path": "/vendor/autoload.php",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: Composer autoloader"
+    },
+    {
+      "path": "/Mobile/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: mobile app source"
+    },
+    {
+      "path": "/.github/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Root deny rule: CI settings"
+    },
+    {
+      "path": "/README.md",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Repository file type block (.md)"
+    },
+    {
+      "path": "/CHANGELOG.md",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Repository file type block (.md)"
+    },
+    {
+      "path": "/composer.lock",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Repository file type block (.lock)"
+    },
+    {
+      "path": "/composer.json",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Composer manifest"
+    },
+    {
+      "path": "/.env",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Dot-file block"
+    },
+    {
+      "path": "/.git/config",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Dot-folder block"
+    },
+    {
+      "path": "/admin/migrations/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "admin/.htaccess: legacy migrations"
+    },
+    {
+      "path": "/backend/migrations/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "Legacy migrations folder"
+    },
+    {
+      "path": "/admin/tools/migrate_identity_codes.php",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "admin/.htaccess: CLI tool"
+    },
+    {
+      "path": "/admin/tools/repair_user_role.php",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "admin/.htaccess: CLI tool"
+    },
+    {
+      "path": "/admin/get_schema.php",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "admin/.htaccess: debug endpoint"
+    },
+    {
+      "path": "/admin/backend/generate_hash.php",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "admin/.htaccess: debug endpoint"
+    },
+    {
+      "path": "/admin/id_cards/qr_diagnostic.php",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "admin/.htaccess: debug endpoint"
+    },
+    {
+      "path": "/admin/backend/pdf/tcpdf/tcpdf.php",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "admin/.htaccess: library PHP files"
+    },
+    {
+      "path": "/admin/id_cards/libs/qr_loader.php",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "admin/.htaccess: library PHP files"
+    },
+    {
+      "path": "/admin/css/",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "No folder listings"
+    },
+    {
+      "path": "/monitor/uptime_cron.php",
+      "group": "blocked",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "monitor/.htaccess: cron script"
+    },
+    {
+      "path": "/admin/backend/failure_alert_check.php",
+      "group": "cli",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "CLI script refuses web requests (PHP_SAPI guard)"
+    },
+    {
+      "path": "/admin/backend/profile_image_cleanup.php",
+      "group": "cli",
+      "expect": [
+        403,
+        404
+      ],
+      "why": "CLI script refuses web requests (PHP_SAPI guard)"
+    }
+  ]
+}
