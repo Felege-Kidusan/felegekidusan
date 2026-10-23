@@ -23,8 +23,8 @@ class DeploymentToolHardeningTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
     def test_legacy_php_migrations_are_directly_cli_only(self):
-        paths = sorted((ROOT / "admin/migrations").glob("*.php"))
-        paths += sorted((ROOT / "backend/migrations").glob("*.php"))
+        paths = sorted((ROOT / "sql/legacy/php-migrations/admin").glob("*.php"))
+        paths += sorted((ROOT / "sql/legacy/php-migrations/backend").glob("*.php"))
         self.assertTrue(paths)
         for path in paths:
             source = path.read_text(encoding="utf-8")

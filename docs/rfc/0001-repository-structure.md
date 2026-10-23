@@ -116,7 +116,7 @@ Decisions:
 |---|---|---|
 | 1 | Safety checks: include-path and boundary tests, live URL checker ([OPERATIONS.md §2.2](../OPERATIONS.md#22-folder-structure-safety-checks)) | Done (PR #16) |
 | 2a | `tools/` (3 CLI scripts) → `scripts/` | Done in the repository. Production still has the old `public_html/tools/` copy (blocked from the web); moving it to a backup folder waits for the owner |
-| 2b | `admin/migrations/` and `backend/migrations/` → `sql/legacy/` | Planned |
+| 2b | `admin/migrations/` and `backend/migrations/` (19 old PHP migrations) → `sql/legacy/php-migrations/admin/` and `…/backend/` | Done in the repository, moved unchanged (they can no longer run from the new folder, by design). Production still has the old copies (blocked from the web); moving them to a backup folder waits for the owner |
 | 2c | Sort loose files in `docs/` into topic folders | Planned |
 | 2d | Folder guides (README per top-level folder) and naming rules | Planned |
 

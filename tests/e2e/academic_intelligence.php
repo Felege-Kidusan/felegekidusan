@@ -253,7 +253,7 @@ function rebuild(mysqli $conn): void
         `assessment_type` VARCHAR(30) NOT NULL DEFAULT 'test',
         `max_score` DECIMAL(6,2) NOT NULL DEFAULT 100.00,
         `weight_percentage` DECIMAL(5,2) DEFAULT NULL,
-        -- Mirrors admin/migrations/003_add_assessments.php and production.
+        -- Mirrors sql/legacy/php-migrations/admin/003_add_assessments.php and production.
         -- This table has NO `is_active` column; the publish flag is
         -- `is_published`, and nothing filters assessments by it. The fixture
         -- previously invented `is_active`, which let queries pass here while
