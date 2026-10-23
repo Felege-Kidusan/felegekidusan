@@ -104,3 +104,35 @@ Update documentation in the same PR as the code:
 - [ ] Ethiopian calendar for every new user-facing date.
 - [ ] Documentation and changelog updated.
 - [ ] Reviewed and approved; deployment scheduled by the owner.
+
+## 9. Naming and where files go
+
+The folder map is in the [README](README.md#repository-layout). Each non-website folder has its own guide: [scripts/](scripts/README.md), [sql/](sql/README.md), [tests/](tests/README.md), [Mobile/](Mobile/README.md).
+
+**Where a new file goes**
+
+| New file | Folder | Name pattern |
+|---|---|---|
+| Staff page | `admin/` | `snake_case.php` |
+| Staff page endpoint | `admin/` | `api_<topic>.php` (add it to `ROLE_MAP`) |
+| Business rule / service class | `admin/backend/services/` | `PascalCase.php` |
+| Department dashboard | `admin/dashboards/` | `snake_case.php` |
+| Page script | `admin/js/` | `snake_case.js` |
+| Mobile REST route | `api/v1/routes/` | lowercase snake_case, named after the resource (`attendance_warnings.php`) |
+| Database migration | `sql/` | `NNN_snake_case.sql`, next free number ([sql/README.md](sql/README.md)) |
+| Read-only database check | `sql/preflight/` | `snake_case.sql` |
+| Python test | `tests/security/` | `test_<topic>.py` |
+| Operator command-line tool | `scripts/` | `snake_case.php`, `.py` or `.sh`, with a usage header |
+| Flutter code | `Mobile/wbws_flutter_app/lib/` | `snake_case.dart` |
+| Main guide | `docs/` | `UPPER_SNAKE_CASE.md` |
+| Topic record | `docs/<topic>/` (lowercase snake_case folder) | follow the folder |
+| Decision record | `docs/adr/` | `NNNN-kebab-case.md` |
+
+These patterns are measured from the current code: all migrations, `admin/*.php` pages, services, REST routes, Python tests and Dart files already follow them.
+
+**Rules**
+- **Don't rename existing files to fix their style.** Some older files use dashes (for example `admin/js/manage-members.js`, `admin/dashboards/super-admin.php`). Other pages, scripts and access rules refer to these names (for example `admin/access_control.php`). Renaming them is a separate, approved change, never part of other work.
+- **Keep the existing folder names** `sql/` and `Mobile/` (capital M). Decision: [RFC 0001 §8](docs/rfc/0001-repository-structure.md#8-option-1-tidy-without-moving-web-files).
+- **No documentation inside website folders** (`admin/`, `api/`, `app/`, `backend/`, `frontend/`, `css/`, `js/`, `themes/`, `uploads/`, `monitor/`). Those folders are served by the web server. Documentation goes in `docs/`. A test enforces this for `admin/`, `api/v1/` and `app/`.
+- **No `README.md` in `.github/`:** GitHub would show it instead of the repository README. **Nothing hand-written in `vendor/`:** Composer replaces that folder.
+- **Never commit** secrets files, signing keys, built APKs, database dumps or backup archives. CI rejects secrets files, keys and APKs, but it does **not** catch dumps or backups, so check `git status` before every commit.
