@@ -31,6 +31,10 @@ SKIP_PREFIXES = (
     "docs/",
     "admin/id_cards/libs/",
     "admin/backend/pdf/tcpdf/",
+    # Archived legacy PHP migrations (RFC 0001 step 2b). Moved as-is; their
+    # config links point at the old folders on purpose, so they stop before
+    # touching any database. They are records, not code the site runs.
+    "sql/legacy/",
 )
 
 # Root-level folders that the website must never need at run time.

@@ -33,8 +33,8 @@ class RequestTimeSchemaTests(unittest.TestCase):
             if (
                 relative.startswith("vendor/")
                 or relative.startswith("admin/vendor/")
-                or relative.startswith("admin/migrations/")
-                or relative.startswith("backend/migrations/")
+                # Archived legacy PHP migrations (RFC 0001 step 2b).
+                or relative.startswith("sql/legacy/php-migrations/")
                 # Test tooling builds throwaway fixture schemas (e.g. the
                 # communication e2e runner) — never a production request path.
                 or relative.startswith("tests/")

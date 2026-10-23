@@ -14,7 +14,7 @@ fi
 # It encodes the migration apply-order that the live DB evolved into
 # (sql/ is not linearly applicable on a fresh DB — 003 indexes columns
 # that 012's baseline adds; 014/017/021/029 assume legacy-era tables
-# from the admin/migrations PHP era).
+# from the admin/migrations PHP era, archived in sql/legacy/php-migrations/admin/).
 #
 # Usage:  bash tests/e2e/provision_env.sh
 # Then:   PHP_CLI_SERVER_WORKERS=8 php -d error_reporting=24575 \
@@ -104,7 +104,7 @@ def creates(path):
     src = open(path, encoding='utf-8').read()
     return [s for s in re.findall(r'"(CREATE TABLE.*?)"\s*[,;)\]]', src, re.S)]
 others, last = [], []
-for f in sorted(glob.glob('admin/migrations/*.php')):
+for f in sorted(glob.glob('sql/legacy/php-migrations/admin/*.php')):
     (last if f.endswith('003_add_assessments.php') else others).extend(creates(f))
 open('/tmp/legacy_tables.sql', 'w', encoding='utf-8').write(
     ';\n'.join(others + last) + ';\n')

@@ -8,7 +8,7 @@ Academic Tracking Phases 3-5 shipped queries against two columns that do
 not exist in production:
 
   * `assessments.is_active` — invented by this project's own e2e fixture.
-    The canonical table (admin/migrations/003_add_assessments.php) and the
+    The canonical table (sql/legacy/php-migrations/admin/003_add_assessments.php) and the
     production database both carry `is_published` and nothing else. No
     migration in sql/ ever added `is_active`, and no established query
     filters assessments by any such flag.
@@ -61,7 +61,7 @@ ENV_FILE = ROOT / ".fkss_env.php"
 SERVICE = ROOT / "admin" / "backend" / "services" / "AcademicTrackingService.php"
 REPORTCARD = ROOT / "admin" / "backend" / "services" / "ReportCardService.php"
 API_SUBJECTS = ROOT / "admin" / "api_subjects.php"
-CANONICAL = ROOT / "admin" / "migrations" / "003_add_assessments.php"
+CANONICAL = ROOT / "sql" / "legacy" / "php-migrations" / "admin" / "003_add_assessments.php"
 FIXTURE = ROOT / "tests" / "e2e" / "academic_intelligence.php"
 
 SYNC_DB = os.environ.get("SSMS_SYNC_DB", "ssms_e2e")

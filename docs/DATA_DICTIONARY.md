@@ -9,7 +9,7 @@
 - **113 table definitions** found in source; older documents say "about 100" for the live schema. The difference is explained by legacy and retired tables (for example finance/materials from a legacy PHP migration). Which of these exist in production is unverified.
 - **68 declared foreign keys.** Many relations are enforced in code only; for example the Family Link tables declare none.
 - **5 tables are not referenced** by application code (candidates for review, not for deletion).
-- **Defined in:** the first file, in migration order, that creates the table. `sql/legacy/database_schema.sql` and `admin/migrations/*.php` are legacy sources; versioned `sql/NNN_*.sql` migrations are the current mechanism ([ADR-0004](adr/0004-manual-idempotent-sql-migrations.md)).
+- **Defined in:** the first file, in migration order, that creates the table. `sql/legacy/database_schema.sql` and `sql/legacy/php-migrations/admin/*.php` are legacy sources; versioned `sql/NNN_*.sql` migrations are the current mechanism ([ADR-0004](adr/0004-manual-idempotent-sql-migrations.md)).
 - **Code refs:** number of application files (PHP/JS outside `sql/`, `docs/`, `tests/` and migrations) that mention the table name.
 
 ## 2. Core entity relationships
@@ -62,7 +62,7 @@ erDiagram
   members ||--o{ attendance_warnings : "member_id"
 ```
 
-`teacher_assignments.teacher_id` references `users` in the versioned migration `sql/003_production_hardening.sql`. The legacy PHP migration `admin/migrations/002_add_academic_attendance_workflow.php` declared it against `members`. The diagram follows the versioned migration; the constraint actually present in production is unverified.
+`teacher_assignments.teacher_id` references `users` in the versioned migration `sql/003_production_hardening.sql`. The legacy PHP migration `sql/legacy/php-migrations/admin/002_add_academic_attendance_workflow.php` declared it against `members`. The diagram follows the versioned migration; the constraint actually present in production is unverified.
 
 ## 3. Tables by domain
 
@@ -82,7 +82,7 @@ erDiagram
 | Table | Purpose | Defined in | Code refs |
 |---|---|---|---|
 | `departments` | Departments. | `sql/legacy/database_schema.sql` | 38 · legacy definition |
-| `member_changes` | Change requests or history for member records. | `admin/migrations/002_add_academic_attendance_workflow.php` | 2 · legacy definition |
+| `member_changes` | Change requests or history for member records. | `sql/legacy/php-migrations/admin/002_add_academic_attendance_workflow.php` | 2 · legacy definition |
 | `member_code_migrations` | History of member-code format changes. | `sql/legacy/database_schema.sql` | 4 · legacy definition |
 | `member_code_sequences` | Member-code counters. | `sql/legacy/database_schema.sql` | **Not referenced** by application code |
 | `member_department_periods` | Periods a member is active in a department (Education / Mezmur); drives department status. | `sql/071_department_status_and_policy.sql` | 3 |
@@ -110,7 +110,7 @@ erDiagram
 | `class_subjects` | Subjects taught in each class. | `sql/006_assignment_hardening.sql` | 14 |
 | `classes` | Classes (grades) per section. | `sql/012_runtime_schema_baseline.sql` | 99 |
 | `dept_settings` | Department-level settings. | `sql/013_application_schema_completion.sql` | 2 |
-| `subjects` | Subjects. | `admin/migrations/002_add_academic_attendance_workflow.php` | 40 · legacy definition |
+| `subjects` | Subjects. | `sql/legacy/php-migrations/admin/002_add_academic_attendance_workflow.php` | 40 · legacy definition |
 | `teacher_assignments` | Teacher-to-class (and optional subject) assignments per year; the basis of teacher scoping. | `sql/006_assignment_hardening.sql` | 31 |
 
 ### Timetable and school calendar
@@ -132,7 +132,7 @@ erDiagram
 | `assessment_followups` | Follow-ups for missed or failed assessments. | `sql/075_assessment_followups.sql` | 8 |
 | `assessment_makeup_attempts` | Make-up attempts recorded against a follow-up (original record unchanged). | `sql/075_assessment_followups.sql` | 1 |
 | `assessment_types` | Assessment types. | `sql/050_assessment_types.sql` | 1 |
-| `assessments` | Assessments per class, subject and term, with a maximum score. | `admin/migrations/003_add_assessments.php` | 20 · legacy definition |
+| `assessments` | Assessments per class, subject and term, with a maximum score. | `sql/legacy/php-migrations/admin/003_add_assessments.php` | 20 · legacy definition |
 | `grade_submissions` | Teacher grade submissions and review state. | `sql/013_application_schema_completion.sql` | 19 |
 
 ### Attendance (Education)
@@ -182,13 +182,13 @@ erDiagram
 | Table | Purpose | Defined in | Code refs |
 |---|---|---|---|
 | `announcements` | Announcements to audiences. | `sql/042_notification_center.sql` | 6 |
-| `department_tasks` | Department tasks (legacy workflow module). | `admin/migrations/002_add_academic_attendance_workflow.php` | 3 · legacy definition |
+| `department_tasks` | Department tasks (legacy workflow module). | `sql/legacy/php-migrations/admin/002_add_academic_attendance_workflow.php` | 3 · legacy definition |
 | `message_thread_participants` | Thread participants. | `sql/042_notification_center.sql` | 1 |
 | `message_threads` | Direct-message threads. | `sql/042_notification_center.sql` | 1 |
 | `messages` | Messages in threads. | `sql/042_notification_center.sql` | 34 |
 | `notification_reads` | Read state of notifications and announcements. | `sql/042_notification_center.sql` | 2 |
 | `notifications` | Per-user alerts. | `sql/012_runtime_schema_baseline.sql` | 21 |
-| `shared_documents` | Shared documents (legacy workflow module). | `admin/migrations/002_add_academic_attendance_workflow.php` | **Not referenced** by application code |
+| `shared_documents` | Shared documents (legacy workflow module). | `sql/legacy/php-migrations/admin/002_add_academic_attendance_workflow.php` | **Not referenced** by application code |
 
 ### Reporting
 
@@ -247,14 +247,14 @@ erDiagram
 
 | Table | Purpose | Defined in | Code refs |
 |---|---|---|---|
-| `finance_budgets` | Budgets. | `admin/migrations/004_add_finance_material_tables.php` | **Not referenced** by application code |
-| `finance_categories` | Finance categories. | `admin/migrations/004_add_finance_material_tables.php` | 1 · legacy definition |
-| `finance_member_fees` | Member fees. | `admin/migrations/004_add_finance_material_tables.php` | 1 · legacy definition |
-| `finance_transactions` | Finance transactions. | `admin/migrations/004_add_finance_material_tables.php` | 4 · legacy definition |
-| `material_categories` | Material categories. | `admin/migrations/004_add_finance_material_tables.php` | 1 · legacy definition |
-| `material_items` | Material items. | `admin/migrations/004_add_finance_material_tables.php` | 3 · legacy definition |
-| `material_requests` | Material requests. | `admin/migrations/004_add_finance_material_tables.php` | 3 · legacy definition |
-| `material_transactions` | Material stock movements. | `admin/migrations/004_add_finance_material_tables.php` | 1 · legacy definition |
+| `finance_budgets` | Budgets. | `sql/legacy/php-migrations/admin/004_add_finance_material_tables.php` | **Not referenced** by application code |
+| `finance_categories` | Finance categories. | `sql/legacy/php-migrations/admin/004_add_finance_material_tables.php` | 1 · legacy definition |
+| `finance_member_fees` | Member fees. | `sql/legacy/php-migrations/admin/004_add_finance_material_tables.php` | 1 · legacy definition |
+| `finance_transactions` | Finance transactions. | `sql/legacy/php-migrations/admin/004_add_finance_material_tables.php` | 4 · legacy definition |
+| `material_categories` | Material categories. | `sql/legacy/php-migrations/admin/004_add_finance_material_tables.php` | 1 · legacy definition |
+| `material_items` | Material items. | `sql/legacy/php-migrations/admin/004_add_finance_material_tables.php` | 3 · legacy definition |
+| `material_requests` | Material requests. | `sql/legacy/php-migrations/admin/004_add_finance_material_tables.php` | 3 · legacy definition |
+| `material_transactions` | Material stock movements. | `sql/legacy/php-migrations/admin/004_add_finance_material_tables.php` | 1 · legacy definition |
 
 ### Groups (WBWS)
 
@@ -344,5 +344,5 @@ erDiagram
 ## 5. Known gaps
 
 - No column-level dictionary yet. Recommended: generate one from a schema-only export of a provisioned test database (never from production data), and keep it under version control.
-- Legacy schema sources (`sql/legacy/database_schema.sql`, `admin/migrations/*.php`) overlap with versioned migrations; see [DATABASE.md §2](DATABASE.md#2-sources-of-schema-truth-and-their-limits).
+- Legacy schema sources (`sql/legacy/database_schema.sql`, `sql/legacy/php-migrations/admin/*.php`) overlap with versioned migrations; see [DATABASE.md §2](DATABASE.md#2-sources-of-schema-truth-and-their-limits).
 - Tables not referenced by code should be reviewed by the owner before any change; nothing here recommends deleting data.

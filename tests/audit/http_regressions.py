@@ -386,7 +386,8 @@ class AuditHttpTests(unittest.TestCase):
     def test_22_apache_denies_non_application_paths(self):
         for path in ['/.git/HEAD','/.git/config','/tests/e2e/seed.php','/tests/smoke/hr_phase6_smoke.php',
                      '/tests/audit/db_fixture.php','/scripts/find_stored_mojibake.php','/vendor/composer/installed.json',
-                     '/database_schema.sql','/env.example.php','/config.php','/admin/migrations/004_add_finance_material_tables.php']:
+                     '/database_schema.sql','/env.example.php','/config.php','/admin/migrations/004_add_finance_material_tables.php',
+                     '/sql/legacy/php-migrations/admin/004_add_finance_material_tables.php']:
             with self.subTest(path=path):
                 response=Client().request(path)
                 self.assertIn(response['status'],[403,404])
