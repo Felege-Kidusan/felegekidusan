@@ -3,7 +3,7 @@
 FKSS (also referred to in the code as SSMS and, in older files, WBWS/WBSS) is the management system of the Felege Kidusan Sunday School. It replaces spreadsheets and paper records for member registration, education (classes, assessments, report cards, timetable, attendance), the Mezmur (hymn) ministry, communications and reporting. Staff use a PHP web application; teachers and department staff also use an Android app built with Flutter that works offline and synchronises with the server.
 
 > **Status (2026-10-22, `main` = `46fbaa7`).** The system is in production use.
-> - The automated *Backend checks* gate is currently **failing**: 2 failing tests and 79 skipped tests. See [Testing and CI](docs/DEVELOPMENT_AND_TESTING.md#3-current-ci-status).
+> - The automated *Backend checks* gate is currently **failing** because 79 tests are skipped (the 2 failing tests were fixed on 2026-10-24). See [Testing and CI](docs/DEVELOPMENT_AND_TESTING.md#3-current-ci-status).
 > - Production deployments are manual. See [Operations](docs/OPERATIONS.md).
 > - The project is being prepared for an engineering handover. Start with [docs/ENGINEERING_HANDOVER.md](docs/ENGINEERING_HANDOVER.md).
 > - No independent security certification exists.
@@ -107,6 +107,8 @@ Latest CI run on `main` (`46fbaa7`, 2026-10-22):
 | Migration numbering | pass |
 | Android debug APK | pass |
 | Security and regression suite | **fail** (2 failed, 2,793 passed, 79 skipped; the job also fails whenever any test is skipped) |
+
+Update 2026-10-24: the 2 failures are fixed; the suite still fails on the 79 skips.
 
 Details and the work needed to make the gate trustworthy again: [docs/DEVELOPMENT_AND_TESTING.md](docs/DEVELOPMENT_AND_TESTING.md).
 

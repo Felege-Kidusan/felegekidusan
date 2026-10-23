@@ -197,7 +197,9 @@ class StudentsRootListTests(_ListBase):
         self.assertEqual(0, d["total"], "a quote must be data, not syntax")
 
     def test_page_size_is_bounded(self):
-        self.assertEqual(100, self.students(per_page=99999)["per_page"], "upper bound")
+        # Roster cap is 200 since the 2026-10-22 paging change (71caa8c): the
+        # shared pager offers 25/50/100/200 per page.
+        self.assertEqual(200, self.students(per_page=99999)["per_page"], "upper bound")
         self.assertEqual(10, self.students(per_page=-5)["per_page"], "lower bound")
         self.assertEqual(1, self.students(page=-1, per_page=10)["page"])
 

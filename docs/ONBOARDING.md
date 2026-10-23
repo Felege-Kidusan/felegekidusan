@@ -32,7 +32,7 @@
 ## 4. Day 3: set up and run the tests
 
 1. Follow [DEVELOPMENT_AND_TESTING.md §1–§2](DEVELOPMENT_AND_TESTING.md#1-prerequisites) to set up a local test environment.
-2. Run the security and regression suite and the Flutter unit tests. Compare your result with the current CI status in [§3](DEVELOPMENT_AND_TESTING.md#3-current-ci-status): two known failures and 79 explained skips are expected today.
+2. Run the security and regression suite and the Flutter unit tests. Compare your result with the current CI status in [§3](DEVELOPMENT_AND_TESTING.md#3-current-ci-status): 79 explained skips are expected today, and no failures (the two earlier failures were fixed on 2026-10-24).
 3. Read [TEST_STRATEGY.md](TEST_STRATEGY.md) to understand what each suite protects.
 
 ## 5. Day 4: learn how changes ship

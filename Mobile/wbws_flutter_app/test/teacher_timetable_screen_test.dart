@@ -27,6 +27,11 @@ String _ymd(DateTime d) =>
 Map<String, dynamic> _weekPayload(DateTime today) {
   final iso = today.weekday;
   final other = iso == 1 ? 2 : 1;
+  // The make-up class must never be in progress while the test runs, or the
+  // screen shows a second "Now" pill. Put it in the other half of the day.
+  final makeupMorning = today.hour >= 12;
+  final makeupStart = makeupMorning ? '04:00' : '20:00';
+  final makeupEnd = makeupMorning ? '04:40' : '20:40';
   return {
     'teacher_id': _teacherId,
     'academic_year_id': 1,
@@ -40,8 +45,9 @@ Map<String, dynamic> _weekPayload(DateTime today) {
         {
           'id': 1, 'class_id': 1, 'class_name': '1ኛ ክፍል', 'class_name_en': 'Grade 1',
           'period_id': 11, 'period_label': 'Period 1',
-          // spans the whole day so the "Now" pill is deterministic
-          'start_time': '00:00', 'end_time': '23:59', 'day_of_week': iso,
+          // spans the whole day so the "Now" pill is deterministic. The end
+          // is exclusive, so '24:00' (minute 1440) also covers 23:59.
+          'start_time': '00:00', 'end_time': '24:00', 'day_of_week': iso,
           'subject_id': 1, 'subject_name': 'መጽሐፍ ቅዱስ', 'subject_name_en': 'Holy Bible',
           'room': 'Room 1',
         },
@@ -61,7 +67,7 @@ Map<String, dynamic> _weekPayload(DateTime today) {
       {
         'id': 9, 'class_id': 1, 'class_name': '1ኛ ክፍል', 'class_name_en': 'Grade 1',
         'lesson_date': _ymd(today), 'day_of_week': iso,
-        'start_time': '16:00', 'end_time': '16:40',
+        'start_time': makeupStart, 'end_time': makeupEnd,
         'subject_id': 1, 'subject_name': 'መጽሐፍ ቅዱስ', 'subject_name_en': 'Holy Bible',
         'teacher_id': _teacherId, 'teacher_name': 'Audit Teacher',
         'room': '', 'reason': 'Missed last week', 'lesson_date_ec': 'x',

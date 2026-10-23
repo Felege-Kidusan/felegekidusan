@@ -46,12 +46,16 @@ Composer is **not** needed: dependencies are committed in `vendor/`, and the ser
 
 *Backend checks* has failed on every `main` push since `b9cbb0f` (2026-10-19). *Production integrity* and *Branch guard* pass.
 
+**Update 2026-10-24:** the 2 failing tests were fixed (test-only change; the code was right). The job still fails because 79 tests are skipped (§3.2). The Flutter test `teacher_timetable_screen_test.dart` also failed every day from 16:00 to 16:40 UTC and from 23:59 to 24:00 because of its test data; fixed the same day.
+
 ### 3.1 The two failures
+
+Both were fixed on 2026-10-24 (test-only changes; see the last column).
 
 | Test | Cause (observed) | Required work |
 |---|---|---|
-| `tests/security/test_academic_tracking.py:200` (`test_page_size_is_bounded`) | `admin/api_education.php` now caps `per_page` at **200** (paging change `71caa8c`, 2026-10-22). The test still expects **100** | The owner confirms the intended cap; then either the test or the code is updated in a separately approved change |
-| `tests/security/test_education_config_endpoints.py:485` (`test_the_report_card_does_not_weight_semesters_itself`) | The forbidden substring `"/ 2"` matches the comment text `// 2026-10-22` in `admin/js/report_card.js` (added in `524ab7f`). No arithmetic was introduced | Make the assertion ignore comments (test-only change, needs approval) |
+| `tests/security/test_academic_tracking.py:200` (`test_page_size_is_bounded`) | `admin/api_education.php` now caps `per_page` at **200** (paging change `71caa8c`, 2026-10-22). The test still expects **100** | **Fixed 2026-10-24:** 200 is the intended cap (the shared pager offers 25/50/100/200). The test now expects 200 and still fails if the cap is removed |
+| `tests/security/test_education_config_endpoints.py:485` (`test_the_report_card_does_not_weight_semesters_itself`) | The forbidden substring `"/ 2"` matches the comment text `// 2026-10-22` in `admin/js/report_card.js` (added in `524ab7f`). No arithmetic was introduced | **Fixed 2026-10-24:** a "/" straight after another "/" (a JavaScript comment) is no longer counted; a real `/ 2` still fails the test |
 
 ### 3.2 The 79 skips
 
@@ -86,7 +90,7 @@ CI runs PHP **8.4**; production runs PHP **8.2**. Syntax or behaviour that is va
 3. Any migration in the change has been reviewed, applied by the owner and recorded.
 4. The deployment checklist in [OPERATIONS.md](OPERATIONS.md) is complete.
 
-**Current practice:** releases have been deployed while *Backend checks* was red, with targeted local test runs used as evidence. Until the two failures are fixed and the skips are resolved (for example, by starting a seeded server in CI and installing `openpyxl`), a green gate cannot be used as release evidence. This document records that state; it does not change CI.
+**Current practice:** releases have been deployed while *Backend checks* was red, with targeted local test runs used as evidence. Until the skips are resolved (the two failures were fixed on 2026-10-24; for the skips, for example by starting a seeded server in CI and installing `openpyxl`), a green gate cannot be used as release evidence. This document records that state; it does not change CI.
 
 ## 7. Workflows (`.github/workflows/`)
 
