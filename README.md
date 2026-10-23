@@ -66,7 +66,7 @@ The web server's document root is the repository root (production: `public_html`
 | `css/`, `js/` | Styles and script for the public gallery page |
 | `uploads/` | Server-side upload folders; only placeholders and `.htaccess` rules are tracked |
 | `cgi-bin/` | Placeholder; its `.htaccess` only turns off folder listing |
-| Root files | Public entry points (`index.php`, `member.php`, `public_gallery.php`, `register_submit.php`), shared settings (`config.php`, `school_config.php`, `branding_defaults.php`), `env.example.php` (template for the secrets file), `robots.txt`. `index.html` is an old static home page; the server shows `index.php` at `/` |
+| Root files | Public entry points (`index.php`, `member.php`, `public_gallery.php`, `register_submit.php`), shared settings (`config.php`, `school_config.php`, `branding_defaults.php`), `env.example.php` (template for the secrets file), `robots.txt` |
 
 **Not served by the web server**
 
