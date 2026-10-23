@@ -13,8 +13,8 @@ if (PHP_SAPI !== 'cli') {
  * the exact UPDATE statements that would repair them. It never writes.
  *
  * Usage:
- *   php tools/find_stored_mojibake.php             # print SQL for review
- *   php tools/find_stored_mojibake.php --apply     # execute the printed SQL
+ *   php scripts/find_stored_mojibake.php             # print SQL for review
+ *   php scripts/find_stored_mojibake.php --apply     # execute the printed SQL
  *
  * Extend $targets if new columns turn out to be affected.
  */
@@ -35,7 +35,7 @@ $targets = [
 ];
 
 /**
- * Byte-level repair using the same algorithm as tools/fix_mojibake.py:
+ * Byte-level repair using the same algorithm as scripts/fix_mojibake.py:
  * map each UTF-8 character back to its cp1252 byte (identity for the 5
  * hole bytes), then decode the byte string as UTF-8. Returns null when
  * the value is not recoverable mojibake.

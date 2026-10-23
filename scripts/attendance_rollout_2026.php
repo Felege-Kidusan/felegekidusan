@@ -24,10 +24,10 @@ if (PHP_SAPI !== 'cli') {
  * `--limit=` batches with safeguards.
  *
  * Modes (from the repo root, on the server):
- *   php tools/attendance_rollout_2026.php --verify          # 1. read-only data check of the historical rows
- *   php tools/attendance_rollout_2026.php                   # 2. DRY RUN — prints what would open
- *   php tools/attendance_rollout_2026.php --apply --limit=50   # 3. first batch (asks for confirmation)
- *   php tools/attendance_rollout_2026.php --apply --limit=50 --after-id=<printed cursor>   # next batch …
+ *   php scripts/attendance_rollout_2026.php --verify          # 1. read-only data check of the historical rows
+ *   php scripts/attendance_rollout_2026.php                   # 2. DRY RUN — prints what would open
+ *   php scripts/attendance_rollout_2026.php --apply --limit=50   # 3. first batch (asks for confirmation)
+ *   php scripts/attendance_rollout_2026.php --apply --limit=50 --after-id=<printed cursor>   # next batch …
  *
  * Options:
  *   --department=edu|mezmur   one department only (default both)

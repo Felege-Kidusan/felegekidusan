@@ -4,6 +4,8 @@ Status: **server + web implemented, tested, pushed** (`2a571c1`; rollout verify/
 Binding requirements: `ATTENDANCE_DEPT_STATUS_ALERTS_REQUIREMENTS_2026-10-19.md` §1–§14 (unchanged).
 Plan reference: `ATTENDANCE_ALERTING_IMPLEMENTATION_PLAN_2026-10-19.md` → Phase 2.
 
+> **Moved 2026-10-23:** the rollout script is now `scripts/attendance_rollout_2026.php` (it was `tools/`; [RFC 0001](../rfc/0001-repository-structure.md), Step 2a). Run the commands below with `scripts/` instead of `tools/`. The rest of this record is unchanged.
+
 ## 1. What was built
 
 | Area | Files | Notes |

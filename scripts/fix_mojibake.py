@@ -13,9 +13,9 @@ slots (0x81 0x8D 0x8F 0x90 0x9D), and decode as UTF-8. Runs that fail to
 decode are left untouched (they're probably genuine punctuation).
 
 Usage:
-  python3 tools/fix_mojibake.py            # dry run
-  python3 tools/fix_mojibake.py --apply    # write in place
-  python3 tools/fix_mojibake.py --apply --backup-dir=/tmp/ssms-bak
+  python3 scripts/fix_mojibake.py            # dry run
+  python3 scripts/fix_mojibake.py --apply    # write in place
+  python3 scripts/fix_mojibake.py --apply --backup-dir=/tmp/ssms-bak
 """
 import argparse
 import os

@@ -66,7 +66,7 @@ class Phase2StaticGuards(unittest.TestCase):
             "admin/backend/services/AttendanceRiskService.php",
             "admin/api_attendance_warnings.php",
             "api/v1/routes/attendance_warnings.php",
-            "tools/attendance_rollout_2026.php",
+            "scripts/attendance_rollout_2026.php",
             "admin/api_attendance.php",
             "admin/api_education.php",
             "api/v1/routes/attendance.php",
@@ -168,7 +168,7 @@ class Phase2StaticGuards(unittest.TestCase):
             "admin/dashboards/info-dept.php",
             "admin/dashboards/hr-dept.php",
             "admin/dashboards/edu_dept.php",
-            "tools/attendance_rollout_2026.php",
+            "scripts/attendance_rollout_2026.php",
         ]:
             r = subprocess.run([php, "-l", str(ROOT / rel)], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, rel + ": " + r.stdout)
@@ -179,7 +179,7 @@ class Phase2StaticGuards(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, rel + ": " + r.stderr)
 
     def test_rollout_script_is_cli_only_and_dry_run_by_default(self):
-        src = read("tools/attendance_rollout_2026.php")
+        src = read("scripts/attendance_rollout_2026.php")
         self.assertIn("PHP_SAPI !== 'cli'", src)
         self.assertIn("'source' => 'rollout', 'notify' => false", src)
         self.assertIn("--apply", src)
@@ -387,41 +387,41 @@ class Phase2LiveGuards(unittest.TestCase):
             db(f"INSERT IGNORE INTO attendance (member_id,class_id,attendance_date,status,recorded_by) VALUES ({self.ROLLOUT_MID},1,'{d}','absent',1)")
         env = dict(os.environ, SSMS_AUDIT_TESTING="1")
         bells_before = db("SELECT COUNT(*) FROM notifications WHERE type='attendance_warning'")
-        dry = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "tools/attendance_rollout_2026.php"), "--department=edu"], capture_output=True, text=True, env=env, cwd=str(ROOT))
+        dry = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "scripts/attendance_rollout_2026.php"), "--department=edu"], capture_output=True, text=True, env=env, cwd=str(ROOT))
         self.assertEqual(dry.returncode, 0, dry.stderr)
         self.assertIn("DRY RUN", dry.stdout)
         self.assertIn(f"#{self.ROLLOUT_MID}", dry.stdout)
         self.assertIsNone(GREG.search(dry.stdout.split("Academic-year window")[1].split("\n")[0]))
         self.assertEqual(db(f"SELECT COUNT(*) FROM attendance_warnings WHERE member_id={self.ROLLOUT_MID}"), "0", "dry run must not write")
         # --verify is read-only and reports legacy dependence of the candidate
-        ver = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "tools/attendance_rollout_2026.php"), "--department=edu", "--verify"], capture_output=True, text=True, env=env, cwd=str(ROOT))
+        ver = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "scripts/attendance_rollout_2026.php"), "--department=edu", "--verify"], capture_output=True, text=True, env=env, cwd=str(ROOT))
         self.assertIn("VERIFY (read-only data check)", ver.stdout)
         self.assertIn("legacy-dependent member ids: " + str(self.ROLLOUT_MID), ver.stdout)
         self.assertIn("VERDICT:", ver.stdout)
         self.assertEqual(db(f"SELECT COUNT(*) FROM attendance_warnings WHERE member_id={self.ROLLOUT_MID}"), "0", "verify must not write")
         # safeguards: no confirmation on a non-tty → refuse (exit 6); plan above --max-open → abort (exit 5)
-        noyes = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "tools/attendance_rollout_2026.php"), "--department=edu", "--apply"], capture_output=True, text=True, env=env, cwd=str(ROOT), stdin=subprocess.DEVNULL)
+        noyes = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "scripts/attendance_rollout_2026.php"), "--department=edu", "--apply"], capture_output=True, text=True, env=env, cwd=str(ROOT), stdin=subprocess.DEVNULL)
         self.assertEqual(noyes.returncode, 6, noyes.stdout + noyes.stderr)
         self.assertIn("Refusing to write without confirmation", noyes.stderr)
-        capped = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "tools/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes", "--max-open=0"], capture_output=True, text=True, env=env, cwd=str(ROOT))
+        capped = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "scripts/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes", "--max-open=0"], capture_output=True, text=True, env=env, cwd=str(ROOT))
         self.assertEqual(capped.returncode, 0, capped.stderr)
         self.assertEqual(db(f"SELECT COUNT(*) FROM attendance_warnings WHERE member_id={self.ROLLOUT_MID}"), "1")
         db(f"DELETE FROM attendance_warning_events WHERE warning_id IN (SELECT id FROM attendance_warnings WHERE member_id={self.ROLLOUT_MID})")
         db(f"DELETE FROM attendance_warnings WHERE member_id={self.ROLLOUT_MID}")
-        over = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "tools/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes", "--max-open=1", f"--after-id={self.ROLLOUT_MID - 1}", "--limit=1"], capture_output=True, text=True, env=env, cwd=str(ROOT))
+        over = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "scripts/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes", "--max-open=1", f"--after-id={self.ROLLOUT_MID - 1}", "--limit=1"], capture_output=True, text=True, env=env, cwd=str(ROOT))
         self.assertEqual(over.returncode, 0, over.stderr)  # exactly 1 planned == cap → allowed
         db(f"DELETE FROM attendance_warning_events WHERE warning_id IN (SELECT id FROM attendance_warnings WHERE member_id={self.ROLLOUT_MID})")
         db(f"DELETE FROM attendance_warnings WHERE member_id={self.ROLLOUT_MID}")
         # batch cursor: a batch that ends before the member must print the resume cursor and open nothing for it
-        batch = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "tools/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes", "--limit=1", f"--after-id={self.ROLLOUT_MID - 2}"], capture_output=True, text=True, env=env, cwd=str(ROOT))
+        batch = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "scripts/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes", "--limit=1", f"--after-id={self.ROLLOUT_MID - 2}"], capture_output=True, text=True, env=env, cwd=str(ROOT))
         self.assertEqual(batch.returncode, 0, batch.stderr)
         self.assertIn(f"--after-id={self.ROLLOUT_MID - 1}", batch.stdout)
         self.assertEqual(db(f"SELECT COUNT(*) FROM attendance_warnings WHERE member_id={self.ROLLOUT_MID}"), "0")
-        ap = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "tools/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes"], capture_output=True, text=True, env=env, cwd=str(ROOT))
+        ap = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "scripts/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes"], capture_output=True, text=True, env=env, cwd=str(ROOT))
         self.assertEqual(ap.returncode, 0, ap.stderr)
         self.assertIn("consecutive\tstandard\t6\topen\trollout", self._warnings(self.ROLLOUT_MID))
         self.assertEqual(db("SELECT COUNT(*) FROM notifications WHERE type='attendance_warning'"), bells_before, "rollout rows never notify")
-        again = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "tools/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes"], capture_output=True, text=True, env=env, cwd=str(ROOT))
+        again = subprocess.run([php, "-d", "error_reporting=24575", str(ROOT / "scripts/attendance_rollout_2026.php"), "--department=edu", "--apply", "--yes"], capture_output=True, text=True, env=env, cwd=str(ROOT))
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertEqual(self._warnings(self.ROLLOUT_MID).count("\n"), 0, "idempotent")
         m = re.search(r"already open (\d+)", again.stdout)

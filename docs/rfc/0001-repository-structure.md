@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Phase 1 approved by the owner (2026-10-23) and implemented** on branch `chore/structure-phase1`; awaiting confirmation on the dev server before production. Phases 2 and 3 remain proposed |
+| **Status** | **Phase 1 approved by the owner (2026-10-23) and implemented**, including the production server. **Option 1 approved (2026-10-23)**: Step 1 (safety checks) done; Step 2 (tidy non-web folders) in progress, see [section 8](#8-option-1-tidy-without-moving-web-files). Phase 3 remains proposed |
 | **Author** | Engineering (documentation pass) |
 | **Decision owner** | Project owner, with the technical team |
 | **Evidence base** | `main` at `46fbaa7`: `git ls-files`, `.htaccess` rules, and a reference search for every path named below |
@@ -100,3 +100,24 @@ Each item is its own pull request containing the move, every reference update, a
 | `backend/id_cards/libs/` | **Removed** (26 files) | Byte-identical to `admin/id_cards/libs/`. The two `backend/id_cards/` shims load the `admin/` pages, which include libraries with `__DIR__`, so the `admin/` copy is always used. No relative `libs/` include exists. Unlike the `admin/` copy, this folder was not denied by the web server, so its demo script `phpqrcode/index.php` (which writes files from request data) was publicly runnable |
 
 Found during the analysis, not changed (outside Phase 1): `index.html` at the root is an old page with the previous school name and is still reachable at `/index.html`; the live homepage is served by `index.php`. Recommended for Phase 2.
+
+## 8. Option 1: tidy without moving web files
+
+**2026-10-23: approved by the owner.** The web root stays as it is (as in WordPress and MediaWiki). Only folders the website never uses are tidied. No page, API or app URL changes. Each part is its own pull request, checked file by file, tested on dev first. Old copies on the production server are moved to a dated backup folder only after the owner confirms.
+
+Decisions:
+- `sql/` keeps its name (not renamed to `database/`): more than 250 files mention it, and the owner applies migrations from it by hand.
+- `Mobile/` keeps its name (not renamed to `mobile/`): about 100 files mention it, and a capital-letter-only rename is unreliable on Windows.
+- Old PHP migrations go to `sql/legacy/`, next to the legacy schema, so all database material is in one folder.
+- Dated records (audit evidence, applied migrations, dated plans) are not rewritten. Dated plans with run commands get a one-line "moved" note.
+- Live website files are not edited for path mentions in comments, so production keeps matching `main`. Such comments are fixed the next time the file changes for a real reason.
+
+| Step | What | Status |
+|---|---|---|
+| 1 | Safety checks: include-path and boundary tests, live URL checker ([OPERATIONS.md §2.2](../OPERATIONS.md#22-folder-structure-safety-checks)) | Done (PR #16) |
+| 2a | `tools/` (3 CLI scripts) → `scripts/` | Done in the repository. Production still has the old `public_html/tools/` copy (blocked from the web); moving it to a backup folder waits for the owner |
+| 2b | `admin/migrations/` and `backend/migrations/` → `sql/legacy/` | Planned |
+| 2c | Sort loose files in `docs/` into topic folders | Planned |
+| 2d | Folder guides (README per top-level folder) and naming rules | Planned |
+
+Known outdated comment (fix with the next real change to that file): `admin/backend/services/AttendanceRiskService.php` line 53 still says `tools/attendance_rollout_2026.php`.
