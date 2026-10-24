@@ -119,13 +119,22 @@ try {
                 exit;
             }
             $actor = (string)($_SESSION['admin_username'] ?? 'admin');
-            $data = FailureIssueService::updateIssue($conn, (int)$id, [
+            $fields = [
                 'status' => is_scalar($_POST['status'] ?? '') ? (string)$_POST['status'] : '',
                 'resolved_note' => is_scalar($_POST['resolved_note'] ?? '') ? (string)$_POST['resolved_note'] : '',
-                'remediation_cause' => is_scalar($_POST['remediation_cause'] ?? '') ? (string)$_POST['remediation_cause'] : null,
-                'remediation_steps' => is_scalar($_POST['remediation_steps'] ?? '') ? (string)$_POST['remediation_steps'] : null,
-                'remediation_link' => is_scalar($_POST['remediation_link'] ?? '') ? (string)$_POST['remediation_link'] : null,
-            ], $actor);
+            ];
+            // Pass a remediation field only when the request sent it. The
+            // service treats a present field as "set this value" (empty
+            // clears it), so passing fields the request never sent made the
+            // status buttons (which send only id/status/resolved_note) erase
+            // the saved remediation notes. Save remediation always sends all
+            // three, so saving and clearing behave exactly as before.
+            foreach (['remediation_cause', 'remediation_steps', 'remediation_link'] as $field) {
+                if (array_key_exists($field, $_POST)) {
+                    $fields[$field] = is_scalar($_POST[$field]) ? (string)$_POST[$field] : null;
+                }
+            }
+            $data = FailureIssueService::updateIssue($conn, (int)$id, $fields, $actor);
             if ($data === null) {
                 http_response_code(400);
                 echo json_encode(['status' => 'error', 'message' => 'Nothing to update or invalid fields.']);
