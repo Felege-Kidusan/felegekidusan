@@ -23,7 +23,7 @@ if (empty($_SESSION['admin_id']) || empty($_SESSION['admin_logged_in'])) {
 }
 
 $role = (string)($_SESSION['admin_role'] ?? '');
-$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)($_REQUEST['action'] ?? '') : '';
 
 $__readActions = ['search', 'get', 'get_family', 'list_suggestions', 'score_check', 'stats', 'list_guardians', 'unlinked_members', 'activity'];
 $__writeActions = ['create', 'update', 'link', 'unlink', 'merge', 'merge_suggestion', 'reject_suggestion', 'add_alias', 'run_rematch', 'attach_member', 'attach_batch', 'set_relation', 'remove_alias'];

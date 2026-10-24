@@ -104,7 +104,7 @@ if ($method === 'GET') {
         $limit = min(100, max(1, (int)($_GET['limit'] ?? 30)));
         $offset = max(0, (int)($_GET['offset'] ?? 0));
         $unreadOnly = (($_GET['unread'] ?? '') === '1');
-        $type = is_string($_GET['type'] ?? '') ? (string)$_GET['type'] : '';
+        $type = is_string($_GET['type'] ?? '') ? (string)($_GET['type'] ?? '') : '';
         $beforeId = (int)($_GET['before_id'] ?? 0) ?: null;   // P74 cursor
         $feed = NotificationCenterService::feed($conn, $userId, $role, $limit, $offset, $unreadOnly, $type, $beforeId);
         ok(['status' => 'success'] + $feed);

@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)($_REQUEST['action'] ?? '') : '';
 requirePostActions($action, ['create_subject', 'update_subject', 'delete_subject', 'restore_subject', 'assign_subject_to_classes', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template', 'save_grades', 'save_class_subject_duration', 'save_assessment_type', 'toggle_assessment_type', 'delete_assessment_type']);
 $__gradeActions = [
     'get_assessments', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template',

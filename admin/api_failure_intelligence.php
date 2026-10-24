@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)($_REQUEST['action'] ?? '') : '';
 
 try {
     switch ($action) {
@@ -74,9 +74,9 @@ try {
                 exit;
             }
             $data = FailureIssueService::getIssues($conn, [
-                'source' => is_scalar($_GET['source'] ?? '') ? (string)$_GET['source'] : '',
-                'status' => is_scalar($_GET['status'] ?? '') ? (string)$_GET['status'] : '',
-                'window' => is_scalar($_GET['window'] ?? '') ? (string)$_GET['window'] : '7d',
+                'source' => is_scalar($_GET['source'] ?? '') ? (string)($_GET['source'] ?? '') : '',
+                'status' => is_scalar($_GET['status'] ?? '') ? (string)($_GET['status'] ?? '') : '',
+                'window' => is_scalar($_GET['window'] ?? '') ? (string)($_GET['window'] ?? '') : '7d',
             ], (int)($_GET['page'] ?? 1), (int)($_GET['limit'] ?? 25));
             echo json_encode(['status' => 'success', 'data' => $data], JSON_UNESCAPED_UNICODE);
             exit;
@@ -120,8 +120,8 @@ try {
             }
             $actor = (string)($_SESSION['admin_username'] ?? 'admin');
             $fields = [
-                'status' => is_scalar($_POST['status'] ?? '') ? (string)$_POST['status'] : '',
-                'resolved_note' => is_scalar($_POST['resolved_note'] ?? '') ? (string)$_POST['resolved_note'] : '',
+                'status' => is_scalar($_POST['status'] ?? '') ? (string)($_POST['status'] ?? '') : '',
+                'resolved_note' => is_scalar($_POST['resolved_note'] ?? '') ? (string)($_POST['resolved_note'] ?? '') : '',
             ];
             // Pass a remediation field only when the request sent it. The
             // service treats a present field as "set this value" (empty

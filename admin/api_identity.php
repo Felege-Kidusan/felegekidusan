@@ -31,7 +31,7 @@ if (($_SESSION['admin_role'] ?? '') !== 'super_admin') {
     exit;
 }
 
-$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)($_REQUEST['action'] ?? '') : '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrf($_POST['csrf_token'] ?? '')) {
