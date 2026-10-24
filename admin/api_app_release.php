@@ -40,7 +40,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();
 }
 
-$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : 'get_release';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)($_REQUEST['action'] ?? '') : 'get_release';
 
 // 2. Validate CSRF for all POST / write requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

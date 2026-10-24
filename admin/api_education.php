@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)($_REQUEST['action'] ?? '') : '';
 requirePostActions($action, ['enroll', 'assign_teacher', 'record_grade', 'record_attendance', 'batch_attendance', 'promote', 'unenroll_student', 'save_class', 'delete_class', 'save_academic_year', 'set_current_year', 'delete_year', 'save_term', 'set_current_term', 'reopen_term', 'close_term_reopen', 'delete_term', 'bulk_enroll', 'transfer_student', 'sync_member_types', 'toggle_class', 'save_assessment_type', 'toggle_assessment_type', 'delete_assessment_type']);
 $__featureActions = [
     'grades' => ['record_grade'],
@@ -2623,7 +2623,7 @@ switch ($action) {
 
     case 'get_academic_intelligence':
         require_once __DIR__ . '/backend/services/AcademicIntelligenceService.php';
-        $aiPerspective = is_scalar($_GET['perspective'] ?? '') ? (string)$_GET['perspective'] : '';
+        $aiPerspective = is_scalar($_GET['perspective'] ?? '') ? (string)($_GET['perspective'] ?? '') : '';
         $aiYear = !empty($_GET['year_id']) ? (int)$_GET['year_id'] : (int)($currentYear['id'] ?? 0);
         $aiClass = (int)($_GET['class_id'] ?? 0);
 

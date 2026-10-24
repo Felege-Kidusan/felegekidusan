@@ -53,7 +53,7 @@ try {
     if ($r) $currentTerm = $r->fetch_assoc();
 } catch (Exception $e) {}
 
-$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)($_REQUEST['action'] ?? '') : '';
 $__gradeActions = ['submit_marklist', 'get_report_card', 'get_class_cards', 'get_class_report'];
 if (in_array($action, $__gradeActions, true) && !feature_enabled('grades')) {
     http_response_code(403);

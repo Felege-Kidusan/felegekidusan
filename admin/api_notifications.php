@@ -124,7 +124,7 @@ switch ($action) {
     case 'mark_all_read':
         // Mark all as read. Pinned default: the ALERTS stream for the
         // current user. P72: scope=announcements also supported.
-        $scope = is_string($_POST['scope'] ?? '') ? (string)$_POST['scope'] : 'alerts';
+        $scope = is_string($_POST['scope'] ?? '') ? (string)($_POST['scope'] ?? '') : 'alerts';
         if ($scope === 'announcements') {
             $ok = NotificationCenterService::markAllAnnouncementsRead(
                 $conn, (int)$_SESSION['admin_id'], (string)($_SESSION['admin_role'] ?? '')
@@ -217,7 +217,7 @@ switch ($action) {
         $limit  = min(100, max(1, (int)($_GET['limit'] ?? 30)));
         $offset = max(0, (int)($_GET['offset'] ?? 0));
         $unreadOnly = (($_GET['unread'] ?? '') === '1');
-        $type   = is_string($_GET['type'] ?? '') ? (string)$_GET['type'] : '';
+        $type   = is_string($_GET['type'] ?? '') ? (string)($_GET['type'] ?? '') : '';
         $beforeId = (int)($_GET['before_id'] ?? 0) ?: null;   // P73 Phase 5 cursor
         $feed = NotificationCenterService::feed(
             $conn, (int)$_SESSION['admin_id'], (string)($_SESSION['admin_role'] ?? ''),

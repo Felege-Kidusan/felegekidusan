@@ -34,7 +34,7 @@ if (!isset($conn) || !($conn instanceof mysqli)) {
     exit;
 }
 
-$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : 'get_overview';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)($_REQUEST['action'] ?? '') : 'get_overview';
 
 try {
     switch ($action) {
@@ -87,10 +87,10 @@ try {
                 exit;
             }
             $data = ApiSyncAttemptAdminService::getOverview($conn, [
-                'range' => is_scalar($_GET['range'] ?? '') ? (string)$_GET['range'] : '7d',
-                'domain' => is_scalar($_GET['domain'] ?? '') ? (string)$_GET['domain'] : '',
-                'status' => is_scalar($_GET['status'] ?? '') ? (string)$_GET['status'] : '',
-                'source' => is_scalar($_GET['source'] ?? '') ? (string)$_GET['source'] : '',
+                'range' => is_scalar($_GET['range'] ?? '') ? (string)($_GET['range'] ?? '') : '7d',
+                'domain' => is_scalar($_GET['domain'] ?? '') ? (string)($_GET['domain'] ?? '') : '',
+                'status' => is_scalar($_GET['status'] ?? '') ? (string)($_GET['status'] ?? '') : '',
+                'source' => is_scalar($_GET['source'] ?? '') ? (string)($_GET['source'] ?? '') : '',
             ]);
             echo json_encode(['status' => 'success', 'data' => $data], JSON_UNESCAPED_UNICODE);
             exit;
@@ -104,12 +104,12 @@ try {
                 exit;
             }
             $data = ApiSyncAttemptAdminService::getAttempts($conn, [
-                'range' => is_scalar($_GET['range'] ?? '') ? (string)$_GET['range'] : '30d',
-                'domain' => is_scalar($_GET['domain'] ?? '') ? (string)$_GET['domain'] : '',
-                'status' => is_scalar($_GET['status'] ?? '') ? (string)$_GET['status'] : '',
-                'source' => is_scalar($_GET['source'] ?? '') ? (string)$_GET['source'] : '',
-                'user_id' => is_scalar($_GET['user_id'] ?? '') ? (string)$_GET['user_id'] : '',
-                'search' => is_scalar($_GET['search'] ?? '') ? (string)$_GET['search'] : '',
+                'range' => is_scalar($_GET['range'] ?? '') ? (string)($_GET['range'] ?? '') : '30d',
+                'domain' => is_scalar($_GET['domain'] ?? '') ? (string)($_GET['domain'] ?? '') : '',
+                'status' => is_scalar($_GET['status'] ?? '') ? (string)($_GET['status'] ?? '') : '',
+                'source' => is_scalar($_GET['source'] ?? '') ? (string)($_GET['source'] ?? '') : '',
+                'user_id' => is_scalar($_GET['user_id'] ?? '') ? (string)($_GET['user_id'] ?? '') : '',
+                'search' => is_scalar($_GET['search'] ?? '') ? (string)($_GET['search'] ?? '') : '',
             ], (int)($_GET['page'] ?? 1), (int)($_GET['limit'] ?? 25));
             echo json_encode(['status' => 'success', 'data' => $data], JSON_UNESCAPED_UNICODE);
             exit;
