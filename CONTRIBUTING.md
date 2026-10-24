@@ -8,7 +8,7 @@ FKSS is **in production** and holds personal data about children and families. T
 
 1. **No direct pushes to `main`.** Work on a feature branch and open a pull request into `main`.
 2. **Never merge `dev` into `main`** and never push `dev` to the production repository ([BRANCHING.md](BRANCHING.md)).
-3. **No production access without the owner's approval:** no deploys, database changes, server changes or credential use. The owner applies migrations and approves every deployment ([OPERATIONS.md](docs/OPERATIONS.md)).
+3. **No production access without the maintainers' approval:** no deploys, database changes, server changes or credential use. A maintainer with production access applies migrations and approves every deployment ([OPERATIONS.md](docs/OPERATIONS.md)).
 4. **This repository must contain no personal data, credentials, infrastructure details or vulnerability details.** Use synthetic test data only. Report security issues privately ([SECURITY.md §1](docs/SECURITY.md#1-reporting-a-vulnerability)).
 5. **Report results truthfully.** Never claim a test, check or deployment passed unless it ran and passed.
 
@@ -26,7 +26,7 @@ Recommended first reads, in order: [PRD](docs/product/PRD.md) → [Technical des
 4. **Commit messages** follow the Conventional Commits style already used in the history: `feat(attendance): …`, `fix(grades): …`, `docs: …`, `test: …`, `ci: …`, `security: …`. Write the subject in the imperative and explain the *why* in the body.
 5. **Open a pull request** into `main` and complete the PR template checklist.
 6. **Review:** at least one reviewer other than the author. Changes to authentication, authorization, personal-data handling, migrations or the mobile API contract also need a security-minded reviewer.
-7. **After merge:** the owner schedules deployment. Then `main` is merged into `dev` (`git checkout dev && git merge main && git push origin dev`).
+7. **After merge:** a maintainer schedules deployment. Then `main` is merged into `dev` (`git checkout dev && git merge main && git push origin dev`).
 
 ## 4. Coding standards
 
@@ -71,7 +71,7 @@ Recommended first reads, in order: [PRD](docs/product/PRD.md) → [Technical des
 - Make it **additive and idempotent:** `CREATE TABLE IF NOT EXISTS`, `information_schema` guards before `ALTER`. No `DROP`, `TRUNCATE` or unguarded `DELETE`. CI flags destructive statements.
 - MariaDB-safe syntax; no stored procedures, events or triggers unless approved.
 - Code must keep working before the migration is applied (detect the table or column, or stay inert), because deploys and migrations happen separately.
-- List the migration in the PR description for the owner to apply, with a read-only preflight query where useful (`sql/preflight/`).
+- List the migration in the PR description for the maintainer who applies it, with a read-only preflight query where useful (`sql/preflight/`).
 - Do not add runtime DDL to application code.
 
 ## 6. Tests
@@ -82,7 +82,7 @@ Recommended first reads, in order: [PRD](docs/product/PRD.md) → [Technical des
   cd Mobile/wbws_flutter_app && flutter test
   ```
 - Add or update tests for every behaviour change, especially authorization (one test per role that must be refused), personal-data exposure and validation rules.
-- **Known state:** *Backend checks* currently fails on `main` because 79 tests are skipped (the 2 known failures were fixed on 2026-10-24). Your PR must not add failures or unexplained skips. Fixing the known ones is welcome ([DEVELOPMENT_AND_TESTING.md §3](docs/DEVELOPMENT_AND_TESTING.md#3-current-ci-status)).
+- **Known state:** *Backend checks* currently fails on `main` because 79 tests are skipped. Your PR must not add failures or unexplained skips. Making the skipped tests run is welcome ([DEVELOPMENT_AND_TESTING.md §3](docs/DEVELOPMENT_AND_TESTING.md#3-current-ci-status)).
 - Never weaken or delete a test to make CI pass without an agreed reason in the PR.
 
 ## 7. Documentation
@@ -100,10 +100,10 @@ Update documentation in the same PR as the code:
 - [ ] Authorization checked for every role; no new personal-data exposure.
 - [ ] Runs on PHP 8.2; no new server dependencies.
 - [ ] Tests added or updated; the suites above pass for the touched code; no new skips.
-- [ ] Migration (if any) is additive and idempotent, and listed for the owner.
+- [ ] Migration (if any) is additive and idempotent, and listed in the PR description.
 - [ ] Ethiopian calendar for every new user-facing date.
 - [ ] Documentation and changelog updated.
-- [ ] Reviewed and approved; deployment scheduled by the owner.
+- [ ] Reviewed and approved; deployment scheduled by a maintainer.
 
 ## 9. Naming and where files go
 
