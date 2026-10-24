@@ -44,7 +44,7 @@ Recommended first reads, in order: [PRD](docs/product/PRD.md) → [Technical des
   - Respond with `ok()` / `err()` and `paginated()`.
   - Keep responses backward compatible with installed app builds (check `X-App-Build`). Never remove a field that older builds read.
 - **Business rules belong in services** (`admin/backend/services/`), not in dashboards or endpoint files. Before changing a rule, find every implementation across the three API layers ([ARCHITECTURE.md §3](docs/ARCHITECTURE.md#3-the-three-api-layers-unfinished-consolidation)).
-- **Compatibility:** code must run on **PHP 8.2** (production), even though CI uses 8.4. No new PHP extensions, no Composer step on the server; new libraries must be committed to `vendor/` after review.
+- **Compatibility:** code must run on **PHP 8.5** (production). CI runs the tests on PHP 8.4 and lints every file on 8.5. No new PHP extensions, no Composer step on the server; new libraries must be committed to `vendor/` after review.
 - **Errors:** log details server-side and return generic messages. Never expose stack traces, SQL or paths.
 - **Destructive actions:** use the shared danger-confirmation dialog, with a server-side phrase check for high-risk actions ([ADR-0013](docs/adr/0013-tiered-danger-confirmation.md)).
 
@@ -98,7 +98,7 @@ Update documentation in the same PR as the code:
 
 - [ ] Acceptance criteria met; PRD requirement referenced where applicable.
 - [ ] Authorization checked for every role; no new personal-data exposure.
-- [ ] Runs on PHP 8.2; no new server dependencies.
+- [ ] Runs on PHP 8.5; no new server dependencies.
 - [ ] Tests added or updated; the suites above pass for the touched code; no new skips.
 - [ ] Migration (if any) is additive and idempotent, and listed in the PR description.
 - [ ] Ethiopian calendar for every new user-facing date.
