@@ -522,6 +522,7 @@ final class AppReleaseManager
 
             // Version, build and app come from the file itself.
             self::inspectApk($projectRoot, $tempAssembly, $targetAbi);
+            self::clearApkSidecars($finalDestination);
 
             // Move assembled file to final destination atomically
             if (!@rename($tempAssembly, $finalDestination)) {
@@ -554,6 +555,13 @@ final class AppReleaseManager
             self::cancelUpload($projectRoot, $uploadId);
             throw $e;
         }
+    }
+
+    /** Drop cached hash/manifest of a file that is about to be replaced. */
+    private static function clearApkSidecars(string $apkFile): void
+    {
+        @unlink($apkFile . '.meta');
+        @unlink($apkFile . '.manifest.json');
     }
 
     /**
@@ -656,6 +664,7 @@ final class AppReleaseManager
         }
         try {
             self::inspectApk($projectRoot, $staging, $targetAbi);
+            self::clearApkSidecars($destination);
             if (!@rename($staging, $destination)) {
                 throw new RuntimeException('Failed to finalize APK destination file.');
             }
@@ -695,6 +704,7 @@ final class AppReleaseManager
         if ($targetFile && is_file($targetFile)) {
             @unlink($targetFile);
             @unlink($targetFile . '.meta');
+            @unlink($targetFile . '.manifest.json');
         }
 
         $configKey = match ($targetAbi) {

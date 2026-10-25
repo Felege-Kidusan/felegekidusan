@@ -30,20 +30,23 @@ require_once __DIR__ . '/apk_manifest.php';
  */
 function fkssApkMeta(string $file): array
 {
+    clearstatcache(true, $file);
     $size = (int)filesize($file);
+    $mtime = (int)filemtime($file);
     $sidecar = $file . '.meta';
+    // "<sha256> <size> <mtime>": a replaced file of the same size is re-hashed.
     if (is_file($sidecar)) {
         $parts = preg_split('/\s+/', trim((string)@file_get_contents($sidecar)));
         if (
-            is_array($parts) && count($parts) === 2
+            is_array($parts) && count($parts) === 3
             && strlen((string)$parts[0]) === 64 && ctype_xdigit((string)$parts[0])
-            && (int)$parts[1] === $size
+            && (int)$parts[1] === $size && (int)$parts[2] === $mtime
         ) {
             return ['size' => $size, 'sha256' => strtolower((string)$parts[0])];
         }
     }
     $sha = hash_file('sha256', $file);
-    @file_put_contents($sidecar, $sha . ' ' . $size, LOCK_EX);
+    @file_put_contents($sidecar, $sha . ' ' . $size . ' ' . $mtime, LOCK_EX);
     return ['size' => $size, 'sha256' => $sha];
 }
 
