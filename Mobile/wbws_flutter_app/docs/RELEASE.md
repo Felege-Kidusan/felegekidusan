@@ -9,6 +9,12 @@ the **universal** APK (all ABIs) and can additionally produce per-ABI builds.
 
 ---
 
+## 1.7.4+41 checkpoint (not published)
+
+Run the [class-day attendance acceptance checklist](ATTENDANCE_CLASS_DAY_1_7_4.md)
+on development before production approval. Source metadata alone is not an APK
+release. No minimum-version, force-update or signing-policy change is included.
+
 ## 1. Build a release
 
 From `Mobile/wbws_flutter_app`:

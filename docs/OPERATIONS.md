@@ -108,6 +108,13 @@ Until a restore succeeds, treat backups as **unproven**.
 
 ## 5. Mobile release
 
+**1.7.4+41 is a source checkpoint, not a published APK.** Follow the
+[development class-day acceptance checklist](../Mobile/wbws_flutter_app/docs/ATTENDANCE_CLASS_DAY_1_7_4.md).
+The owner's current release instruction is development-repository main first
+(cron to development), owner testing, then separately approved production
+promotion. Older environment/deployment descriptions above have not been
+re-certified by this patch. Do not deploy to both repositories automatically.
+
 1. **Build** with `Mobile/wbws_flutter_app/scripts/build-release.ps1`, which produces the universal APK. Follow `Mobile/wbws_flutter_app/docs/RELEASE.md`.
 2. **Publish:** the super admin uploads the APK and sets the update policy in the web app-release manager (`admin/api_app_release.php`). Devices read `/api/v1/app/config`.
 3. **Version state:**
