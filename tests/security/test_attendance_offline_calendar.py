@@ -293,10 +293,18 @@ class OfflineCalendarTests(unittest.TestCase):
         self.assert_change_detected(f"INSERT INTO school_day_offs (day_date,is_off,reason) VALUES ('{d}',1,'new')")
         self.assert_change_detected(f"INSERT INTO school_day_offs (day_date,is_off,reason) VALUES ('{d}',0,'reopen')")
         self.assert_change_detected("UPDATE school_day_offs SET reason = 'Feast day' WHERE reason = 'Feast'")
+        self.assert_change_detected("UPDATE school_day_offs SET cancel_makeup = 0 WHERE reason = 'Feast day'")
+        self.assert_change_detected(f"UPDATE school_day_offs SET day_date = '{d}' WHERE reason = 'Feast day'")
+        self.assert_change_detected("UPDATE school_holidays SET title_am = 'ሌላ'")
+        self.assert_change_detected("UPDATE school_holidays SET title = 'Other'")
+        self.assert_change_detected(f"UPDATE school_holidays SET date_to = '{self.sat_h + dt.timedelta(days=3)}'")
+        self.assert_change_detected(f"UPDATE school_holidays SET date_from = '{self.sat_h - dt.timedelta(days=1)}'")
         self.assert_change_detected("DELETE FROM school_holidays")
         self.assert_change_detected("UPDATE timetable_class_days SET working_days = '7' WHERE class_id = 1")
         self.assert_change_detected("DELETE FROM timetable_class_days WHERE class_id = 3")
         self.assert_change_detected(f"UPDATE timetable_makeup_classes SET lesson_date = '{d}' WHERE lesson_date = '{self.wed}'")
+        self.assert_change_detected(f"UPDATE timetable_makeup_classes SET class_id = 2 WHERE lesson_date = '{d}'")
+        self.assert_change_detected("UPDATE timetable_class_days SET academic_year_id = 6 WHERE class_id = 1")
         self.assert_change_detected("DELETE FROM timetable_makeup_classes WHERE class_id = 1 LIMIT 1")
         self.assert_change_detected("UPDATE academic_years SET end_date = '2030-01-01' WHERE id = 5")
         self.assert_change_detected("UPDATE classes SET is_active = 0 WHERE id = 2")
@@ -326,6 +334,13 @@ class OfflineCalendarWiringTests(unittest.TestCase):
         route = src.index("if ($method === 'GET' && $action === 'calendar')")
         self.assertLess(gate, route)
         self.assertTrue("apiAttendanceClassIds($conn, $auth, $yearId)" in src[route:route + 1500])
+
+    def test_unknown_verdicts_are_left_to_the_server(self):
+        # dayType() has no other failure codes today; a future one must reach
+        # the phone as "x" (server decides), never as an allowed day.
+        src = (ROOT / "admin/backend/services/SchoolCalendarService.php").read_text(encoding="utf-8")
+        body = src[src.index("public static function mobileCalendar"):src.index("public static function calendarRevision")]
+        self.assertTrue("self::MOBILE_DAY_CODES[$st['code'] ?? ''] ?? 'x';" in body)
 
     def test_ci_creates_the_calendar_test_database(self):
         wf = (ROOT / ".github/workflows/backend-checks.yml").read_text(encoding="utf-8")
