@@ -85,7 +85,11 @@ class FakeApi implements ApiService {
 
 class FakeDb implements LocalDb {
   int saves = 0;
+  LegacyOperationRef? undone;
   int localEdits = 0;
+  bool refuseSave = false;
+  final saved = <String, List<Map<String, dynamic>>>{};
+  final sheets = <String, Map<String, dynamic>>{};
   @override
   Future<int> getPendingAttendanceCount() async => 0;
   @override
@@ -93,11 +97,11 @@ class FakeDb implements LocalDb {
   @override
   Future<Map<String, dynamic>?> getCachedAttendanceSheet(
           int id, String date) async =>
-      null;
+      sheets['$id:$date'];
   @override
   Future<List<Map<String, dynamic>>> getPendingAttendanceRecords(
           int id, String date) async =>
-      [];
+      saved['$id:$date'] ?? [];
   @override
   Future<List<Map<String, dynamic>>> getCachedStudents(int id) async => [
         {
@@ -108,6 +112,13 @@ class FakeDb implements LocalDb {
         },
       ];
   @override
+  Future<SubmitUndoResult> undoSubmittedLegacyOperation(
+      LegacyOperationRef operation) async {
+    undone = operation;
+    return SubmitUndoResult.applied;
+  }
+
+  @override
   Future<void> dropPendingAttendance(int id, String date) async {}
   @override
   Future<void> cacheStudents(int id, List<dynamic> rows) async {}
@@ -116,13 +127,22 @@ class FakeDb implements LocalDb {
       int id, String date, List<Map<String, dynamic>> students,
       {String? submissionStatus, bool locked = false}) async {
     localEdits++;
+    sheets['$id:$date'] = {
+      'students': students.map((s) => Map<String, dynamic>.from(s)).toList(),
+      'submission_status': submissionStatus ?? '',
+      'locked': locked
+    };
   }
 
   @override
   Future<LegacyOperationRef> saveAttendanceLocal(
       int id, String name, String date, List<Map<String, dynamic>> records,
       {String packetKind = 'draft', DateTime? notBefore}) async {
+    if (refuseSave) throw StateError('test disk full');
     saves++;
+    saved['$id:$date'] = records
+        .map((r) => {...r, 'packet_kind': packetKind, 'sync_state': 'pending'})
+        .toList();
     return LegacyOperationRef(
         kind: LegacyOperationKind.attendance,
         naturalKey: {'class_id': id, 'date': date},
@@ -317,6 +337,147 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(db.saves, 0);
     expect(db.localEdits, editsBefore);
+  });
+  Future<void> switchTo(WidgetTester tester, int id) async {
+    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Class $id').last);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('fast class switch flushes marked draft before debounce fires',
+      (tester) async {
+    api.code = 'o';
+    await open(tester);
+    await tester.tap(find.text('P'));
+    await switchTo(tester, 4);
+    expect(db.saved['3:${api.date}']?.single['status'], 'present');
+    expect(find.text('Student 4 Test'), findsOneWidget);
+  });
+  testWidgets(
+      'refresh flushes a pending marked draft before replacing the roster',
+      (tester) async {
+    api.code = 'o';
+    await open(tester);
+    await tester.tap(find.text('P'));
+    final state =
+        tester.state<AttendanceScreenState>(find.byType(AttendanceScreen));
+    state.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(db.saved['3:${api.date}']?.single['status'], 'present');
+  });
+  testWidgets('slow sheet response preserves a mark made after request start',
+      (tester) async {
+    api.code = 'o';
+    api.delayed = true;
+    await open(tester);
+    await tester.tap(find.text('P'));
+    api.requests['3:${api.date}']!.complete(api.sheet(3));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+    expect(db.saved['3:${api.date}']?.single['status'], 'present');
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('disk refusal prevents losing pending marks on a class switch',
+      (tester) async {
+    api.code = 'o';
+    await open(tester);
+    db.refuseSave = true;
+    await tester.tap(find.text('P'));
+    await switchTo(tester, 4);
+    expect(find.text('Student 3 Test'), findsOneWidget);
+    expect(find.textContaining('storage refused'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('note-only change enters autosave without another status tap',
+      (tester) async {
+    api.code = 'o';
+    await open(tester);
+    await tester.tap(find.text('Student 3 Test'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Audit note');
+    await tester.tap(find.text('Keep'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+    expect(db.saved['3:${api.date}']?.single['notes'], 'Audit note');
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('QR storage failure never reports successful durable attendance',
+      (tester) async {
+    api.code = 'o';
+    await open(tester);
+    db.refuseSave = true;
+    final state =
+        tester.state<AttendanceScreenState>(find.byType(AttendanceScreen));
+    final result = await state.handleQrScan('TEST-3');
+    expect(result.isSuccess, false);
+    db.refuseSave = false;
+    final retry = await state.handleQrScan('TEST-3');
+    expect(retry.isSuccess, true);
+    expect(db.saved['3:${api.date}']?.single['status'], 'present');
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('QR mark survives a sheet response that began before the scan',
+      (tester) async {
+    api.code = 'o';
+    api.delayed = true;
+    await open(tester);
+    final state =
+        tester.state<AttendanceScreenState>(find.byType(AttendanceScreen));
+    expect((await state.handleQrScan('TEST-3')).isSuccess, true);
+    api.requests['3:${api.date}']!.complete(api.sheet(3));
+    await tester.pumpAndSettle();
+    expect(db.sheets['3:${api.date}']?['students'][0]['status'], 'present');
+  });
+  testWidgets('late draft response cannot reopen a locally submitted sheet',
+      (tester) async {
+    api.code = 'o';
+    api.delayed = true;
+    await open(tester);
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Submit'));
+    await tester.pump();
+    api.requests['3:${api.date}']!.complete(api.sheet(3));
+    await tester.pumpAndSettle();
+    expect(find.text('Scan'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Submit'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('undo from class 3 never unlocks a submitted class 4 sheet',
+      (tester) async {
+    api.code = 'o';
+    await open(tester);
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Submit'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    api.packet = 'submitted';
+    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.text('Class 4').last);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('UNDO'));
+    await tester.pumpAndSettle();
+    expect(db.undone?.naturalKey['class_id'], 3);
+    expect(find.text('Student 4 Test'), findsOneWidget);
+    expect(find.text('Scan'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Submit'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+      'queued submitted packet remains locked across restart and a stale server draft',
+      (tester) async {
+    api.code = 'o';
+    db.saved['3:${api.date}'] = [
+      {
+        'member_id': 30,
+        'status': 'present',
+        'packet_kind': 'submitted',
+        'sync_state': 'pending'
+      }
+    ];
+    await open(tester);
+    expect(find.text('Scan'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Submit'), findsNothing);
+    expect(db.saves, 0);
   });
   testWidgets('late class-3 response cannot replace class-4 roster or verdict',
       (tester) async {

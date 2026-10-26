@@ -98,10 +98,10 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     return _dateStatus ?? cached;
   }
   bool get _dayAllowed => _effectiveDateStatus?['ok'] == true;
-  bool get _canEdit => !_accessDenied &&
-      _sheetOwner == _api.userId &&
+  bool get _sheetSessionCurrent => _sheetOwner == _api.userId &&
       _sheetGeneration == (_api.sessionGenerationProvider?.call() ?? 0) &&
-      _sheetAuthorizationVersion == _api.authorizationVersion &&
+      _sheetAuthorizationVersion == _api.authorizationVersion;
+  bool get _canEdit => !_accessDenied && _sheetSessionCurrent &&
       _dayAllowed && !_locked && !_loadingStudents && _rosterReady;
   String get _dayMessage {
     final detail = _effectiveDateStatus?['detail'];
@@ -129,7 +129,9 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   final Debounce _autoSave = Debounce();
   DateTime _lastSyncPush = DateTime.fromMillisecondsSinceEpoch(0);
   bool _submitting = false;
-  LegacyOperationRef? _submittedUndoRef;
+  int _editRevision = 0;
+  int _submissionRevision = 0;
+  int _durableRevision = 0;
 
   static const Set<String> _validStatuses = {
     'present',
@@ -192,6 +194,11 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // Queue the captured valid draft before cancelling the debounce on tab/back
+    // navigation. Completion is UI-fenced below; no disposed notifier is touched.
+    if (_durableRevision < _editRevision && _canEdit) {
+      unawaited(_autoSaveNow());
+    }
     _loadEpoch++;
     _netSub?.cancel();
     _syncSub?.cancel();
@@ -276,6 +283,8 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
 
   Future<void> _loadAttendance() async {
     if (_selectedClassId == null) return;
+    final previousEpoch = _loadEpoch;
+    if (!await _flushPendingEdits() || !mounted || previousEpoch != _loadEpoch) return;
     final classId = _selectedClassId!;
     final date = _selectedDate;
     final epoch = ++_loadEpoch;
@@ -333,16 +342,18 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
             ? 'submitted'
             : '${cachedSheet?['submission_status']}';
       });
-      await _db.dropPendingAttendance(classId, date);
+      // A cached lock is not proof the server accepted the current queued
+      // submission. Never discard durable operations based only on a cache.
     }
 
-    final pending = cacheLocked
-        ? <Map<String, dynamic>>[]
-        : await _db.getPendingAttendanceRecords(classId, date);
+    final pending = await _db.getPendingAttendanceRecords(classId, date);
     if (!current()) return;
+    final pendingSubmission = pending.any((row) => row['packet_kind'] == 'submitted' &&
+        const {'pending', 'retry_wait', 'in_flight'}.contains(row['sync_state']));
+    if (pendingSubmission) setState(() => _packetStatus = 'submitted');
     final pendingMap = <int, String>{};
     final pendingNotes = <int, String>{};
-    for (final p in pending) {
+    for (final p in cacheLocked ? <Map<String, dynamic>>[] : pending) {
       final mid = RosterParse.asInt(p['member_id']);
       if (mid == null) continue;
       final status = _statusOf(p['status']);
@@ -390,6 +401,8 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     if (!current()) return;
     _syncSaveGate();
     // 2. Fetch fresh data silently
+    final requestRevision = _editRevision;
+    final requestSubmissionRevision = _submissionRevision;
     final res = await _api.getAttendance(classId, date: date);
     if (!current()) return;
     if (res.sessionSuperseded || res.isAuthError) {
@@ -426,8 +439,20 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         });
         return;
       }
+      // The roster can be edited while its silent online refresh is in flight.
+      // Preserve newer local marks/notes unless the server locks the packet.
+      final liveEdits = _editRevision == requestRevision
+          ? <int, Map<String, dynamic>>{}
+          : {for (final row in _students) row['member_id'] as int: row};
       final packetEarly = '${res.data['submission_status'] ?? ''}';
       final lockedEarly = PacketLock.isLocked(packetEarly, flagged: res.data['locked'] == true);
+      if ((pendingSubmission || _submissionRevision != requestSubmissionRevision) &&
+          PacketLock.isLocked(_packetStatus) && !lockedEarly) {
+        // A response started before this phone submitted cannot reopen it.
+        setState(() => _loadingStudents = false);
+        _syncSaveGate();
+        return;
+      }
       final students = parsed.map((s) {
         final mid = s['member_id'] as int;
         return <String, dynamic>{
@@ -438,8 +463,8 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
           'gender': s['gender'] ?? '',
           'status': lockedEarly
               ? _orAbsent(_statusOf(s['att_status']))
-              : _orAbsent(_firstStatus([pendingMap[mid], s['att_status']])),
-          'notes': lockedEarly ? (s['notes'] ?? s['note'] ?? '') : (pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? ''),
+              : _orAbsent(_firstStatus([liveEdits[mid]?['status'], pendingMap[mid], s['att_status']])),
+          'notes': lockedEarly ? (s['notes'] ?? s['note'] ?? '') : (liveEdits[mid]?['notes'] ?? pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? ''),
           // Attendance alerting Phase 2: read-only open-warning marker
           // ({id, kind, stage} or null). Server-computed; never cached.
           'warning': s['warning'] is Map ? s['warning'] : null,
@@ -457,6 +482,9 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
       final packet = '${res.data['submission_status'] ?? ''}';
       final locked = PacketLock.isLocked(packet, flagged: res.data['locked'] == true);
       if (locked) {
+        setState(() => _packetStatus = packet.isEmpty ? 'submitted' : packet);
+        _autoSave.cancel();
+        _syncSaveGate();
         await _db.dropPendingAttendance(classId, date);
       }
       if (!current()) return;
@@ -477,7 +505,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         classId,
         date,
         students,
-        submissionStatus: _packetStatus,
+        submissionStatus: locked && packet.isEmpty ? 'submitted' : packet,
         locked: locked,
       );
     } else if (_students.isEmpty && (cachedAtt == null || cachedAtt.isEmpty)) {
@@ -558,6 +586,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     _autoSave.cancel();
 
     final epoch = _loadEpoch;
+    final revision = _editRevision;
     final records = _records();
     try {
       await _db.saveAttendanceLocal(
@@ -577,10 +606,11 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
       }
       return;
     }
-    if (!mounted || epoch != _loadEpoch) return;
+    if (!mounted || epoch != _loadEpoch || !_sheetSessionCurrent) return;
+    if (revision > _durableRevision) _durableRevision = revision;
     HapticFeedback.selectionClick(); // Telegram send-tick: saved on phone.
     showQuickConfirm(context, 'Saved');
-    _dirty.value = false;
+    _dirty.value = _editRevision != revision;
     setState(() {
       _packetStatus = 'draft';
       _error = null;
@@ -613,8 +643,9 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
 
     final epoch = _loadEpoch;
     final records = _records();
+    late final LegacyOperationRef operation;
     try {
-      _submittedUndoRef = await _db.saveAttendanceLocal(
+      operation = await _db.saveAttendanceLocal(
         _selectedClassId!,
         _selectedClassName ?? '',
         _selectedDate,
@@ -634,7 +665,9 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
       return;
     }
     _submitting = false;
-    if (!mounted || epoch != _loadEpoch) return;
+    if (!mounted || epoch != _loadEpoch || !_sheetSessionCurrent) return;
+    _submissionRevision++;
+    _durableRevision = _editRevision;
     HapticFeedback.mediumImpact();
     _dirty.value = false;
     setState(() {
@@ -645,17 +678,14 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     unawaited(_sync.syncAll(force: true));
     // 5-second decision window with a visible countdown; when the ring
     // empties the toast disappears and the sheet stays locked for Education.
-    showUndoToast(context, message: 'Submitted', onUndo: _undoSubmit);
+    showUndoToast(context, message: 'Submitted', onUndo: () => _undoSubmit(operation, epoch));
   }
 
-  Future<void> _undoSubmit() async {
-    final operation = _submittedUndoRef;
-    if (operation == null) return;
+  Future<void> _undoSubmit(LegacyOperationRef operation, int epoch) async {
     final result = await _db.undoSubmittedLegacyOperation(operation);
-    if (!mounted) return;
+    if (!mounted || epoch != _loadEpoch || !_sheetSessionCurrent) return;
     switch (result) {
       case SubmitUndoResult.applied:
-        _submittedUndoRef = null;
         setState(() => _packetStatus = 'draft');
         _dirty.value = false;
         showQuickConfirm(context, 'Submission undone');
@@ -696,6 +726,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
 
   // ── Phase 8: instant autosave + QR scan ──────────────────────
   void _scheduleAutoSave() {
+    _editRevision++;
     _autoSave.run(const Duration(milliseconds: 700), _autoSaveNow);
   }
 
@@ -703,38 +734,55 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   /// default-absent the sheet is complete by construction — every
   /// student carries an explicit status. A dead battery after this
   /// point loses nothing; the outbox syncs.
-  Future<void> _autoSaveNow() async {
+  Future<bool> _autoSaveNow() async {
     final classId = _selectedClassId;
-    if (classId == null || _students.isEmpty || !_canEdit) return;
+    if (classId == null || _students.isEmpty || !_canEdit) return false;
     final epoch = _loadEpoch;
+    final revision = _editRevision;
     final records = _records();
     try {
       await _db.saveAttendanceLocal(
           classId, _selectedClassName ?? '', _selectedDate, records,
           packetKind: 'draft');
     } catch (_) {
-      return; // storage refused; the manual Save surfaces the error
+      return false; // caller must not discard an unsaved sheet
     }
-    if (!mounted || epoch != _loadEpoch) return;
+    if (!mounted || epoch != _loadEpoch || !_sheetSessionCurrent) return false;
+    if (revision > _durableRevision) _durableRevision = revision;
     _dirty.value = true;
     final now = DateTime.now();
     if (now.difference(_lastSyncPush) > const Duration(seconds: 10)) {
       _lastSyncPush = now;
       unawaited(_sync.syncAll(force: false));
     }
+    return true;
+  }
+
+  Future<bool> _flushPendingEdits() async {
+    _autoSave.cancel();
+    while (_durableRevision < _editRevision && _canEdit) {
+      if (!await _autoSaveNow()) {
+        if (mounted) {
+          setState(() => _error = 'Phone storage refused the save. Free up space and try again.');
+        }
+        return false;
+      }
+    }
+    return true;
   }
 
   void _openQrScan() {
     if (!_canEdit) return;
     QrScanSheet.open(context,
-        onScan: _handleQrScan,
+        onScan: handleQrScan,
         header: _selectedClassName ?? 'Attendance');
   }
 
   /// Apply the Education rules to one scan: roster membership for the
   /// open class, duplicates, lock; success marks Present and autosaves
   /// immediately. Mirrors the manual-tap path (last write wins).
-  Future<QrFeedback> _handleQrScan(String? raw) async {
+  @visibleForTesting
+  Future<QrFeedback> handleQrScan(String? raw) async {
     final code = QrAttendance.extractMemberCode(raw);
     if (code == null) return QrFeedback.invalid();
     if (!_canEdit) return QrFeedback.locked();
@@ -766,7 +814,15 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     // The scan is physical presence — it wins.
     setState(() => s['status'] = 'present');
     _dirty.value = true;
-    await _autoSaveNow(); // scan = instantly durable
+    final epoch = _loadEpoch;
+    final revision = ++_editRevision;
+    if (!await _autoSaveNow()) {
+      if (mounted && epoch == _loadEpoch && revision == _editRevision) {
+        setState(() => s['status'] = existing);
+        _editRevision--;
+      }
+      return QrFeedback.storageError();
+    }
     return QrFeedback.ok(name: '${s['student_name'] ?? ''}');
   }
 
@@ -802,6 +858,9 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     );
     if (picked != null) {
       if (!mounted || picked == _selectedDate) return;
+      final epoch = _loadEpoch;
+      if (!await _flushPendingEdits() || !mounted || epoch != _loadEpoch) return;
+      _editRevision = _durableRevision = 0;
       _autoSave.cancel();
       setState(() {
         _selectedDate = picked; // Gregorian API form; Ethiopian display stays unchanged.
@@ -954,7 +1013,11 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
                                         overflow: TextOverflow.ellipsis),
                                   ))
                               .toList(),
-                            onChanged: (v) {
+                            onChanged: (v) async {
+                              if (v == null || v == _selectedClassId) return;
+                              final epoch = _loadEpoch;
+                              if (!await _flushPendingEdits() || !mounted || epoch != _loadEpoch) return;
+                              _editRevision = _durableRevision = 0;
                               setState(() {
                                 _selectedClassId = v;
                                 _selectedClassName = _classes
@@ -1136,6 +1199,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     setState(() => _students[index]['notes'] = note);
     _dirty.value = true;
     _persistLocal();
+    _scheduleAutoSave();
   }
 
   Widget _quickBtn(String label, Color color, VoidCallback onTap) {

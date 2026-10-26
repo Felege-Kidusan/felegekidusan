@@ -9,6 +9,8 @@ A curated history of notable changes to FKSS, newest first.
 
 ## Unreleased
 
+- Mobile 1.7.4+41 readiness audit: preserve pending edits across sheet changes/reloads/navigation, retain newer marks and submitted locks against delayed responses, bind Undo to its original operation, autosave note-only changes and report QR storage refusal accurately. Added screen/native-SQLite regression evidence; repaired stale live-test paths/fixtures without changing server permissions or confirmation rules.
+
 - Mobile 1.7.4+41 (source checkpoint, not published): server-derived offline class-day calendar and shared write/interaction guards for education attendance, scoped cache/session invalidation and stale-response fences. Day Offs, holidays, non-class days and unknown schedules are read-only; server-authorized makeup days remain editable. No schema or dependency change.
 
 - Documentation: removed superseded planning notes, point-in-time audit reports and feature working records; the documentation index lists only maintained documents (#26). Known limitations and open questions moved to `docs/OPERATIONS.md` §7, and the sources-of-truth table to `docs/README.md` §8 (#27).

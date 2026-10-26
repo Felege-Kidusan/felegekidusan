@@ -23,6 +23,21 @@ or date, resuming, or reconnecting. Successful unavailable calendar responses
 remove the old disk snapshot; network failures retain it. ETag/304 revalidates
 the snapshot without downloading it again.
 
+### Follow-up readiness audit
+
+Pending valid edits are flushed before class/date changes and refresh, and queued
+on disposal before debounce cancellation. A storage refusal blocks a class/date
+switch instead of discarding pending marks. Edit revisions preserve marks/notes
+made during a slow response. Older draft responses cannot reopen a newly submitted
+packet; Undo is bound to its exact operation and originating load epoch. Note-only
+changes schedule autosave. QR feedback reports storage refusal instead of success.
+
+A desktop native-SQLite screen journey exercises switch/leave/reopen/refusal using
+the production LocalDb, in addition to controlled screen regressions. These are
+not Android device/camera/signing tests. The existing CI zero-skips backend gate
+is not weakened; its pre-existing live-fixture/dependency gaps remain separately
+reported rather than counted as verification.
+
 The SharedPreferences calendar contains no students or attendance marks. Its
 key includes API origin, user and authorization version; it is purged with
 timetable caches at sign-out and authorization-scope changes. Existing queued
