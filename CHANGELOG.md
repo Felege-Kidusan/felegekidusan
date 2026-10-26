@@ -9,6 +9,8 @@ A curated history of notable changes to FKSS, newest first.
 
 ## Unreleased
 
+- Mobile 1.7.4+41 (source checkpoint, not published): server-derived offline class-day calendar and shared write/interaction guards for education attendance, scoped cache/session invalidation and stale-response fences. Day Offs, holidays, non-class days and unknown schedules are read-only; server-authorized makeup days remain editable. No schema or dependency change.
+
 - Documentation: removed superseded planning notes, point-in-time audit reports and feature working records; the documentation index lists only maintained documents (#26). Known limitations and open questions moved to `docs/OPERATIONS.md` §7, and the sources-of-truth table to `docs/README.md` §8 (#27).
 - Fixed: 27 more lines in 10 files had the same mistake as the `q` warning: a request value was checked with a default but read without one, so PHP wrote "Undefined array key" warnings whenever the value was left out (seen on production for the notifications `type` and four telemetry filters). The values are unchanged: the read now uses the same default (`(string)($_GET['x'] ?? '')`), proven identical for every input type, with no warnings. Files: `admin/api_app_release.php`, `api_communication.php`, `api_education.php`, `api_failure_intelligence.php`, `api_guardians.php`, `api_identity.php`, `api_notifications.php`, `api_subjects.php`, `api_telemetry.php`, and `api/v1/routes/notifications.php`. These warnings also showed up as "Warning at ..." issues in Failure Intelligence, so that list gets less noise. Test: `tests/security/test_request_reads_are_guarded.py` scans every PHP file for this pattern.
 - Fixed: on the Failure Intelligence screen (super admin), pressing Acknowledge, Resolve or Reopen erased the issue's saved remediation notes (cause, steps, link), and the screen silently fell back to the generic catalog advice. The status buttons send only the status, but `admin/api_failure_intelligence.php` passed all three note fields to the service, which treats a present field as "set this value". The endpoint now passes a note field only when the request sent it. Saving and clearing notes work as before; a request that sends nothing to change is now refused ("Nothing to update") instead of clearing the notes. No database change. Test: `tests/security/test_failure_issue_remediation_preserved.py`.
@@ -47,6 +49,7 @@ Manual SFTP deployment; see [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 | Version | Date | Highlights | Commit |
 |---|---|---|---|
+| 1.7.4+41 | Pending | Offline class-day attendance gate; device acceptance and signed APK publication pending | Feature checkpoint |
 | 1.7.3+40 | 2026-10-22 | Live mark limit, "Did not take", view-only lock, paging. **Not yet released**; the field runs 1.6.10+36 | `d854591` |
 | 1.7.2+39 | 2026-10-20 | Teacher timetable (Daily / Weekly / Monthly) | `7162d42` |
 | 1.7.1+38 | 2026-10-19 | Attendance reopen and return flows | `780bfd6` |

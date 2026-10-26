@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
+import '../../services/attendance_calendar_cache.dart';
+import '../../utils/attendance_calendar.dart';
+import '../../utils/config.dart';
 import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
@@ -31,21 +33,35 @@ class AttendanceScreen extends StatefulWidget {
   /// Gregorian yyyy-MM-dd (API form). Used by the bell deep-link when
   /// Education returns / reopens / rejects a sheet (Phase 3, Q-2).
   final String? initialDate;
-  const AttendanceScreen({super.key, this.initialClassId, this.initialDate});
+  const AttendanceScreen({super.key, this.initialClassId, this.initialDate})
+      : _apiOverride = null, _dbOverride = null, _syncOverride = null,
+        _classesLoader = null;
+
+  /// Executes this screen with controlled I/O in regression tests.
+  @visibleForTesting
+  const AttendanceScreen.withCollaborators({super.key, this.initialClassId,
+    this.initialDate, required ApiService api, required LocalDb db,
+    required SyncService sync, required Future<List<dynamic>> Function() classes})
+      : _apiOverride = api, _dbOverride = db, _syncOverride = sync,
+        _classesLoader = classes;
+  final ApiService? _apiOverride;
+  final LocalDb? _dbOverride;
+  final SyncService? _syncOverride;
+  final Future<List<dynamic>> Function()? _classesLoader;
 
   @override
   State<AttendanceScreen> createState() => AttendanceScreenState();
 }
 
-class AttendanceScreenState extends State<AttendanceScreen> {
-  final _api = ApiService();
-  final _db = LocalDb();
-  final _sync = SyncService();
+class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingObserver {
+  late final _api = widget._apiOverride ?? ApiService();
+  late final _db = widget._dbOverride ?? LocalDb();
+  late final _sync = widget._syncOverride ?? SyncService();
 
   List<dynamic> _classes = [];
   int? _selectedClassId;
   String? _selectedClassName;
-  String _selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  String _selectedDate = AttendanceCalendar.ymd(AttendanceCalendar.addisToday(DateTime.now()));
   List<Map<String, dynamic>> _students = [];
   bool _loadingClasses = true;
   bool _loadingStudents = false;
@@ -58,12 +74,46 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   String _packetStatus = '';
   // Class-day-only attendance (owner rules 2026-10-20): verdict for the
   // selected date from the server ({ok, code, label, detail, is_makeup}).
-  // null = unknown (offline / older server) → behave as before.
+  // A date/class-specific online verdict wins over the cached projection.
+  // Missing information is shown explicitly; it never silently allows edits.
   Map<String, dynamic>? _dateStatus;
-  bool get _dayAllowed => _dateStatus == null || _dateStatus!['ok'] != false;
+  AttendanceCalendar? _calendar;
+  bool _calendarFromCache = false;
+  final _calendarCache = AttendanceCalendarCache();
+  int _loadEpoch = 0;
+  bool _accessDenied = false;
+  int? _sheetOwner;
+  int? _sheetGeneration;
+  int? _sheetAuthorizationVersion;
+  StreamSubscription<SyncStatus>? _syncSub;
+  Map<String, dynamic>? get _effectiveDateStatus {
+    final today = AttendanceCalendar.addisToday(DateTime.now());
+    final date = AttendanceCalendar.parseDate(_selectedDate);
+    if (date != null && date.isAfter(today)) {
+      return AttendanceCalendar.verdict(false, 'FUTURE_DATE', 'Attendance opens on the class day.');
+    }
+    final cached = _selectedClassId == null ? null
+        : _calendar?.status(_selectedClassId!, _selectedDate, DateTime.now());
+    if (cached?['code'] == 'BACKDATE_LIMIT') return cached;
+    return _dateStatus ?? cached;
+  }
+  bool get _dayAllowed => _effectiveDateStatus?['ok'] == true;
+  bool get _canEdit => !_accessDenied &&
+      _sheetOwner == _api.userId &&
+      _sheetGeneration == (_api.sessionGenerationProvider?.call() ?? 0) &&
+      _sheetAuthorizationVersion == _api.authorizationVersion &&
+      _dayAllowed && !_locked && !_loadingStudents && _rosterReady;
+  String get _dayMessage {
+    final detail = _effectiveDateStatus?['detail'];
+    if (detail is String && detail.isNotEmpty) return detail;
+    return _effectiveDateStatus == null
+        ? 'Class-day information is unavailable. Connect and refresh before taking attendance.'
+        : 'Attendance cannot be recorded for this date.';
+  }
+
   final ValueNotifier<bool> _saveGate = ValueNotifier(false);
   void _syncSaveGate() {
-    _saveGate.value = _dirty.value && _dayAllowed;
+    _saveGate.value = _dirty.value && _canEdit;
   }
   /// Education's reason when this sheet was returned for correction.
   String? _returnNote;
@@ -112,6 +162,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final wantedDate = widget.initialDate;
     if (wantedDate != null && RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(wantedDate)) {
       _selectedDate = wantedDate;
@@ -120,6 +171,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
       if (!mounted || _isOffline == !hasLink) return;
       setState(() => _isOffline = !hasLink);
+      if (hasLink) unawaited(_loadAttendance());
     });
     _dirty.addListener(_syncSaveGate);
     _syncSaveGate();
@@ -127,7 +179,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     _updatePendingCount();
 
     // Listen for sync updates
-    _sync.syncStream.listen((status) {
+    _syncSub = _sync.syncStream.listen((status) {
       if (mounted) {
         setState(() {
           _pendingCount = status.pendingAttendance;
@@ -139,10 +191,20 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _loadEpoch++;
     _netSub?.cancel();
+    _syncSub?.cancel();
     _autoSave.dispose();
+    _dirty.removeListener(_syncSaveGate);
     _dirty.dispose();
+    _saveGate.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_loadAttendance());
   }
 
   void refresh() {
@@ -164,14 +226,14 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _loadClasses() async {
-    final warm = CatalogService().cached;
+    final warm = widget._classesLoader == null ? CatalogService().cached : <dynamic>[];
     if (warm.isNotEmpty && mounted) {
       setState(() { _classes = warm; _loadingClasses = false; });
     } else if (mounted) {
       setState(() => _loadingClasses = true);
     }
 
-    final classes = await CatalogService().classes();
+    final classes = await (widget._classesLoader?.call() ?? CatalogService().classes());
     if (!mounted) return;
     final online = ConnectivityService().hasLink;
     setState(() {
@@ -214,20 +276,50 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _loadAttendance() async {
     if (_selectedClassId == null) return;
-    final keepSheet = _students.isNotEmpty;
+    final classId = _selectedClassId!;
+    final date = _selectedDate;
+    final epoch = ++_loadEpoch;
+    final generation = _api.sessionGenerationProvider?.call() ?? 0;
+    final owner = _api.userId;
+    final authorizationVersion = _api.authorizationVersion;
+    _sheetOwner = owner;
+    _sheetGeneration = generation;
+    _sheetAuthorizationVersion = authorizationVersion;
+    final scope = AttendanceCalendarCache.key(AppConfig.apiBaseUrl, owner, _api.authorizationVersion);
+    bool current() => mounted && epoch == _loadEpoch &&
+        generation == (_api.sessionGenerationProvider?.call() ?? 0) &&
+        owner == _api.userId && authorizationVersion == _api.authorizationVersion;
+    _autoSave.cancel();
     setState(() {
       _error = null;
       _successMsg = null;
       _loadFailed = false;
       _rosterNote = null;
-      if (!keepSheet) {
-        _rosterReady = false;
-        _loadingStudents = true;
-      }
+      _dateStatus = null;
+      _calendar = null;
+      _accessDenied = false;
+      _rosterReady = false;
+      _loadingStudents = true;
     });
 
+    _syncSaveGate();
+    try {
+      final cachedCalendar = await _calendarCache.read(scope);
+      if (!current()) return;
+      setState(() {
+        _calendar = cachedCalendar;
+        _calendarFromCache = cachedCalendar != null;
+      });
+      _syncSaveGate();
+    } catch (_) {
+      // Storage failure leaves the rule unknown; the online verdict can recover.
+    }
+    if (!current()) return;
+    unawaited(_refreshCalendar(scope, current));
+
     // 1. Try cache first
-    final cachedSheet = await _db.getCachedAttendanceSheet(_selectedClassId!, _selectedDate);
+    final cachedSheet = await _db.getCachedAttendanceSheet(classId, date);
+    if (!current()) return;
     final cachedAtt = cachedSheet == null
         ? null
         : List<Map<String, dynamic>>.from(cachedSheet['students'] as List);
@@ -235,18 +327,19 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       '${cachedSheet?['submission_status'] ?? ''}',
       flagged: cachedSheet?['locked'] == true,
     );
-    if (cacheLocked && mounted) {
+    if (cacheLocked && current()) {
       setState(() {
         _packetStatus = PacketLock.label('${cachedSheet?['submission_status'] ?? ''}').isEmpty
             ? 'submitted'
             : '${cachedSheet?['submission_status']}';
       });
-      await _db.dropPendingAttendance(_selectedClassId!, _selectedDate);
+      await _db.dropPendingAttendance(classId, date);
     }
 
     final pending = cacheLocked
         ? <Map<String, dynamic>>[]
-        : await _db.getPendingAttendanceRecords(_selectedClassId!, _selectedDate);
+        : await _db.getPendingAttendanceRecords(classId, date);
+    if (!current()) return;
     final pendingMap = <int, String>{};
     final pendingNotes = <int, String>{};
     for (final p in pending) {
@@ -269,9 +362,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           'notes': pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? '',
         });
       }
-      if (mounted) setState(() { _students = students; _loadingStudents = false; _rosterReady = true; });
+      if (current()) setState(() { _students = students; _loadingStudents = false; _rosterReady = true; });
     } else {
-      final cachedStudents = await _db.getCachedStudents(_selectedClassId!);
+      final cachedStudents = await _db.getCachedStudents(classId);
+      if (!current()) return;
       if (cachedStudents.isNotEmpty) {
         final students = <Map<String, dynamic>>[];
         for (final s in cachedStudents) {
@@ -287,22 +381,38 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             'notes': pendingNotes[mid] ?? '',
           });
         }
-        if (mounted) setState(() { _students = students; _loadingStudents = false; _rosterReady = true; });
+        if (current()) setState(() { _students = students; _loadingStudents = false; _rosterReady = true; });
       } else {
-        if (mounted) setState(() { _loadingStudents = true; _rosterReady = false; });
+        if (current()) setState(() { _loadingStudents = true; _rosterReady = false; });
       }
     }
 
+    if (!current()) return;
+    _syncSaveGate();
     // 2. Fetch fresh data silently
-    final res = await _api.getAttendance(_selectedClassId!, date: _selectedDate);
-    if (!mounted) return;
+    final res = await _api.getAttendance(classId, date: date);
+    if (!current()) return;
+    if (res.sessionSuperseded || res.isAuthError) {
+      setState(() {
+        _accessDenied = true;
+        _dateStatus = null;
+        _calendar = null;
+        _loadingStudents = false;
+        _rosterReady = false;
+        _loadFailed = true;
+        _error = res.message ?? 'Sign in again to verify attendance access.';
+      });
+      _syncSaveGate();
+      return;
+    }
 
     if (res.success && res.data != null) {
       final dStatusRaw = res.data['date_status'];
-      final dStatus = (dStatusRaw is Map)
+      final dStatus = (dStatusRaw is Map && dStatusRaw['ok'] is bool &&
+              dStatusRaw['date'] == date)
           ? Map<String, dynamic>.from(dStatusRaw)
           : null;
-      if (mounted) {
+      if (current()) {
         setState(() { _dateStatus = dStatus; });
         _syncSaveGate();
       }
@@ -347,8 +457,9 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       final packet = '${res.data['submission_status'] ?? ''}';
       final locked = PacketLock.isLocked(packet, flagged: res.data['locked'] == true);
       if (locked) {
-        await _db.dropPendingAttendance(_selectedClassId!, _selectedDate);
+        await _db.dropPendingAttendance(classId, date);
       }
+      if (!current()) return;
       setState(() {
         _students = students;
         _loadingStudents = false;
@@ -359,10 +470,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         _packetStatus = locked && packet.isEmpty ? 'submitted' : packet;
         _returnNote = PacketLock.returnNote(res.data);
       });
-      await _db.cacheStudents(_selectedClassId!, students);
+      _syncSaveGate();
+      await _db.cacheStudents(classId, students);
+      if (!current()) return;
       await _db.cacheAttendanceResponse(
-        _selectedClassId!,
-        _selectedDate,
+        classId,
+        date,
         students,
         submissionStatus: _packetStatus,
         locked: locked,
@@ -383,11 +496,46 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
+  Future<void> _refreshCalendar(String scope, bool Function() current) async {
+    final etag = _calendar?.payload['etag'];
+    final res = await _api.getAttendanceCalendar(etag: etag is String ? etag : null);
+    if (!current()) return;
+    if (res.sessionSuperseded || res.isAuthError) {
+      setState(() {
+        _accessDenied = true;
+        _calendar = null;
+        _dateStatus = null;
+      });
+      _syncSaveGate();
+      return;
+    }
+    if (res.notModified) {
+      setState(() => _calendarFromCache = false);
+      return;
+    }
+    if (!res.success) return;
+    final calendar = AttendanceCalendar.parse(res.data);
+    setState(() {
+      _calendar = calendar;
+      _calendarFromCache = false;
+    });
+    _syncSaveGate();
+    try {
+      if (calendar == null) {
+        await _calendarCache.remove(scope, isCurrent: current);
+        return;
+      }
+      await _calendarCache.save(scope, calendar, isCurrent: current);
+    } catch (_) {
+      // The online verdict still applies; a failed disk cache is never permission.
+    }
+  }
+
   bool get _locked => _submitting || PacketLock.isLocked(_packetStatus);
 
   // Default-absent (2026-10-07): the sheet is complete by construction —
   // every student carries an explicit status (absent unless marked), so
-  // Save and Submit are always available. The old "mark every student"
+  // class-day, session, roster and packet gates still apply. The old "mark every student"
   // gate is gone; the server still enforces the complete roster on
   // submit (roster-drift protection) and merge-upserts drafts.
 
@@ -397,9 +545,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   /// saving again simply replaces the queued packet).
   Future<void> _saveAttendance() async {
     if (!_dayAllowed) {
-      final detail = (_dateStatus != null && _dateStatus!['detail'] is String)
-          ? _dateStatus!['detail'] as String
-          : 'Attendance cannot be recorded for this date.';
+      final detail = _dayMessage;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(detail), backgroundColor: AppTheme.warning),
@@ -408,9 +554,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       return;
     }
     if (_selectedClassId == null || _students.isEmpty) return;
-    if (_locked) return;
+    if (!_canEdit) return;
     _autoSave.cancel();
 
+    final epoch = _loadEpoch;
     final records = _records();
     try {
       await _db.saveAttendanceLocal(
@@ -421,7 +568,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         packetKind: 'draft',
       );
     } catch (_) {
-      if (mounted) {
+      if (mounted && epoch == _loadEpoch) {
         setState(() {
           _error =
               'Phone storage refused the save. Free up space and try again.';
@@ -430,7 +577,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       }
       return;
     }
-    if (!mounted) return;
+    if (!mounted || epoch != _loadEpoch) return;
     HapticFeedback.selectionClick(); // Telegram send-tick: saved on phone.
     showQuickConfirm(context, 'Saved');
     _dirty.value = false;
@@ -449,9 +596,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   /// it; undo refuses honestly if the outbox already delivered the packet.
   Future<void> _submitAttendance() async {
     if (!_dayAllowed) {
-      final detail = (_dateStatus != null && _dateStatus!['detail'] is String)
-          ? _dateStatus!['detail'] as String
-          : 'Attendance cannot be recorded for this date.';
+      final detail = _dayMessage;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(detail), backgroundColor: AppTheme.warning),
@@ -460,12 +605,13 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       return;
     }
     if (_selectedClassId == null || _students.isEmpty) return;
-    if (_locked) return;
+    if (!_canEdit) return;
     // Cancel a delayed draft before creating the submitted generation. If an
     // autosave already entered LocalDb, its serialized write completes first.
     _autoSave.cancel();
     _submitting = true;
 
+    final epoch = _loadEpoch;
     final records = _records();
     try {
       _submittedUndoRef = await _db.saveAttendanceLocal(
@@ -478,7 +624,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       );
     } catch (_) {
       _submitting = false;
-      if (mounted) {
+      if (mounted && epoch == _loadEpoch) {
         setState(() {
           _error =
               'Phone storage refused the save. Free up space and try again.';
@@ -488,7 +634,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       return;
     }
     _submitting = false;
-    if (!mounted) return;
+    if (!mounted || epoch != _loadEpoch) return;
     HapticFeedback.mediumImpact();
     _dirty.value = false;
     setState(() {
@@ -559,7 +705,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   /// point loses nothing; the outbox syncs.
   Future<void> _autoSaveNow() async {
     final classId = _selectedClassId;
-    if (classId == null || _students.isEmpty || _locked) return;
+    if (classId == null || _students.isEmpty || !_canEdit) return;
+    final epoch = _loadEpoch;
     final records = _records();
     try {
       await _db.saveAttendanceLocal(
@@ -568,7 +715,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     } catch (_) {
       return; // storage refused; the manual Save surfaces the error
     }
-    if (!mounted) return;
+    if (!mounted || epoch != _loadEpoch) return;
     _dirty.value = true;
     final now = DateTime.now();
     if (now.difference(_lastSyncPush) > const Duration(seconds: 10)) {
@@ -578,6 +725,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   void _openQrScan() {
+    if (!_canEdit) return;
     QrScanSheet.open(context,
         onScan: _handleQrScan,
         header: _selectedClassName ?? 'Attendance');
@@ -589,7 +737,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   Future<QrFeedback> _handleQrScan(String? raw) async {
     final code = QrAttendance.extractMemberCode(raw);
     if (code == null) return QrFeedback.invalid();
-    if (_locked) return QrFeedback.locked();
+    if (!_canEdit) return QrFeedback.locked();
     if (_selectedClassId == null || _students.isEmpty) {
       return QrFeedback.notFound();
     }
@@ -597,6 +745,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         _students.indexWhere((s) => '${s['member_code'] ?? ''}' == code);
     if (idx < 0) {
       final known = await _db.findCachedMemberByCode(code);
+      if (!mounted || !_canEdit) return QrFeedback.locked();
       if (known == null) return QrFeedback.notFound();
       final name = '${known['student_name'] ?? ''}';
       final st = '${known['status'] ?? ''}';
@@ -622,7 +771,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _persistLocal() async {
-    if (_selectedClassId == null || _students.isEmpty || _locked) return;
+    if (_selectedClassId == null || _students.isEmpty || !_canEdit) return;
     await _db.cacheAttendanceResponse(
       _selectedClassId!,
       _selectedDate,
@@ -633,7 +782,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   void _markAll(String status) {
-    if (_locked) return;
+    if (!_canEdit) return;
     setState(() {
       for (var s in _students) {
         s['status'] = status;
@@ -648,11 +797,19 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     final picked = await showEthiopianDatePicker(
       context: context,
       initialGregorianDate: _selectedDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 45)),
-      lastDate: DateTime.now(),
+      firstDate: AttendanceCalendar.addisToday(DateTime.now()).subtract(const Duration(days: 45)),
+      lastDate: AttendanceCalendar.addisToday(DateTime.now()),
     );
     if (picked != null) {
-      _selectedDate = picked; // Returns Gregorian yyyy-MM-dd for API
+      if (!mounted || picked == _selectedDate) return;
+      _autoSave.cancel();
+      setState(() {
+        _selectedDate = picked; // Gregorian API form; Ethiopian display stays unchanged.
+        _students = [];
+        _packetStatus = '';
+        _returnNote = null;
+      });
+      _dirty.value = false;
       _loadAttendance();
     }
   }
@@ -679,7 +836,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         automaticallyImplyLeading: Navigator.canPop(context),
         actions: [
           // Scan lives in the top header (never covers roster data).
-          if (!_locked)
+          if (_canEdit)
             TextButton.icon(
               onPressed: _openQrScan,
               icon: const Icon(Icons.qr_code_scanner, size: 22),
@@ -723,8 +880,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
               : TeacherActionBar(
                   saveLabel: 'Save',
                   submitLabel: 'Submit',
-                  onSave: _saveAttendance,
-                  onSubmit: _submitAttendance,
+                  onSave: _canEdit ? _saveAttendance : null,
+                  onSubmit: _canEdit ? _submitAttendance : null,
                   saveEnabled: _saveGate,
                 ),
       body: Column(
@@ -810,6 +967,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                                 _rosterReady = false;
                                 _loadingStudents = true;
                                 _packetStatus = '';
+                                _autoSave.cancel();
                               });
                               _dirty.value = false;
                               _returnNote = null;
@@ -839,14 +997,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             ),
           ),
 
-          if (_dateStatus != null && _dateStatus!['ok'] == false)
-            StatusBanner.warning((_dateStatus!['detail'] is String &&
-                    (_dateStatus!['detail'] as String).isNotEmpty)
-                ? _dateStatus!['detail'] as String
-                : 'Attendance cannot be recorded for this date.'),
-          if (_dateStatus != null &&
-              _dateStatus!['ok'] == true &&
-              _dateStatus!['is_makeup'] == true)
+          if (_calendarFromCache && _dateStatus == null && _calendar != null)
+            StatusBanner.warning('Using the saved class-day calendar. Reconnect and refresh to check schedule changes.'),
+          if (_selectedClassId != null && !_dayAllowed)
+            StatusBanner.warning(_dayMessage),
+          if (_effectiveDateStatus?['ok'] == true &&
+              _effectiveDateStatus?['is_makeup'] == true)
             StatusBanner.success('Makeup class day — attendance can be recorded.'),
           if (_students.isNotEmpty && _error == null) _progressStrip(),
           if (_error != null)
@@ -878,7 +1034,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                     style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                   ),
                   const Spacer(),
-                  if (!_locked) ...[
+                  if (_canEdit) ...[
                     _quickBtn(
                         'All Present', AppTheme.success, () => _markAll('present')),
                     const SizedBox(width: 6),
@@ -891,7 +1047,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
           // Student list
           Expanded(
-            child: (_loadingStudents || (!_rosterReady && _selectedClassId != null))
+            child: (_loadingStudents || (!_rosterReady && !_accessDenied && _selectedClassId != null))
                 ? const StudentListSkeleton()
                 : RefreshIndicator(
                     onRefresh: _loadAttendance,
@@ -950,6 +1106,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _editNote(int index) async {
+    if (!_canEdit) return;
+    final classId = _selectedClassId;
+    final date = _selectedDate;
+    final epoch = _loadEpoch;
     final ctrl = TextEditingController(text: '${_students[index]['notes'] ?? ''}');
     final note = await showDialog<String>(
       context: context,
@@ -968,7 +1128,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         ],
       ),
     );
-    if (note == null) return;
+    if (!mounted || !_canEdit || classId != _selectedClassId ||
+        date != _selectedDate || epoch != _loadEpoch || note == null) {
+      return;
+    }
     if (note == '${_students[index]['notes'] ?? ''}') return;
     setState(() => _students[index]['notes'] = note);
     _dirty.value = true;
@@ -1011,7 +1174,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => _editNote(index),
+              onTap: _canEdit ? () => _editNote(index) : null,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1059,9 +1222,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     final selected = current == value;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _locked
+      onTap: !_canEdit
           ? null
           : () {
+              if (!_canEdit) return;
               HapticFeedback.lightImpact();
               setState(() => _students[index]['status'] = value);
               _dirty.value = true;

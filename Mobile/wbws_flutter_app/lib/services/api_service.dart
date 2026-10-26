@@ -1536,6 +1536,11 @@ class ApiService {
   // ATTENDANCE
   // ============================================================
 
+  /// Compact server-computed calendar for offline class-day gating.
+  Future<ApiResponse> getAttendanceCalendar({String? etag}) => get(
+      '/attendance/calendar',
+      headers: etag == null ? null : {'If-None-Match': etag});
+
   Future<ApiResponse> getAttendance(int classId, {String? date}) {
     final params = <String, String>{'class_id': '$classId'};
     if (date != null) params['date'] = date;
