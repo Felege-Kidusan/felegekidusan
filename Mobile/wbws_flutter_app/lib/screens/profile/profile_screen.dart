@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../models/user_profile.dart';
+import '../update/app_updates_tile.dart';
 import '../../services/app_lock_service.dart';
 import '../../services/crash_log_service.dart';
 import '../../services/device_tier_service.dart';
@@ -832,6 +833,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   ..._buildAppLockSection(),
                   const SizedBox(height: 12),
                   _buildSection('App', [
+                    const AppUpdatesTile(),
                     _infoTile(
                       Icons.info_outline,
                       'Version',

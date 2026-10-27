@@ -258,12 +258,25 @@ class FKSSApp extends StatefulWidget {
 class _FKSSAppState extends State<FKSSApp> {
   final _appLock = AppLockService();
   final _session = SessionCoordinator();
+  bool _lastUpdateForce = AppUpdateService().decision.force;
+
+  void _onReleaseChanged() {
+    _session.reconcileReleaseGates();
+    final force = AppUpdateService().decision.force;
+    // Metadata/progress must not rebuild the entire kept-alive shell. Only a
+    // change to the mandatory root policy requires this root rebuild.
+    if (force != _lastUpdateForce) {
+      _lastUpdateForce = force;
+      if (mounted) setState(() {});
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _appLock.addListener(_onRootStateChanged);
     _session.addListener(_onRootStateChanged);
+    AppUpdateService().revision.addListener(_onReleaseChanged);
     AppUpdateService().check().then((_) {
       _session.reconcileReleaseGates();
       if (mounted) setState(() {});
@@ -274,6 +287,7 @@ class _FKSSAppState extends State<FKSSApp> {
   void dispose() {
     _appLock.removeListener(_onRootStateChanged);
     _session.removeListener(_onRootStateChanged);
+    AppUpdateService().revision.removeListener(_onReleaseChanged);
     super.dispose();
   }
 
