@@ -161,8 +161,8 @@
         return;
       }
 
-      if (file.size > 262144000) { // 250 MB
-        showAlert('danger', 'APK file exceeds the maximum 250MB limit.');
+      if (file.size > 536870912) { // 512 MiB
+        showAlert('danger', 'APK file exceeds the maximum 512 MiB limit.');
         return;
       }
 
@@ -379,9 +379,9 @@
         var saved = this.readResume();
         ctx.partSize = saved && saved.size === ctx.file.size && saved.abi === ctx.abi && saved.partSize >= 65536 && saved.partSize <= safe ? saved.partSize : safe;
         ctx.total = Math.ceil(ctx.file.size / ctx.partSize);
-        if (ctx.total < 1 || ctx.total > 4096) throw { message: 'Invalid APK size or number of parts.' };
+        if (ctx.total < 1 || ctx.total > 8192) throw { message: 'Invalid APK size or number of parts.' };
         ctx.hashes = [];
-        // Hash one bounded part at a time, not a 250-MiB array buffer.
+        // Hash one bounded part at a time, not a whole-APK array buffer.
         for (var i = 0; i < ctx.total; i++) {
           var buffer = await ctx.file.slice(i * ctx.partSize, (i + 1) * ctx.partSize).arrayBuffer();
           var hash = await window.crypto.subtle.digest('SHA-256', buffer);
@@ -459,7 +459,9 @@
         total_size: ctx.file.size, chunk_size: this.partBytes(idx, ctx),
         chunk_file: ctx.file.slice(idx * ctx.partSize, (idx + 1) * ctx.partSize) };
       try {
-        var result = await this.requestJson(ctx, 'upload_chunk', values);
+        // Keep slow-link retries bounded without repeating the same short deadline.
+        var deadline = Math.min(300000, PART_DEADLINE_MS * Math.pow(2, ctx.retries[idx] || 0));
+        var result = await this.requestJson(ctx, 'upload_chunk', values, deadline);
         if (!this.isCurrent(ctx)) return;
         if (!result.data || result.data.chunk_index !== idx || result.data.size !== this.partBytes(idx, ctx) || result.data.sha256 !== ctx.hashes[idx]) {
           throw { message: 'Server acknowledgment did not match part ' + (idx + 1) + '. No success was assumed.', retryable: false };

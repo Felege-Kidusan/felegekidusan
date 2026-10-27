@@ -18,7 +18,7 @@ final class AppReleaseUploadException extends RuntimeException
 /** Bounded, filesystem-backed upload sessions. No database or external service. */
 final class AppReleaseUploadStore
 {
-    public const MAX_PARTS = 4096;
+    public const MAX_PARTS = 8192;
     public const MAX_PART_BYTES = 1048576;
 
     public static function locked(string $root, string $id, callable $operation): mixed

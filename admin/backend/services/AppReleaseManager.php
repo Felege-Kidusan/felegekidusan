@@ -14,7 +14,7 @@ require_once __DIR__ . "/AppReleaseUploadStore.php";
  */
 final class AppReleaseManager
 {
-    public const MAX_APK_BYTES = 262144000; // 250 MB
+    public const MAX_APK_BYTES = 536870912; // 512 MiB
 
     /** Android packages this server may publish (production app and Beta). */
     public const KNOWN_PACKAGES = [
@@ -72,11 +72,14 @@ final class AppReleaseManager
 
         $releasesDir = self::getReleasesDirectory($projectRoot);
         $baseTmp = $releasesDir . '/.tmp_chunks';
-        if (!is_dir($baseTmp)) {
-            @mkdir($baseTmp, 0755, true);
-            $htaccess = $baseTmp . '/.htaccess';
-            if (!is_file($htaccess)) {
-                @file_put_contents($htaccess, "# Protect temp chunks\nOrder deny,allow\nDeny from all\n");
+        if (!is_dir($baseTmp)) @mkdir($baseTmp, 0755, true);
+        // Preflight may already have created the directory. Its existence is
+        // not proof that the deny file exists; protect it before any session data.
+        $htaccess = $baseTmp . '/.htaccess';
+        if (!is_file($htaccess)) {
+            $rules = "# Protect temp chunks\nOrder deny,allow\nDeny from all\n";
+            if (@file_put_contents($htaccess, $rules, LOCK_EX) !== strlen($rules)) {
+                throw new RuntimeException('Cannot protect temporary upload storage; no chunk was accepted.');
             }
         }
 
@@ -674,7 +677,7 @@ final class AppReleaseManager
 
         $size = (int)$fileInfo['size'];
         if ($size <= 0 || $size > self::MAX_APK_BYTES) {
-            throw new InvalidArgumentException('APK file exceeds the maximum allowed size of 250MB.');
+            throw new InvalidArgumentException('APK file exceeds the maximum allowed size of 512 MiB.');
         }
 
         $originalName = (string)($fileInfo['name'] ?? '');

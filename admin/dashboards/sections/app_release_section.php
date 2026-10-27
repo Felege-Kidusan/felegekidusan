@@ -259,11 +259,11 @@ $arFromApk = ($arRelease['version_source'] ?? '') === 'apk';
                     <input type="file" id="upload-apk-input" accept=".apk,application/vnd.android.package-archive" style="display:none" onclick="event.stopPropagation()">
                     <i class="fa-solid fa-file-arrow-up" style="font-size:2.5rem;color:#38bdf8;margin-bottom:0.75rem;display:inline-block"></i>
                     <div style="font-size:0.95rem;font-weight:600;color:#f8fafc">Drag &amp; Drop APK File Here</div>
-                    <div style="font-size:0.8rem;color:#94a3b8;margin-top:0.25rem">or click anywhere in this box to browse</div>
+                    <div style="font-size:0.8rem;color:#94a3b8;margin-top:0.25rem">or click anywhere in this box to browse · Maximum 512 MiB (536,870,912 bytes)</div>
                     <div style="margin-top:0.75rem;display:flex;justify-content:center;gap:0.5rem;flex-wrap:wrap">
-                        <span class="apk-stat-pill"><i class="fa-solid fa-bolt" style="color:#38bdf8"></i> Resumable Chunks (2MB)</span>
+                        <span class="apk-stat-pill"><i class="fa-solid fa-bolt" style="color:#38bdf8"></i> Verified Parts (up to 512 KiB)</span>
                         <span class="apk-stat-pill"><i class="fa-solid fa-shield-halved" style="color:#10b981"></i> Auto-Retry Protection</span>
-                        <span class="apk-stat-pill"><i class="fa-solid fa-server" style="color:#a78bfa"></i> cPanel Safe</span>
+                        <span class="apk-stat-pill"><i class="fa-solid fa-server" style="color:#a78bfa"></i> Bounded Requests</span>
                     </div>
                 </div>
 

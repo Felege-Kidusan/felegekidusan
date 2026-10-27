@@ -39,7 +39,7 @@ class AppReleaseManagementTests(unittest.TestCase):
         self.assertIn("case 'delete_apk':", self.api_app_release)
 
     def test_service_validates_apk_extension_and_chunk_integrity(self):
-        self.assertIn("MAX_APK_BYTES = 262144000", self.app_release_manager)
+        self.assertIn("MAX_APK_BYTES = 536870912", self.app_release_manager)
         self.assertIn("handleChunkUpload", self.app_release_manager)
         self.assertIn("assembleChunks", self.app_release_manager)
         self.assertIn("cleanupOldChunks", self.app_release_manager)

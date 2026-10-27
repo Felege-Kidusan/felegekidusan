@@ -123,6 +123,9 @@ test('per-request deadline aborts a hung part and schedules bounded recovery', a
   assert.equal(h.state.attempt.inFlight, 0);
   assert.equal(Object.keys(h.state.attempt.pending).length, 1);
   h.fire(700); await until(() => h.live().length === 1);
+  h.fire(90000); await flush();
+  assert.equal(Object.keys(h.state.attempt.pending).length, 1);
+  h.fire(1120); await until(() => h.live().length === 1);
   h.part(0).success(); await until(() => h.state.state === 'success');
 });
 
@@ -167,4 +170,12 @@ test('invalid publication receipt fails visibly instead of freezing or claiming 
   await h.ui.startUpload(); await until(() => h.state.state === 'error');
   assert.match(h.nodes['upload-error-message'].textContent, /valid publication receipt/);
   assert.equal(h.storage.size, 1); assert.equal(h.timerCount(), 0);
+});
+
+test('512 MiB is accepted at selection and larger files are rejected', t => {
+  const h = harness(t);
+  h.ui.onFileSelected({ name: 'boundary.apk', size: 536870912 });
+  assert.equal(h.state.state, 'selected'); assert.equal(h.state.file.size, 536870912);
+  h.cleanup(); h.ui.onFileSelected({ name: 'oversize.apk', size: 536870913 });
+  assert.equal(h.state.file, null); assert.equal(h.state.state, 'idle');
 });

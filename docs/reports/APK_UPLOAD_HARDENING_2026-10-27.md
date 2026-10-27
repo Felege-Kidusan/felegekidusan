@@ -1,5 +1,7 @@
 # APK upload reliability implementation — 2026-10-27
 
+> Historical first implementation. The later owner-approved 512-MiB size/count/deadline changes and real-browser results supersede this report’s limits/cache tag: see `APK_UPLOAD_512MIB_E2E_2026-10-27.md`.
+
 ## 1. Request
 Deeply analyze and improve the development dashboard APK uploader to an enterprise-quality standard, keeping changes isolated and production protected. This work hardens transfer, resume, finalization and publication; it is not a certification of the entire platform.
 

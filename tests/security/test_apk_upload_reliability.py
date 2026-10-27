@@ -31,6 +31,7 @@ $op = json_decode(stream_get_contents(STDIN), true);
 try {
     $id = $op['id'] ?? 'test_upload_123';
     switch ($op['action']) {
+        case 'preflight': $out = M::getPreflightInfo(ROOT_PATH); break;
         case 'status': $out = M::uploadStatus(ROOT_PATH, $id, $op['count'], $op['size'], $op['descriptor'] ?? []); break;
         case 'part': $out = M::handleChunkUpload(ROOT_PATH, null, $id, $op['index'], $op['count'], $op['bytes'], $op['size'], $op['b64']); break;
         case 'assemble': $out = M::assembleChunks(ROOT_PATH, $id, $op['count'], $op['size'], 'test.apk', $op['abi'] ?? 'universal'); break;
@@ -112,6 +113,35 @@ class UploadRecoveryRuntimeTests(unittest.TestCase):
         self.assertTrue((self.parts_dir / 'chunk_00000').is_file(), 'assembly deleted a valid saved part')
         progress = self.op('status')
         self.assertEqual(progress['out']['received'], [0])
+
+    def test_preflight_created_directory_is_protected_before_session_data(self):
+        self.assertTrue(self.op('preflight')['ok'])
+        base = self.web / 'releases/.tmp_chunks'
+        self.assertTrue(base.is_dir())
+        self.begin()
+        self.assertIn('Deny from all', (base / '.htaccess').read_text())
+        self.assertTrue(self.send(0)['ok'])
+
+    def test_unwritable_missing_protection_fails_before_session_or_chunks(self):
+        base = self.web / 'releases/.tmp_chunks'
+        base.mkdir()
+        base.chmod(0o555)
+        failed = self.op('status', descriptor=self.descriptor)
+        self.assertFalse(failed['ok'])
+        self.assertIn('Cannot protect temporary upload storage', failed['message'])
+        self.assertFalse(self.parts_dir.exists())
+
+    def test_512_mib_boundary_and_8192_minimum_size_parts(self):
+        size, count, part_size = 536870912, 8192, 65536
+        hashes = [hashlib.sha256(bytes(part_size)).hexdigest()] * count
+        identity = f'{size}:{part_size}:universal:' + ''.join(hashes)
+        descriptor = {'part_size': part_size, 'part_hashes': hashes, 'abi': 'universal',
+                      'fingerprint': hashlib.sha256(identity.encode()).hexdigest()}
+        accepted = self.op('status', size=size, count=count, descriptor=descriptor)
+        self.assertTrue(accepted['ok'], accepted)
+        self.assertEqual(len(accepted['out']['missing']), count)
+        self.assertFalse(self.op('status', id='over_limit_123', size=size + 1, count=count)['ok'])
+        self.assertFalse(self.op('status', id='over_count_123', size=size, count=count + 1)['ok'])
 
     def test_corrupt_metadata_fails_closed_without_losing_parts(self):
         self.begin()
