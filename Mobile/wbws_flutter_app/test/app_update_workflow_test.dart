@@ -275,6 +275,31 @@ void main() {
     expect(nativeCalls, contains('installApk'));
   });
 
+  test('release change during transfer retains identity and rejects old bytes',
+      () async {
+    var build = 900;
+    final response = Completer<http.Response>();
+    final svc = service(
+      fetch: () async =>
+          ApiResponse(success: true, data: metadata(build: build)),
+      client: () => MockClient((_) => response.future),
+    );
+    await svc.check();
+    final downloading = svc.downloadApk();
+    build = 901;
+    await svc.check();
+    expect(svc.transferConfig!.latestBuild, 900);
+    expect(svc.config!.latestBuild, 901);
+    expect(svc.downloadTargetsCurrentRelease, isFalse);
+    final rejected = expectLater(downloading, throwsA(isA<AppUpdateFailure>()));
+    response.complete(
+        http.Response.bytes(payload, 200, headers: {'x-app-sha256': digest}));
+    await rejected;
+    expect(svc.hasReadyDownload, isFalse);
+    expect(svc.downloadError, contains('different release'));
+    expect(await directory.list().toList(), isEmpty);
+  });
+
   test('opening settings failure retains the verified APK', () async {
     final svc = service();
     await svc.check();

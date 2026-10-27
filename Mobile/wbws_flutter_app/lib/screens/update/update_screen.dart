@@ -150,6 +150,7 @@ class UpdateScreen extends StatelessWidget {
                       semanticsLabel: 'Checking for updates'),
                 ],
                 if (svc.decision.any &&
+                    (!svc.isDownloading || svc.downloadTargetsCurrentRelease) &&
                     (cfg?.releaseNotes.trim().isNotEmpty ?? false)) ...[
                   const SizedBox(height: 20),
                   const Text('What’s new',
@@ -173,6 +174,12 @@ class UpdateScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Text(svc.statusLabel),
+                  if (svc.transferConfig != null)
+                    Text('Downloading: ${svc.transferConfig!.latestVersion} '
+                        '(${svc.transferConfig!.latestBuild})'),
+                  if (!svc.downloadTargetsCurrentRelease)
+                    const Text(
+                        'A newer release is available. The older transfer will stop; download the latest update afterward.'),
                   if (svc.totalBytes > 0)
                     Text(
                         '${_size(svc.receivedBytes)} of ${_size(svc.totalBytes)}'),

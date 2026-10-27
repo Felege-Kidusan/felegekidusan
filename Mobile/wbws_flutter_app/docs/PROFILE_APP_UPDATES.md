@@ -18,6 +18,8 @@ The row and detail page observe the application-lifetime update service. Progres
 
 One operation owns the APK file. The service closes network/file handles, limits header/stream inactivity waits, verifies actual length when known, and streams SHA-256 verification without loading the APK into memory. It requires a valid served-file or selected-artifact digest. Existing ABI/universal fallback precedence is preserved.
 
+A release change during transfer keeps the original transfer identity visible and rejects old bytes at the next stream/verification boundary; it does not offer the stale artifact for installation.
+
 Installation revalidates the file and refuses a file associated with a different current release. No verification bypass is offered. Displayed errors are controlled messages, not raw URLs, paths or exceptions.
 
 **Retries restart from zero. No durable pause/resume, automatic bounded retry, process-death recovery, guaranteed background transfer or silent install is delivered here.** These require the separately scoped identity-bound client/server transport work. The UI explicitly explains the restart limitation.

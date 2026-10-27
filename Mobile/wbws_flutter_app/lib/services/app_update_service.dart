@@ -163,6 +163,9 @@ class AppUpdateService extends ChangeNotifier {
   String? _readySha;
   int? _readySize;
   String? _downloadReleaseKey;
+  AppRemoteConfig? _transferConfig;
+  AppRemoteConfig? get transferConfig => _transferConfig;
+  bool get downloadTargetsCurrentRelease => _downloadReleaseKey == releaseKey;
   Future<String>? _downloadFuture;
   Future<void>? _installFuture;
 
@@ -414,6 +417,7 @@ class AppUpdateService extends ChangeNotifier {
     _readySha = null;
     _readySize = null;
     final snapshot = config!;
+    _transferConfig = snapshot;
     _downloadReleaseKey = releaseKey;
     late final Future<String> future;
     future = _download(snapshot, onProgress).whenComplete(() {
@@ -422,6 +426,13 @@ class AppUpdateService extends ChangeNotifier {
     _downloadFuture = future;
     notifyListeners();
     return future;
+  }
+
+  void _requireCurrentDownload() {
+    if (!downloadTargetsCurrentRelease) {
+      throw const AppUpdateFailure(
+          'A different release is now available. Download the latest update.');
+    }
   }
 
   Future<void> _verifyFile(File file, String expected, int? size) async {
@@ -480,6 +491,7 @@ class AppUpdateService extends ChangeNotifier {
       try {
         await for (final chunk
             in response.stream.timeout(const Duration(seconds: 45))) {
+          _requireCurrentDownload();
           receivedBytes += chunk.length;
           if (expectedSize != null && receivedBytes > expectedSize) {
             throw const AppUpdateFailure(
@@ -498,9 +510,11 @@ class AppUpdateService extends ChangeNotifier {
       } finally {
         await sink.close();
       }
+      _requireCurrentDownload();
       downloadPhase = AppDownloadPhase.verifying;
       notifyListeners();
       await _verifyFile(file, expected, expectedSize);
+      _requireCurrentDownload();
       _readyPath = file.path;
       _readySha = expected;
       _readySize = await file.length();
