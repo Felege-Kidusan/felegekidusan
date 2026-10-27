@@ -339,7 +339,7 @@ class Phase5LiveGuards(unittest.TestCase):
             "echo json_encode($o);"
         )
         out = subprocess.run(["php", "-d", "error_reporting=24575", "-r", php], capture_output=True, text=True,
-                             env={"SSMS_AUDIT_TESTING": "1", "PATH": "/usr/bin:/bin"})
+                             env={"SSMS_AUDIT_TESTING": "1", "SSMS_DB_NAME": "ssms_test", "PATH": "/usr/bin:/bin"})
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertTrue(out.stdout.strip(), out.stderr)
         rows = json.loads(out.stdout.strip().splitlines()[-1])
