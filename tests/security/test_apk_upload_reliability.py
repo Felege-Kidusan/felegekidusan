@@ -338,6 +338,14 @@ class UploadRecoveryRuntimeTests(unittest.TestCase):
                 self.assertEqual(progress['data']['received'], list(range(len(self.parts))))
                 # A duplicate multipart retry is idempotent, not a second append.
                 self.assertEqual(request('upload_chunk', {'chunk_index': 0}, self.parts[0])[0], 200)
+                # Generic infrastructure errors belong in server logs, never the HTTP body.
+                self.config.chmod(0o444)
+                code, infrastructure_error = request('assemble_chunks', {'file_name': 'test.apk', 'abi': 'universal'})
+                self.assertEqual(code, 500, infrastructure_error)
+                self.assertNotIn('read-only', infrastructure_error['message'])
+                self.assertNotIn(str(self.web), infrastructure_error['message'])
+                self.assertEqual(len(list(self.parts_dir.glob('chunk_*'))), len(self.parts))
+                self.config.chmod(0o644)
                 code, published = request('assemble_chunks', {'file_name': 'test.apk', 'abi': 'universal'})
                 self.assertEqual(code, 200, published)
                 self.assertFalse(published['audit_logged'])  # Synthetic fixture intentionally has no mysqli connection.

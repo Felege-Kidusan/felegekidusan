@@ -364,7 +364,7 @@ try {
     }
 } catch (AppReleaseUploadException $e) {
     http_response_code($e->httpStatus);
-    echo json_encode(['status' => 'error', 'code' => $e->errorCode, 'message' => $e->getMessage(),
+    echo json_encode(['status' => 'error', 'code' => $e->errorCode, 'message' => $e->clientMessage,
         'retryable' => $e->retryable, 'details' => $e->details]);
     exit;
 } catch (InvalidArgumentException $e) {
@@ -377,6 +377,6 @@ try {
     error_log('AppRelease API error: ' . $err);
     http_response_code(500);
     echo json_encode(['status' => 'error', 'code' => 'storage_or_server_error', 'retryable' => true,
-        'message' => 'Failed to process app release request: ' . $err]);
+        'message' => 'Unable to process the app release request. Saved parts are retained; check server logs for details.']);
     exit;
 }

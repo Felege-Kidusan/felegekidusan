@@ -7,11 +7,12 @@ use InvalidArgumentException;
 /** Structured upload errors, separate from application/manifest validation. */
 final class AppReleaseUploadException extends RuntimeException
 {
-    public function __construct(string $message, public readonly string $errorCode,
+    // Only explicit, user-safe messages belong in this domain exception.
+    public function __construct(public readonly string $clientMessage, public readonly string $errorCode,
         public readonly int $httpStatus = 409, public readonly bool $retryable = false,
         public readonly array $details = [])
     {
-        parent::__construct($message);
+        parent::__construct($clientMessage);
     }
 }
 
