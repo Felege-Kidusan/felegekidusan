@@ -165,6 +165,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install test dependencies
         run: python -m pip install --upgrade pip pytest pytest-subtests
 
@@ -172,6 +176,7 @@ jobs:
         run: |
           php -v | head -1
           python --version
+          node --version
           mysql -h 127.0.0.1 -u ssms -pssms -e 'SELECT VERSION() AS mariadb;' || true
 
       - name: Wait for MariaDB
