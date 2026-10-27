@@ -332,7 +332,7 @@ class ReleaseWiringTests(unittest.TestCase):
         # A new cache tag makes browsers fetch the script that sends the
         # background-sync checkbox and shows the version read from the APK.
         page = (ROOT / "admin/dashboards/super-admin.php").read_text(encoding="utf-8")
-        self.assertTrue('src="/admin/js/app_release.js?v=20261026rel"' in page)
+        self.assertTrue('src="/admin/js/app_release.js?v=20261027upload3"' in page)
 
     def test_drains_checkbox_is_always_sent_and_read(self):
         js = (ROOT / "admin/js/app_release.js").read_text(encoding="utf-8")
