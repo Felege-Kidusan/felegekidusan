@@ -49,6 +49,12 @@ Checked-in development automation at the baseline:
 
 All eight automatic baseline checks passed on `7209278`; see [dated evidence](reports/DOCUMENTATION_BASELINE_2026-10-28.md). That does not establish the next candidate's results. The backend job fails on **any** skip. CI does not deploy, approve production, certify security or prove phone installation. Verify the production repository's actual checks and protection settings before promotion instead of assuming they match this checkout.
 
+### CI evidence storage, not deployment storage
+
+The owner-approved no-billing policy keeps the same build/verification workflow in public development and private production. Actual Android debug/universal/ARM, SDK/native/signature and PHP inspection gates remain mandatory. Full generated reports are recorded in Actions logs/job summaries; only public repositories additionally upload downloadable CI report/APK archives. Private CI APK bytes are not retained or copied to public storage. See [the precise retention and provenance boundaries](../Mobile/wbws_flutter_app/docs/ANDROID_COMPATIBILITY.md#ci-evidence-storage).
+
+Repository contents do not equal account resources: public and private Actions usage have different allowance rules, and separate owners have separate usage histories. This policy does not change repository visibility, billing, owner release signing/publication or log-retention settings. Use the automatic PR checks rather than dispatching duplicate manual runs for an already running candidate.
+
 ## Production approval principle
 
 A production release needs a named approver, the accepted development SHA, explicit promotion authorization and a release record. The intended review policy is a production pull request with green checks and a human approval. Repository settings may not enforce the whole policy; do not confuse a written rule with an installed protection.

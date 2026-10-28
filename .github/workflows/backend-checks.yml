@@ -638,11 +638,14 @@ jobs:
           set -euo pipefail
           VERSION="$(sed -n 's/^version: *//p' pubspec.yaml)"
           python ../../tests/e2e/android_release_artifacts.py "dist/$VERSION" \
-            --report build/android-release-set.json
+            --report build/android-release-set.json --summary "$GITHUB_STEP_SUMMARY"
           git diff --exit-code -- pubspec.yaml pubspec.lock android
 
+      # Owner-approved storage policy: actual verification is mandatory above.
+      # Public dev archives CI builds; private prod retains full logs/summary,
+      # not duplicate APK archives. Unknown visibility fails closed.
       - name: Preserve release artifact compatibility evidence (not a publishable release)
-        if: always()
+        if: always() && github.event.repository.visibility == 'public'
         uses: actions/upload-artifact@v4
         with:
           name: android-compatibility-evidence
@@ -655,7 +658,7 @@ jobs:
           retention-days: 7
 
       - name: Preserve CI-test-signed release APKs for native inspection, never publication
-        if: always()
+        if: always() && github.event.repository.visibility == 'public'
         uses: actions/upload-artifact@v4
         with:
           name: android-ci-test-signed-apks-not-for-publication
@@ -667,7 +670,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the debug APK
-        if: success()
+        if: success() && github.event.repository.visibility == 'public'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk

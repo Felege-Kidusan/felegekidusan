@@ -7,6 +7,7 @@ isolated configuration. SDK gates must already have run before reports exist.
 """
 import argparse
 import hashlib
+import html
 import json
 from pathlib import Path
 import shutil
@@ -102,10 +103,43 @@ def inspect_publication(artifacts):
         return outputs
 
 
+def write_ci_summary(directory, result, report_path, summary):
+    """Preserve full generated records, not private APK bytes or invented passes."""
+    manifest = json.loads(local_file(directory, 'release-manifest.json').read_text(encoding='utf-8-sig'))
+    records = {
+        'release_set': result,
+        'release_manifest': manifest,
+        'compatibility_reports': {
+            item['kind']: json.loads(local_file(directory, item['compatibility_report']).read_text(encoding='utf-8'))
+            for item in manifest['artifacts']
+        },
+        'native_dependencies': {
+            name: local_file(report_path.parent, name).read_text(encoding='utf-8')
+            for name in ('barcode-native-dependency.txt', 'camera-native-dependencies.txt')
+        },
+    }
+    serialized = json.dumps(records, indent=2)
+    content = ('## Android CI verification records\n\n'
+               'Actual build/SDK/PHP checks; not device execution or owner signing acceptance. '
+               'Public repositories archive CI APKs; private repositories retain reports in logs/summary only. '
+               'No private APK bytes are retained or copied elsewhere.\n\n'
+               '<details><summary>Full generated verification records</summary>\n<pre>'
+               + html.escape(serialized) + '</pre>\n</details>\n')
+    # GitHub permits 1MiB per step summary. Never silently truncate evidence.
+    if len(content.encode('utf-8')) > 900_000:
+        raise ValueError('CI verification summary exceeds the 900KB evidence bound')
+    with summary.open('a', encoding='utf-8') as destination:
+        destination.write(content)
+    print('ANDROID_CI_EVIDENCE_BEGIN')
+    print(serialized)
+    print('ANDROID_CI_EVIDENCE_END')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', type=Path)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--summary', type=Path, help='Append complete CI verification records to the step summary')
     args = parser.parse_args()
     artifacts = check_set(args.directory)
     publication = inspect_publication(artifacts)
@@ -114,6 +148,8 @@ def main():
                             for kind, item in artifacts.items()}, 'publication_inspection': publication,
               'actual_arm64_in_wrong_slots': 'rejected', 'read_only': True}
     args.report.write_text(json.dumps(result, indent=2) + '\n')
+    if args.summary is not None:
+        write_ci_summary(args.directory, result, args.report, args.summary)
     print(json.dumps(result, indent=2))
 
 
