@@ -458,6 +458,20 @@ jobs:
           grep -q 'gradle-8.14.3-all.zip' android/gradle/wrapper/gradle-wrapper.properties
           echo "Clean checkout confirmed: no wrapper, no local.properties, Gradle 8.14.3 pinned."
 
+      - name: Reclaim unrelated hosted-runner disk space
+        # Private runners exhausted disk while combining debug/release native
+        # transforms. Remove only unused preinstalled tool families, never the
+        # checkout, Android SDK/NDK, JDK, Flutter, Gradle or PowerShell.
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_ACTIONS:-}" != "true" || "${RUNNER_ENVIRONMENT:-}" != "github-hosted" || "${RUNNER_OS:-}" != "Linux" ]]; then
+            echo "::error::Disk cleanup is restricted to Linux GitHub-hosted runners."
+            exit 1
+          fi
+          df -h "$GITHUB_WORKSPACE"
+          sudo rm -rf -- /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h "$GITHUB_WORKSPACE"
+
       - name: Set up JDK 17
         # flutter_tools 3.44.9 sets errorJavaMinVersionAndroid = 17.0.0, and
         # AGP 8.11.1 requires JDK 17+. Pinned rather than inherited so a runner
