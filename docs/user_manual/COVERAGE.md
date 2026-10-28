@@ -2,11 +2,12 @@
 
 [Manual index](README.md)
 
-**Overall status: INCOMPLETE — ADDITIONAL WORK REQUIRED.** Baseline `7209278`, 2026-10-28. This ledger records reviewed scope and outstanding work; it is not a statement that every listed file is a reachable screen or that every control works.
+**Overall status: INCOMPLETE — ADDITIONAL WORK REQUIRED.** Mobile account/update/recovery baseline `7209278`; new Finance/Materials core review baseline `13f00ac`, 2026-10-28. The exhaustive manual is active requested work, not deferred. This ledger records reviewed scope and outstanding work; it is not a statement that every listed file is a reachable screen or that every control works.
 
 ## Evidence boundaries
 
-- Three task/control chapters cover mobile Profile/device settings, updates and recovery. Six screen-directory source files have UI-level coverage; selected backing paths are traced. This is not full backend/domain-worker review.
+- Three original task/control chapters cover mobile Profile/device settings, updates and recovery. Six screen-directory source files have UI-level coverage; selected backing paths are traced. This is not full backend/domain-worker review.
+- Two additional chapters cover core [Finance](FINANCE.md) and [Materials](MATERIALS.md) web workflows, handler actions, validation, persistence and recovery limitations. Their two mobile home notices were reviewed as website-only screens. Shared, dynamic, legacy and runtime acceptance work remains; no whole-department/every-control sign-off is claimed.
 - A read-only extraction found 140 source files containing 2,985 text/control candidates before vendor/legacy/dynamic review. Those figures are **discovery counts**, not verified button counts, manual coverage percentages or executed tests. Text candidates include headings and exclude some dynamic controls. The raw research inventory stays outside maintained manuals.
 - Every tracked Dart source in the screen directory is listed below, including helpers/style files. Every direct dashboard/frontend PHP source is queued separately; legacy routing/reachability must be checked before describing it as active.
 - Runtime verification of these new chapters on a phone/browser/hosting is not performed. Source references establish only the behavior specifically reviewed.
@@ -24,8 +25,8 @@
 | Human Resources | Temporary/permanent registration/promotion, import, duplicates, guardians/family links, groups, identity/ID cards and archive/report workflows; retired HR attendance must not be described as active |
 | Information | Member editing/archives, reporting datasets/saved views/exports, analytics and PII boundaries |
 | Mezmur / Mezmur attendance taker | Catalog/categories/zemarians, submissions, media/lyrics timing/playback/downloads, attendance/review/analytics and curator ownership |
-| Finance | Trace active web route, frontend script, compatibility shim and endpoint actions before promising transaction/report functions. Mobile home is a website notice, not a transaction UI |
-| Materials | Trace web dashboard and endpoint actions; mobile home is a website notice, not inventory entry |
+| Finance | [Core web trace written](FINANCE.md): active shell/client/shim/API, fields, fee/ledger side effects, limits and known recovery/control discrepancies. Remaining: shared picker/pager/profile/communications/notifications/theme controls, legacy/direct-path reconciliation, failure/date/report acceptance and independent browser review. Mobile home is a reviewed website notice |
+| Materials | [Core web trace written](MATERIALS.md): dashboard/actions, fields, stock/request distinction, deletion limits and export/filter behavior. Remaining: all shared/navigation controls, legacy/direct-path reconciliation and independent browser/failure/concurrency review. Mobile home is a reviewed website notice |
 | Content Editor | CMS/public-content controls, publication effects, uploads, preview and permissions; mobile support must not be inferred from role existence |
 | School Admin | Department overview, impersonation/restoration, configuration, branding, reporting, account management boundaries |
 | Super Admin | Users/roles, backups/restore/health, identity, release manager, telemetry/failure intelligence and optional AI provider/chat controls; destructive/secret/privacy boundaries |
@@ -50,12 +51,12 @@ Statuses below apply only to the stated review depth. “Pending” means not ye
 | [edu_dept/edu_home.dart](../../Mobile/wbws_flutter_app/lib/screens/edu_dept/edu_home.dart) | Pending source/action trace | Not yet written |
 | [edu_dept/edu_subjects_screen.dart](../../Mobile/wbws_flutter_app/lib/screens/edu_dept/edu_subjects_screen.dart) | Pending source/action trace | Not yet written |
 | [edu_dept/edu_teachers_screen.dart](../../Mobile/wbws_flutter_app/lib/screens/edu_dept/edu_teachers_screen.dart) | Pending source/action trace | Not yet written |
-| [finance/finance_home.dart](../../Mobile/wbws_flutter_app/lib/screens/finance/finance_home.dart) | Pending source/action trace | Not yet written |
+| [finance/finance_home.dart](../../Mobile/wbws_flutter_app/lib/screens/finance/finance_home.dart) | Website-only notice source reviewed; shared notification control remains pending | [Finance](FINANCE.md) |
 | [hr/hr_home.dart](../../Mobile/wbws_flutter_app/lib/screens/hr/hr_home.dart) | Pending source/action trace | Not yet written |
 | [hr/hr_taker_home.dart](../../Mobile/wbws_flutter_app/lib/screens/hr/hr_taker_home.dart) | Pending source/action trace | Not yet written |
 | [info_dept/info_home.dart](../../Mobile/wbws_flutter_app/lib/screens/info_dept/info_home.dart) | Pending source/action trace | Not yet written |
 | [lock/lock_screen.dart](../../Mobile/wbws_flutter_app/lib/screens/lock/lock_screen.dart) | Pending source/action trace | Not yet written |
-| [material/material_home.dart](../../Mobile/wbws_flutter_app/lib/screens/material/material_home.dart) | Pending source/action trace | Not yet written |
+| [material/material_home.dart](../../Mobile/wbws_flutter_app/lib/screens/material/material_home.dart) | Website-only notice source reviewed; shared notification control remains pending | [Materials](MATERIALS.md) |
 | [members/member_detail_screen.dart](../../Mobile/wbws_flutter_app/lib/screens/members/member_detail_screen.dart) | Pending source/action trace | Not yet written |
 | [members/member_list_screen.dart](../../Mobile/wbws_flutter_app/lib/screens/members/member_list_screen.dart) | Pending source/action trace | Not yet written |
 | [mezmur/mezmur_analytics.dart](../../Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_analytics.dart) | Pending source/action trace | Not yet written |
@@ -106,14 +107,14 @@ These files include legacy implementations, shims and shared widgets. Each needs
 | [admin/dashboards/groups.php](../../admin/dashboards/groups.php) | Pending route/control/handler trace |
 | [admin/dashboards/hr-dept.php](../../admin/dashboards/hr-dept.php) | Pending route/control/handler trace |
 | [admin/dashboards/info-dept.php](../../admin/dashboards/info-dept.php) | Pending route/control/handler trace |
-| [admin/dashboards/material_department.php](../../admin/dashboards/material_department.php) | Pending route/control/handler trace |
+| [admin/dashboards/material_department.php](../../admin/dashboards/material_department.php) | [Core source/handler trace](MATERIALS.md); shared controls and browser acceptance pending |
 | [admin/dashboards/school_admin.php](../../admin/dashboards/school_admin.php) | Pending route/control/handler trace |
 | [admin/dashboards/super-admin.php](../../admin/dashboards/super-admin.php) | Pending route/control/handler trace |
 | [admin/dashboards/teacher.php](../../admin/dashboards/teacher.php) | Pending route/control/handler trace |
 | [frontend/pages/dashboard.php](../../frontend/pages/dashboard.php) | Pending route/control/handler trace |
 | [frontend/pages/edu_assignments.php](../../frontend/pages/edu_assignments.php) | Pending route/control/handler trace |
 | [frontend/pages/edu_teachers.php](../../frontend/pages/edu_teachers.php) | Pending route/control/handler trace |
-| [frontend/pages/finance_dept.php](../../frontend/pages/finance_dept.php) | Pending route/control/handler trace |
+| [frontend/pages/finance_dept.php](../../frontend/pages/finance_dept.php) | [Core source/handler trace](FINANCE.md); shared controls and browser acceptance pending |
 | [frontend/pages/login.php](../../frontend/pages/login.php) | Pending route/control/handler trace |
 | [frontend/pages/mezmur_dept.php](../../frontend/pages/mezmur_dept.php) | Pending route/control/handler trace |
 
@@ -126,4 +127,4 @@ These files include legacy implementations, shims and shared widgets. Each needs
 5. Validate the final user manual with representative synthetic-data journeys and accessibility/responsive states; export only reviewed content.
 6. Commit/push, pass fresh required checks and merge development main within authorization. Owner acceptance and production promotion remain separate.
 
-The publication of these three chapters does not complete the full documentation-renewal request. Incomplete coverage is an acceptance gap, not a mere optional improvement.
+The publication of five chapters does not complete the full documentation-renewal request. Incomplete coverage is an acceptance gap, not a mere optional improvement. Apply the [control-level acceptance record](../QUALITY_GATES.md#3-manual-control-acceptance-record) before promoting any remaining source or department to reviewed/complete.

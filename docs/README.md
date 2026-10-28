@@ -13,7 +13,11 @@
 
 | Document | Status and scope |
 |---|---|
-| [User manual](user_manual/README.md) | **Partial:** mobile account/device settings, updates and recovery; not yet all departments or controls |
+| [User manual](user_manual/README.md) | **Partial:** mobile account/device settings, updates/recovery and source-reviewed core Finance/Materials web workflows; not yet all departments or controls |
+| [Developer guide](DEVELOPER_GUIDE.md) | Human/AI-assisted investigation, worked fee trace, known source discrepancies and handoff |
+| [Agent contributor instructions](../AGENTS.md) | Compact repository-wide safety, evidence, testing and delivery contract |
+| [Change-impact map](CHANGE_IMPACT.md) | Entry points, shared boundaries, regression questions and stop conditions |
+| [Documentation quality gates](QUALITY_GATES.md) | Measurable acceptance, control-review records and honest scoring boundaries |
 | [Manual coverage and verification](user_manual/COVERAGE.md) | Explicit reviewed scope and outstanding source/control/runtime work |
 | [Documentation standard](DOCUMENTATION_STANDARD.md) | Authoring, terminology, evidence, review and lifecycle rules |
 | [Document lifecycle register](DOCUMENT_LIFECYCLE.md) | Reviewed retirements, preserved knowledge and retained candidates |
@@ -51,6 +55,7 @@
 | Document | Status |
 |---|---|
 | [API.md](API.md) | Canonical |
+| [Selected ledger action contracts](api/LEDGER_ACTIONS.md) | Field/default/validation, side-effect and UI/API distinctions for three browser actions; not full API conformance |
 | [api/openapi.yaml](api/openapi.yaml): OpenAPI 3.1 reference for `/api/v1` | Source-dated summarized reference; route/service code governs field behavior |
 | [ROLES_AND_PERMISSIONS.md](ROLES_AND_PERMISSIONS.md) | Canonical |
 
@@ -67,6 +72,7 @@
 | Document | Status |
 |---|---|
 | [SECURITY.md](SECURITY.md): controls, secrets (key names only), private reporting and evidence limits | Maintained reference, not a security certification |
+| [Security architecture/review model](architecture/SECURITY_MODEL.md) | Source-bounded data flows, trust boundaries, misuse/review cases and residual verification; not a penetration test |
 | [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md): authority, private evidence, containment and recovery | Maintained procedure; staffing/contacts/drills remain owner dependencies |
 
 Open security findings are tracked privately, not in this repository (see [SECURITY.md §5](SECURITY.md#5-open-findings)).
