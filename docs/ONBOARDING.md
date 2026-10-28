@@ -49,6 +49,8 @@
 
 ## 6. Day 5: first contribution
 
+Before editing, complete the [developer guide's source-tracing exercise](DEVELOPER_GUIDE.md#2-worked-exercise-record-a-paid-member-fee) and produce a [change-impact record](CHANGE_IMPACT.md). AI-assisted contributors also read [AGENTS.md](../AGENTS.md); tools differ in automatic loading, and no agent receives production authority from a repository instruction file. Use the [security model](architecture/SECURITY_MODEL.md) for trust boundaries and [documentation quality gates](QUALITY_GATES.md) for acceptance and remaining coverage.
+
 Good first tasks touch one area and have a clear test:
 - a documentation correction you found while reading (the documents state what they were verified against; tell us when something no longer matches the code);
 - a small, test-backed fix for an item in [OPERATIONS.md §7](OPERATIONS.md#7-known-limitations-and-open-questions), after the maintainers confirm it is wanted.
