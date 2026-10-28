@@ -150,3 +150,19 @@ jobs:
             exit 1
           fi
           echo "No workflow reads repository secrets."
+
+      # Operator-only diagnostic; this maintenance branch must not be merged.
+      # Normal release verification/upload gates are not modified by this probe.
+      - name: Prepare synthetic storage-quota probe
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ops/storage-quota-probe-2026-10-28'
+        run: |
+          printf '%s\n' 'FKSS storage-service diagnostic; not an APK or school data.' "$GITHUB_SHA" > "$RUNNER_TEMP/fkss-storage-quota-probe.txt"
+
+      - name: Probe artifact creation without building an APK
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ops/storage-quota-probe-2026-10-28'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fkss-storage-quota-probe
+          path: ${{ runner.temp }}/fkss-storage-quota-probe.txt
+          if-no-files-found: error
+          retention-days: 1
