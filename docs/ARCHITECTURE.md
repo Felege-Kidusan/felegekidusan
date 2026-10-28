@@ -58,7 +58,7 @@ The `teacher` and `attendance_taker` roles are class-scoped, while `school_admin
 
 | Concern | Implementation (verified at `46fbaa7`) |
 |---|---|
-| Identity | Package `fkss_app`, version 1.7.3+40; Android `applicationId com.arkeonethiopia.fkss`. The API base URL is in `lib/utils/config.dart` |
+| Identity | Package `fkss_app`, source checkpoint 1.7.4+41 at `7209278` (not proof of publication); Android `applicationId com.arkeonethiopia.fkss`. The API base URL is in `lib/utils/config.dart` |
 | Local storage | SQLite through `sqflite`, file `wbws_offline_v4.db`, schema version 37 (`lib/services/local_schema_v34.dart`). It is **not encrypted at the application level**; the app relies on Android file-based encryption |
 | Outboxes | `pending_attendance`, `pending_grades`, `pending_hr`, `pending_mezmur`, `pending_hymn_ops`, `comm_outbox`, `comm_drafts`. Bookkeeping in `sync_attempts`, `sync_state`, `sync_log` |
 | Sync | `AttendanceSyncCoordinator` and `BackgroundSyncCoordinator`, plus an Android background producer (`AndroidBackgroundSyncScheduler`). Writes carry `Idempotency-Key` and client-attempt headers, so the server can replay or deduplicate them (`api/v1/core/middleware.php`) |

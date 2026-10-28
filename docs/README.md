@@ -9,6 +9,16 @@
 | **Superseded** | Replaced by the linked canonical document; kept for context |
 | **Historical** | A point-in-time record (rollout, incident). Useful for *why*, not for *what is true now* |
 
+## User guides and documentation maintenance
+
+| Document | Status and scope |
+|---|---|
+| [User manual](user_manual/README.md) | **Partial:** mobile account/device settings, updates and recovery; not yet all departments or controls |
+| [Manual coverage and verification](user_manual/COVERAGE.md) | Explicit reviewed scope and outstanding source/control/runtime work |
+| [Documentation standard](DOCUMENTATION_STANDARD.md) | Authoring, terminology, evidence, review and lifecycle rules |
+| [Document lifecycle register](DOCUMENT_LIFECYCLE.md) | Reviewed retirements, preserved knowledge and pending candidates |
+| [2026-10-28 source/CI baseline](reports/DOCUMENTATION_BASELINE_2026-10-28.md) | Dated evidence; not a deployment or checks of a later branch |
+
 ## 1. Getting started
 
 | Document | Status |
@@ -66,8 +76,8 @@ Open security findings are tracked privately, not in this repository (see [SECUR
 | [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md): setup, test suites, CI | Canonical |
 | [TEST_STRATEGY.md](TEST_STRATEGY.md): test levels, coverage by risk, quality gates | Canonical |
 | [tests/audit/README.md](../tests/audit/README.md) | Reference |
-| [ci_cd/ARCHITECTURE.md](ci_cd/ARCHITECTURE.md) | Superseded |
-| [ci_cd/SEARCH_LOAD_AND_ERRORS.md](ci_cd/SEARCH_LOAD_AND_ERRORS.md) | Historical |
+| [Document lifecycle register](DOCUMENT_LIFECYCLE.md) | Retired CI proposal/template and preserved knowledge |
+| [ci_cd/SEARCH_LOAD_AND_ERRORS.md](ci_cd/SEARCH_LOAD_AND_ERRORS.md): Mezmur web request handling | Source reference; executable/comment debounce mismatch and uncompleted browser checks are explicit |
 
 ## 7. Operations and releases
 
@@ -78,7 +88,7 @@ Open security findings are tracked privately, not in this repository (see [SECUR
 | [Mobile app RELEASE_NOTES.md](../Mobile/wbws_flutter_app/RELEASE_NOTES.md) | Canonical (release log) |
 | [audits/AUDIO_STORAGE_SETUP.md](audits/AUDIO_STORAGE_SETUP.md): media storage setup | Reference |
 | [audits/AUTH_OUTBOX_BUILD24_ROLLOUT_RUNBOOK.md](audits/AUTH_OUTBOX_BUILD24_ROLLOUT_RUNBOOK.md) | Historical (build 24 rollout) |
-| [audits/DEPLOYMENT_RUNBOOK.md](audits/DEPLOYMENT_RUNBOOK.md) | Superseded by [OPERATIONS.md](OPERATIONS.md) |
+| [audits/DEPLOYMENT_RUNBOOK.md](audits/DEPLOYMENT_RUNBOOK.md) | Historical go-live instructions with migration/restore safeguards still required by source/tests. Use [OPERATIONS.md](OPERATIONS.md) for current authorization/environment policy; do not delete or execute blindly |
 | Mobile fleet telemetry: [release gate](audits/MOBILE_FLEET_TELEMETRY_STAGE0_RELEASE_GATE.md), [staging evidence](audits/MOBILE_FLEET_TELEMETRY_STAGE1_STAGING_EVIDENCE.md), [integrity hardening](audits/MOBILE_FLEET_TELEMETRY_INTEGRITY_HARDENING.md), [retention](audits/MOBILE_FLEET_TELEMETRY_RETENTION.md) | Reference |
 
 ## 8. Sources of truth
@@ -87,10 +97,10 @@ When documents disagree, use this table.
 
 | Question | Authoritative source | Not authoritative |
 |---|---|---|
-| What is the code? | `main` of the development repository. The production repository's `main` is kept identical | Feature branches; `dev` (beta settings) |
-| What is deployed? | The [production deployment record](../CHANGELOG.md#production-deployment-record) (commit, files, verification result) | Files on the server; server-side git metadata |
-| What is the database schema? | The production database (not yet verified; see [DATABASE.md §4](DATABASE.md#4-applied-state-in-production-unverified)) | `sql/legacy/database_schema.sql` (stale); `sql/` describes intent only |
-| Which app version is in the field? | The app-release manager (`/api/v1/app/config`) | `pubspec.yaml` on `main` |
+| What is the code? | The exact reviewed development-main SHA. Production promotion is separate; parity is not assumed | Unreviewed feature branches; `dev` (beta settings) |
+| What is deployed? | A dated [deployment record](../CHANGELOG.md#production-deployment-record) corroborated by authorized file/schema/configuration verification | A merge alone, server-side Git metadata or an old deployment record used as a live guarantee |
+| What is the database schema? | The actual target database, through separately authorized structural verification; see [DATABASE.md §4](DATABASE.md#4-applied-state-in-production-unverified) | `sql/legacy/database_schema.sql` (stale); migrations alone do not prove applied state |
+| Which app version is in the field? | Installed-device evidence for the devices concerned; release-manager metadata identifies the offered release, not every installed build | `pubspec.yaml` on `main`, a successful build or a download alone |
 | Who may do what? | `admin/access_control.php`, `api/v1/core/acl.php` and the checks inside each endpoint | Older documents |
 | Why is it built this way? | [Architecture decision records](adr/README.md) | — |
 | Security and privacy findings | Tracked privately ([SECURITY.md §5](SECURITY.md#5-open-findings)) | This repository |

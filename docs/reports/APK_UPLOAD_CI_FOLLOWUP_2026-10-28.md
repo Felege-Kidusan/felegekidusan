@@ -1,5 +1,7 @@
 # APK upload CI follow-up — 2026-10-28
 
+> **Historical intermediate report.** The reported failures and sparse-checkout uncertainty are preserved, not current status. The [later zero-skip repair](CI_ZERO_SKIP_REPAIR_2026-10-28.md) corrects the provisioning-file claim; PR #41 subsequently merged as `bf924d7`. See [successful later baseline checks](DOCUMENTATION_BASELINE_2026-10-28.md).
+
 ## 1. Request
 Push and merge the authorized development update without repeated routine approval. Production still requires separate explicit authorization.
 ## 2. Current Problem
