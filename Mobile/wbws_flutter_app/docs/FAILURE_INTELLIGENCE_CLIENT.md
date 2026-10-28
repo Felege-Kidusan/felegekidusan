@@ -44,6 +44,9 @@ group into one issue row. Pinned on the client by
 
 ## 3. Idempotency and retry behavior remains separate
 
+The historical term **exact-once guarantee** refers to the existing
+idempotency/replay contract for eligible operations; adding fleet context
+does not strengthen that contract or change its identity/transaction rules.
 This header/signature contract is not an unconditional exactly-once
 delivery or background-execution guarantee. See [current recovery and
 attention-state guidance](../../../docs/user_manual/SYNC_AND_RECOVERY.md).
