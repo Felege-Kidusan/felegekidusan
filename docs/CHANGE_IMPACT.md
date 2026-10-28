@@ -34,7 +34,7 @@ The table is a starting map, not a file/function inventory of every domain. For 
 
 ### Identity and authorization
 
-- Which session/JWT identity is trusted? Can a request parameter nominate another actor or target?
+- Which browser-session or authenticated API-token identity is trusted? The mobile API uses a custom two-part HMAC token, not JWT ([auth.php](../api/v1/core/auth.php), `createToken` / `verifyTokenState`). Can a request parameter nominate another actor or target?
 - Which role, feature, class, academic year and record ownership checks run on the server?
 - Does the same request through a compatibility path receive the same restriction?
 - Does a CLI test bypass a guard that only runs for HTTP? Is a browser test needed?

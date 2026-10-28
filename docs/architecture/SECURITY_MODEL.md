@@ -66,7 +66,7 @@ Authenticated user's record/image; version and validation rules
 Profile/error response; client must handle stale state and failure
 ```
 
-Sources: [users.php](../../api/v1/routes/users.php), [ProfileService.php](../../admin/backend/services/ProfileService.php). **VERIFIED:** the route constructs self-service identity from authenticated `uid`; own-image ownership parameter rejection is explicit; own-profile and administrator identity types are distinct. **DEPENDENCY NOT VERIFIED:** actual hosted private-storage permissions, schema readiness and all image serving paths need authorized runtime evidence. This view does not assert a complete JWT lifecycle or all upload controls have been re-audited here.
+Sources: [users.php](../../api/v1/routes/users.php), [ProfileService.php](../../admin/backend/services/ProfileService.php). **VERIFIED:** the route constructs self-service identity from authenticated `uid`; own-image ownership parameter rejection is explicit; own-profile and administrator identity types are distinct. **DEPENDENCY NOT VERIFIED:** actual hosted private-storage permissions, schema readiness and all image serving paths need authorized runtime evidence. This view does not assert that the complete API-token lifecycle or all upload controls have been re-audited here. The token format is custom two-part HMAC, not JWT; see [auth.php](../../api/v1/core/auth.php), `createToken` and `verifyTokenState`.
 
 ### Repository and release boundary
 
