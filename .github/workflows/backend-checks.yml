@@ -530,9 +530,9 @@ jobs:
           cat android/local.properties
 
       - name: Build the debug APK
-        # Debug, not release: the objective is compilation. No signing config,
-        # no keystore, no credentials. The release path's R8 shrinking is a
-        # separate concern and is not exercised here.
+        # Retain debug compilation and receiver checks below. The additional
+        # release-mode artifact gate separately exercises R8/native packaging;
+        # CI has no owner keystore and does not publish either APK.
         run: flutter build apk --debug
 
       - name: Confirm the wrapper was injected rather than committed
@@ -594,6 +594,29 @@ jobs:
           "$AAPT2" dump permissions "$APK" | grep "uses-permission:" \
             | sed "s/.*name='//;s/'.*//" | sort | tee /tmp/perms.txt
           echo "total: $(wc -l < /tmp/perms.txt)   declared by the app: 9"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build release-mode universal APK (test signing, never publish)
+        run: flutter build apk --release --target-platform android-arm,android-arm64,android-x64
+
+      - name: Verify real release APK SDK, ABI, ELF, 16KiB alignment and signatures
+        run: |
+          set -euo pipefail
+          python scripts/verify_android_apk.py build/app/outputs/flutter-apk/app-release.apk \
+            --report build/android-compatibility.json
+          git diff --exit-code -- pubspec.yaml pubspec.lock android
+
+      - name: Preserve release artifact compatibility evidence (not a publishable release)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-compatibility-evidence
+          path: Mobile/wbws_flutter_app/build/android-compatibility.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload the debug APK
         if: success()

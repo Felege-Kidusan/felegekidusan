@@ -22,7 +22,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tests/security'))
-from apk_fixture import axml_manifest
+from apk_fixture import axml_manifest, native_headers
 from playwright.async_api import async_playwright
 
 
@@ -61,6 +61,8 @@ def fixture(home: Path, size_mib: int):
     with zipfile.ZipFile(apk, 'w', zipfile.ZIP_STORED) as z:
         z.writestr('META-INF/MANIFEST.MF', 'Manifest-Version: 1.0\n')
         z.writestr('AndroidManifest.xml', axml_manifest('com.arkeonethiopia.fkss', '1.7.4', 41))
+        for name, head in native_headers():
+            z.writestr(name, head)
         with z.open('classes.dex', 'w') as f:
             f.write(b'dex\n035\x00')
             block = bytes(1024 * 1024)

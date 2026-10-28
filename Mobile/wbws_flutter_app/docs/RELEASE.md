@@ -8,26 +8,31 @@ Run the [class-day attendance acceptance checklist](ATTENDANCE_CLASS_DAY_1_7_4.m
 
 ## 1. Build a release
 
+Review the [Android compatibility gates and pending device matrix](ANDROID_COMPATIBILITY.md). The release script now requires Python 3.11+ and Android SDK build-tools 36.0.0 (`aapt`, `zipalign`, `apksigner`), with `ANDROID_SDK_ROOT` or `ANDROID_HOME` configured. Missing tooling or failed artifact checks stop the build procedure; do not bypass the gate or change signing identity to obtain a pass.
+
 From `Mobile/wbws_flutter_app`, with the pinned toolchain and reviewed lockfile:
 
 ```powershell
 flutter --version
 flutter pub get --enforce-lockfile
 powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
-# Optional: also produce per-ABI artifacts.
+# Optional per-ABI path: read the version-code blocker below before use.
 powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1 -SplitPerAbi
 ```
 
-The script runs Flutter tests unless `-SkipTests` is supplied. Do **not** use that switch for an accepted release. It runs its own `flutter pub get`; review the working tree afterward and stop if the committed lockfile or dependencies changed unexpectedly. Do not upgrade packages to obtain a passing build.
+The script runs Flutter tests unless `-SkipTests` is supplied. Do **not** use that switch for an accepted release. It runs `flutter pub get --enforce-lockfile`; review the working tree afterward and stop if the committed lockfile or dependencies changed unexpectedly. Do not upgrade packages to obtain a passing build.
 
-The script produces the universal APK plus optional split artifacts under `dist\<version>+<build>\`:
+**Known per-ABI blocker:** Flutter 3.44.9's `--split-per-abi` implementation adds ABI-specific version-code offsets. The server intentionally requires per-device files to match the universal build, and this script now verifies exact build identity. Consequently, offset split outputs are refused, not silently marked publishable. Use the universal candidate path; do not weaken version checks or change installed build numbering to work around this. A compatible per-ABI build strategy still requires a separately validated fix.
+
+The script's artifact layout under `dist\<version>+<build>\` is:
 
 | Artifact | Purpose |
 |---|---|
 | `fkss-<version>+<build>-universal.apk` | Required fallback containing the build's supported ABI targets |
 | `fkss-<version>+<build>-arm64-v8a.apk` | Optional 64-bit artifact |
 | `fkss-<version>+<build>-armeabi-v7a.apk` | Optional 32-bit artifact |
-| `release-manifest.json` | Recorded toolchain, artifact sizes and SHA-256 values |
+| `release-manifest.json` | Recorded toolchain, artifact sizes, SHA-256 values and compatibility report filenames |
+| `<artifact>.compatibility.json` | Actual SDK/ABI/ELF, 64-bit PT_LOAD and ZIP alignment, signature-tool output and artifact hash; not phone acceptance |
 
 A universal APK does not guarantee support for every Android version, GPU or device. Verify the effective minimum SDK, ABI and device compatibility of the built artifact. `flutter run --release` may target only the connected device's architecture; do not distribute that artifact as the fleet fallback. The prior architecture-related launch-crash incident is the reason to retain universal and representative-device checks. A plain `flutter build apk` does not run tests.
 
@@ -43,7 +48,7 @@ Perform this first on the authorized development target; use production only aft
 
 The paths are placeholders, not verified host locations. Confirm the target's private configuration, ownership, quota and fallback availability before publishing. Keep the universal artifact available for unknown/older client ABI requests; split download sizes vary by build.
 
-The super-admin release manager (`admin/api_app_release.php`) supports upload/preflight/chunk/status/finalization actions and writes release metadata. Its resumable **browser upload** is different from the app's **download**, whose retries restart from zero. See [synthetic upload acceptance](../../../tests/e2e/README.md).
+The super-admin release manager (`admin/api_app_release.php`) supports upload/preflight/chunk/status/finalization actions and writes release metadata. Its resumable **browser upload** is different from the app's **download**, whose retries restart from zero. Upload validation now requires matching ELF identity headers for both Flutter core libraries in each required ABI: universal requires ARM32, ARM64 and x86_64; per-device slots require their named ABI. This is not backend signature/minSDK or full-library verification. Existing hosted files are not automatically revalidated; run the actual-artifact gate on them before authorized republication. See [synthetic upload acceptance](../../../tests/e2e/README.md).
 
 Set `latest_version` and `latest_build` to the exact built APK's identity, corroborated by the version-sync test and artifact inspection. Advertising a higher build than the hosted APK can create repeated update prompts after installation. Preserve the publication manifest and compare artifact SHA-256/size with the served selected artifact.
 

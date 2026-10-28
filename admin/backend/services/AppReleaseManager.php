@@ -621,6 +621,28 @@ final class AppReleaseManager
         if (!isset(self::KNOWN_PACKAGES[$app['package']])) {
             throw new InvalidArgumentException('This APK is "' . $app['package'] . '", not an FKSS app. Nothing was published.');
         }
+        // Metadata alone cannot identify a universal or per-device APK.
+        // This is an ELF identity gate, not a signature/installability verdict.
+        $required = match ($targetAbi) {
+            'universal' => ['armeabi-v7a', 'arm64-v8a', 'x86_64'],
+            'armeabi-v7a', 'arm64-v8a' => [$targetAbi],
+            default => throw new InvalidArgumentException('Unsupported APK architecture slot.'),
+        };
+        foreach ($required as $abi) {
+            [$elfClass, $machine] = match ($abi) {
+                'armeabi-v7a' => [1, 40], 'arm64-v8a' => [2, 183], 'x86_64' => [2, 62],
+            };
+            foreach (['libflutter.so', 'libapp.so'] as $library) {
+                $head = fkssZipReadEntry($file, "lib/$abi/$library", 24, true);
+                if ($head === null || strlen($head) !== 24 || substr($head, 0, 4) !== "\x7fELF"
+                    || ord($head[4]) !== $elfClass || ord($head[5]) !== 1 || ord($head[6]) !== 1
+                    || unpack('v', substr($head, 16, 2))[1] !== 3
+                    || unpack('v', substr($head, 18, 2))[1] !== $machine
+                    || unpack('V', substr($head, 20, 4))[1] !== 1) {
+                    throw new InvalidArgumentException("This APK lacks a readable $abi/$library ELF header required for the $targetAbi slot. Build and verify the matching release APK. Nothing was published.");
+                }
+            }
+        }
         $info = self::getReleaseInfo($projectRoot);
         $curFile = $info['_apk_file'] ?? null;
         $cur = ($curFile && is_file($curFile)) ? fkssApkManifest($curFile) : null;
