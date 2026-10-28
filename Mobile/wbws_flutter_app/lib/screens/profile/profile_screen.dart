@@ -1377,9 +1377,9 @@ class _ProfileScreenState extends State<ProfileScreen>
               ),
               const SizedBox(height: 8),
               const Text(
-                'Copy the report and send it to the administrator when '
-                'asked. It contains device info and error traces only — no '
-                'personal data.',
+                'Review the report before sharing it privately with an '
+                'authorized administrator. It includes device details and '
+                'error logs, which may contain sensitive information.',
                 style: TextStyle(fontSize: 11, color: Colors.black54),
               ),
             ],

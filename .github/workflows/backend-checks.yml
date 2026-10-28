@@ -1,28 +1,12 @@
-# ============================================================================
-# Backend checks — PHP syntax, security test suite, migration hygiene
-# ----------------------------------------------------------------------------
-# Added 2026-10-02 (audit finding L).
+# Backend checks: PHP syntax, isolated security/regression fixtures, mobile
+# tests/build and migration hygiene. This workflow checks code; it does not
+# deploy or use production credentials. Database-backed tests use the disposable
+# MariaDB service below and the guarded synthetic HTTP world.
 #
-# WHY THIS EXISTS
-# Before this file the repository had no `.github/` directory at all. The only
-# CI definition, docs/ci_cd/ci.yml.txt, is a .txt document that GitHub never
-# reads, and it covers the Flutter app only. That left two gaps:
-#
-#   1. tests/security/ contains 87 Python test files — including every
-#      regression test that proves audit findings A through K — and none of
-#      them ran automatically on any push or pull request.
-#   2. No `php -l` ran anywhere. That is exactly how finding I shipped: a
-#      fatal parse error in AssessmentTypeService.php reached main and sat
-#      there for roughly five days, reachable from nine call sites. A single
-#      lint job would have caught it in seconds.
-#
-# This workflow is deliberately narrow: it runs checks, it does not deploy,
-# and it needs no secrets, no database and no credentials.
-#
-# It does NOT replace docs/ci_cd/ci.yml.txt. To activate the Flutter job too,
-# copy that file to .github/workflows/ci.yml — it is valid as written and is
-# intentionally left untouched here.
-# ============================================================================
+# Current setup, zero-skip policy and evidence boundaries:
+# docs/DEVELOPMENT_AND_TESTING.md and docs/TEST_STRATEGY.md.
+# The historical nonexecuting workflow template is retired; do not copy an old
+# text-file proposal into .github/workflows/ to activate duplicate/stale jobs.
 
 name: Backend checks
 

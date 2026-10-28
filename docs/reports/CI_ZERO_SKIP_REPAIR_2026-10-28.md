@@ -1,5 +1,7 @@
 # CI zero-skip repair — 2026-10-28
 
+> **Historical intermediate report.** Its pre-push status below is preserved. PR #41 subsequently merged as `bf924d7`; all eight checks on later baseline `7209278` passed. See [dated follow-up evidence](DOCUMENTATION_BASELINE_2026-10-28.md). This is not a current red-CI notice.
+
 ## 1. Request
 Repair the remaining checks, commit, push, and merge development PR #41 into main without another routine approval. Production is excluded.
 
