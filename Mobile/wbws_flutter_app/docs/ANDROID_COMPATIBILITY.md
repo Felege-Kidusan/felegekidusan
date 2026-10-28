@@ -8,6 +8,16 @@ The pinned CI toolchain is Flutter 3.44.9 / JDK 17 / AGP 8.11.1 / Gradle 8.14.3,
 
 Android 17 / API 37 is the latest stable major platform at this review date, 2026-10-28; target/compile 36 does not establish successful API 37 execution. The official announcement distinguishes new target37-specific behaviors from all-app changes. [1](https://android-developers.googleblog.com/2026/06/Android-17.html)
 
+## Native SDK correction
+
+A genuine release APK failed the 64-bit 16 KiB LOAD-alignment gate. Independent inspection of the declared Google Maven AARs confirmed 4 KiB-aligned `libbarhopper_v3.so` in bundled ML Kit barcode-scanning 17.2.0 and `libimage_processing_util_jni.so` in CameraX core 1.3.3.
+
+The app now constrains these existing native dependencies to bundled barcode-scanning **17.3.0** and the aligned CameraX core/camera2/lifecycle **1.4.2** family. These are targeted native SDK upgrades, not a Dart plugin/toolchain upgrade or an unchanged-dependencies claim. The inspected replacement AARs retain ARM32, have 16 KiB-aligned 64-bit LOAD segments with safe static RELRO page ranges, and declare minimum API 21, below the app's existing API 24 floor. The genuine merged APK remains the authority for final SDK/permission/native properties.
+
+Keep the bundled model: scanning must not acquire a new Play Services model-download requirement as an alignment workaround. Dart `mobile_scanner` 5.2.3, the lockfile, SDK/NDK pins, permissions, signing selection and assigned build are unchanged. Android CI records dependency resolution and verifies the actual artifact set. QR recognition, camera lifecycle/rotation, denied permissions, offline scanning and low-memory behavior still require device acceptance after these native updates.
+
+References: [bundled-model versioning](https://developers.google.com/ml-kit/tips/installation-paths), [CameraX release history](https://developer.android.com/jetpack/androidx/releases/camera), and [Android page-size guidance](https://developer.android.com/guide/practices/page-sizes). Do not expand this into unrelated dependency upgrades or suppress the artifact gate.
+
 ## Artifact gates
 
 From `Mobile/wbws_flutter_app`, with Python3.11+, the pinned Flutter toolchain and Android SDK build-tools36.0.0 installed:
@@ -26,14 +36,14 @@ Set `ANDROID_SDK_ROOT` or `ANDROID_HOME`, or provide `--sdk-root`. For a per-ABI
 | Shared-host publication | Existing package/build rules plus unique required core-library entry paths and little-endian ELF class/machine/type/version headers; bounded prefix decompression | Native library integrity beyond prefixes, signature authenticity, merged minSDK, dependency closure, successful install |
 | Universal publication slot | `libflutter.so` and `libapp.so` for ARM32, ARM64 and x86_64, matching current default fat-build coverage | Compatibility with arbitrary older OS/CPU/GPU |
 | ARM32/ARM64 publication slot | Named ABI core-library identity plus existing universal identity/build matching | Exclusivity to that ABI, signer continuity or performance |
-| Python actual-artifact gate | Duplicate ZIP entries/CRC, actual package/version/SDK metadata, both Flutter core libraries for every bundled native ABI (not plugin-only architectures), every bundled `.so` ELF identity/program-header table, 64-bit PT_LOAD 16 KiB alignment/congruence, SDK zipalign/signature verification, SHA-256 | Runtime native dependency resolution, RELRO correctness, owner-trusted certificate continuity, installation, feature behavior or frame/memory benchmarks |
+| Python actual-artifact gate | Duplicate ZIP entries/CRC, actual package/version/SDK metadata, both Flutter core libraries for every bundled native ABI (not plugin-only architectures), every bundled `.so` ELF identity/program-header table, 64-bit PT_LOAD bounds/alignment/congruence and RELRO page-protection overlap, SDK zipalign/signature verification, SHA-256 | Full ELF semantics, runtime native dependency resolution/page-size behavior, owner-trusted certificate continuity, installation, feature behavior or frame/memory benchmarks |
 | Existing `Android debug APK` CI check | Retains debug manifest/dex checks; additionally runs the owner PowerShell procedure with universal and ARM splits, SDK gates and real PHP inspection; checks same build identity, expected complete ABI sets and report/manifest/APK hashes | Windows execution, owner release signing, production publication, emulator/phone execution |
 
 The public SDK signature verification result means the tool verified the APK, not that the signer matches the owner's trusted certificate. Compare its certificate fingerprints with an independently trusted prior release. CI retains its existing debug-key fallback and never uses the owner's signing key. Do not distribute its build as an owner-approved release.
 
 An incorrectly labeled upload is rejected before atomic replacement; regression tests preserve the prior APK and release policy on refusal. Existing files already on disk are not automatically revalidated or deleted. An operator copying files directly can bypass the upload gate: run the actual-artifact verifier before every authorized publication. The backend intentionally does not require Android SDK executables on shared hosting.
 
-Android's official16KiB guidance requires checking both ELF and ZIP alignment and then testing in an actual16KiB environment. PT_LOAD checks alone do not prove RELRO safety or runtime behavior. [Page-size guidance](https://developer.android.com/guide/practices/page-sizes)
+Android's official 16 KiB guidance requires checking ELF/ZIP alignment and RELRO page protection, then testing in an actual 16 KiB environment. The verifier checks page-rounded RELRO against writable LOAD ranges, permitting isolated RELRO segments rather than rejecting every unaligned RELRO end. Static header checks still do not prove complete ELF validity or runtime behavior. [Page-size guidance](https://developer.android.com/guide/practices/page-sizes)
 
 ## Capability handling and memory ceilings
 

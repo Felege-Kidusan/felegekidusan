@@ -47,6 +47,36 @@ class AndroidApkGateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 gate.elf_info(io.BytesIO(invalid), len(invalid), 'arm64-v8a')
 
+    def test_relro_page_protection_permits_isolation_not_writable_overlap(self):
+        def image(load_start, load_end, relro_start, relro_end, other=None):
+            entries = [struct.pack('<IIQQQQQQ', 1, 6, load_start % 16384, load_start, 0, 0,
+                                   load_end - load_start, 16384),
+                       struct.pack('<IIQQQQQQ', 0x6474e552, 4, 0, relro_start, 0, 0,
+                                   relro_end - relro_start, 1)]
+            if other:
+                start, end = other
+                entries.append(struct.pack('<IIQQQQQQ', 1, 6, start % 16384, start, 0, 0, end - start, 16384))
+            head = bytearray(elf()[:64])
+            struct.pack_into('<H', head, 56, len(entries))
+            return (head + b''.join(entries)).ljust(16384, b'\x00')
+        for data in (image(0x4000, 0xc000, 0x4000, 0x8000),
+                     image(0x4680, 0x5000, 0x4680, 0x5000),
+                     image(0x4680, 0x5000, 0x4680, 0x5000, (0x8000, 0x9000))):
+            self.assertEqual(gate.elf_info(io.BytesIO(data), len(data), 'arm64-v8a')['relro_segments'], 1)
+        for data in (image(0x4000, 0x8000, 0x4000, 0x5000),
+                     image(0x4000, 0x8000, 0x5000, 0x8000),
+                     image(0x4680, 0x5000, 0x4680, 0x5000, (0x6000, 0x6800))):
+            with self.assertRaisesRegex(ValueError, 'RELRO protection overlaps'):
+                gate.elf_info(io.BytesIO(data), len(data), 'arm64-v8a')
+
+    def test_load_file_and_memory_bounds_checked(self):
+        data = bytearray(elf())
+        struct.pack_into('<Q', data, 96, 121)
+        for memory_size in (120, 512):
+            struct.pack_into('<Q', data, 104, memory_size)
+            with self.assertRaisesRegex(ValueError, 'file/memory bounds'):
+                gate.elf_info(io.BytesIO(data), len(data), 'arm64-v8a')
+
     def test_windows_signer_avoids_shell_parsing_of_apk_names(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

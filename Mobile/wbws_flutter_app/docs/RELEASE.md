@@ -10,6 +10,8 @@ Run the [class-day attendance acceptance checklist](ATTENDANCE_CLASS_DAY_1_7_4.m
 
 Review the [Android compatibility gates and pending device matrix](ANDROID_COMPATIBILITY.md). The release script now requires Python 3.11+ and Android SDK build-tools 36.0.0 (`aapt`, `zipalign`, `apksigner`), with `ANDROID_SDK_ROOT` or `ANDROID_HOME` configured. Missing tooling or failed artifact checks stop the build procedure; do not bypass the gate or change signing identity to obtain a pass.
 
+The app's reviewed [native SDK constraints](ANDROID_COMPATIBILITY.md#native-sdk-correction) address observed 16 KiB alignment failures in the existing bundled barcode/camera dependencies. Do not remove them, switch to downloaded models or broaden upgrades to bypass a failed gate. Dart/toolchain/SDK/NDK/signing settings remain otherwise unchanged.
+
 From `Mobile/wbws_flutter_app`, with the pinned toolchain and reviewed lockfile:
 
 ```powershell

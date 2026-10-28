@@ -43,22 +43,37 @@ def elf_info(stream, size, abi):
     table = stream.read(phsize * count)
     if len(table) != phsize * count:
         raise ValueError("Truncated ELF program-header table")
-    loads = []
+    loads, writable, relro = [], [], []
     for pos in range(0, len(table), phsize):
-        if struct.unpack_from("<I", table, pos)[0] != 1:  # PT_LOAD
+        kind = struct.unpack_from('<I', table, pos)[0]
+        if kind not in (1, 0x6474e552):  # PT_LOAD, PT_GNU_RELRO
             continue
         if elf_class == 1:
-            offset, address = struct.unpack_from("<II", table, pos + 4)
-            align = struct.unpack_from("<I", table, pos + 28)[0]
+            _, offset, address, _, filesz, memsz, flags, align = struct.unpack_from('<IIIIIIII', table, pos)
         else:
-            offset, address = struct.unpack_from("<QQ", table, pos + 8)
-            align = struct.unpack_from("<Q", table, pos + 48)[0]
+            _, flags, offset, address, _, filesz, memsz, align = struct.unpack_from('<IIQQQQQQ', table, pos)
+        if kind == 0x6474e552:
+            if elf_class == 2 and memsz:
+                relro.append((address, address + memsz))
+            continue
+        if filesz > memsz or offset + filesz > size:
+            raise ValueError('PT_LOAD exceeds ELF file/memory bounds')
         if elf_class == 2 and (align < 16384 or align & (align - 1) or (address - offset) % 16384):
-            raise ValueError(f"{abi} PT_LOAD is not 16KiB aligned; investigate the native dependency")
+            raise ValueError(f'{abi} PT_LOAD is not 16KiB aligned; investigate the native dependency')
         loads.append(align)
+        if flags & 2:  # PF_W
+            writable.append((address, address + memsz))
     if not loads:
-        raise ValueError("ELF has no PT_LOAD segments")
-    return {"abi": abi, "load_alignments": loads}
+        raise ValueError('ELF has no PT_LOAD segments')
+    for start, end in relro:
+        protected = (start // 16384 * 16384, (end + 16383) // 16384 * 16384)
+        for lo, hi in writable:
+            # Page-rounded RELRO must not make data outside RELRO read-only.
+            # An isolated RELRO LOAD is valid even if its end is not aligned.
+            for a, b in ((lo, min(hi, start)), (max(lo, end), hi)):
+                if a < b and max(a, protected[0]) < min(b, protected[1]):
+                    raise ValueError(f'{abi} 16KiB RELRO protection overlaps writable data')
+    return {'abi': abi, 'load_alignments': loads, 'relro_segments': len(relro)}
 
 
 def inspect_native(apk, required):

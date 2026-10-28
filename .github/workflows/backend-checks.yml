@@ -605,6 +605,16 @@ jobs:
           extensions: mbstring, xml
           coverage: none
 
+      - name: Record selected native SDK versions
+        run: |
+          set -euo pipefail
+          ./android/gradlew -p android :app:dependencyInsight \
+            --configuration releaseRuntimeClasspath --dependency com.google.mlkit:barcode-scanning \
+            > build/barcode-native-dependency.txt
+          ./android/gradlew -p android :app:dependencyInsight \
+            --configuration releaseRuntimeClasspath --dependency androidx.camera \
+            > build/camera-native-dependencies.txt
+
       - name: Exercise owner release script with universal and ARM splits (CI test signing only)
         shell: pwsh
         run: ./scripts/build-release.ps1 -SplitPerAbi
@@ -626,6 +636,7 @@ jobs:
             Mobile/wbws_flutter_app/dist/**/*.compatibility.json
             Mobile/wbws_flutter_app/dist/**/release-manifest.json
             Mobile/wbws_flutter_app/build/android-release-set.json
+            Mobile/wbws_flutter_app/build/*native-dependenc*.txt
           if-no-files-found: warn
           retention-days: 7
 
