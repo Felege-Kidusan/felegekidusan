@@ -45,6 +45,14 @@ An incorrectly labeled upload is rejected before atomic replacement; regression 
 
 Android's official 16 KiB guidance requires checking ELF/ZIP alignment and RELRO page protection, then testing in an actual 16 KiB environment. The verifier checks page-rounded RELRO against writable LOAD ranges, permitting isolated RELRO segments rather than rejecting every unaligned RELRO end. Static header checks still do not prove complete ELF validity or runtime behavior. [Page-size guidance](https://developer.android.com/guide/practices/page-sizes)
 
+## CI evidence storage
+
+The same backend workflow runs the actual debug, universal/ARM release, SDK/native/signature and PHP inspection gates in both repositories. After successful inspection, `tests/e2e/android_release_artifacts.py --summary` writes the complete release-set result, manifest, three SDK compatibility reports and native dependency records to the Actions step summary and structured job log. Missing/malformed evidence, summary-write failure or an oversized summary fails the check; reports are not silently truncated. This does not change any APK validation or owner-signing requirement.
+
+Under the owner's approved no-billing policy, public development additionally retains downloadable CI reports and test-signed APKs for seven days. Private production does not upload those duplicate archives: its raw CI APK bytes are discarded with the runner after inspection, not transferred to the public repository. Development APKs are not retained copies of private-runner bytes. Private reports follow the repository's Actions log/summary retention and are not a permanent binary archive. Unknown/non-public event visibility does not enable artifact uploads.
+
+This is an explicit evidence-retention policy, not an ignored upload error or a skipped build/native gate. A green check still does not prove owner signer continuity, publication, installation or phone runtime acceptance. Do not make production public, enable paid storage, publish CI builds or remove verification to work around a storage limit.
+
 ## Capability handling and memory ceilings
 
 The existing read-only `fkss.app/device` channel reports OS-supported ABIs, total RAM, low-RAM flag, API/release and model/manufacturer. This is the OS ABI list, not an inference from a64-bit CPU marketing specification. Empty/invalid fields remain unknown; no synthetic ABI/model strings are invented. A missing channel, native exception or non-map response preserves the last successful snapshot; before a successful probe, the service starts at MID with null information.
