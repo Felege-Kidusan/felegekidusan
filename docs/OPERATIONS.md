@@ -2,7 +2,7 @@
 
 **Status:** maintained operational reference. Release policy updated 2026-10-28 against source baseline `7209278`. Hosting, backup and deployment observations below retain their original dates; they have not been reverified through production access.
 
-This repository is public. Host names, ports, accounts, server paths and network addresses are deliberately **omitted**; they are held privately by the maintainers. Never add them here.
+This repository is public. Keep private infrastructure host names, ports, accounts, server paths and network addresses out of this document; maintainers must use approved private records. This audit did not verify those records or their custody. Never add private infrastructure details here.
 
 ## 1. Environments
 
@@ -94,15 +94,17 @@ python3 scripts/check_live_urls.py --server production
 
 ## 4. Backups
 
-| Item | State (2026-10-22) | Evidence level |
-|---|---|---|
-| Application database backups | `BackupService` creates encrypted dumps (`BACKUP_ENCRYPTION_KEY`) at `BACKUP_STORAGE_PATH`. Recent encrypted backup files exist in the hosting account | Verified: file listing only |
-| Location | **The same hosting account as production.** There is **no off-site copy** | Verified |
-| Restore test | **Never performed.** No backup is known to be restorable | — |
-| Hosting-provider backups | Unknown frequency, retention and restore procedure | Unverified |
-| Key custody | Without `BACKUP_ENCRYPTION_KEY` the backups are unusable. Where it is held outside the server is not documented | Unverified |
+**Historical provenance:** the earlier 2026-10-22 documentation reported encrypted files in the hosting account, no off-site copy and no restore test. This audit has not inspected the underlying hosting evidence or reverified those observations. Do not interpret the earlier "Verified" labels as current audit results or infer that no later backup/restore work occurred.
 
-**Required (not yet done):**
+| Item | Current evidence and limit | Evidence level |
+|---|---|---|
+| Application database backups | `BackupService::create` invokes `EncryptedBackupWriter`; source implementation is not evidence that a hosted backup exists or completed successfully | Source path identified; hosted files UNKNOWN |
+| Location | `BackupService::privateStorageRoot` uses a nonempty `BACKUP_STORAGE_PATH` or a sibling `ssms_secure_backups` directory. Actual configured storage and off-site copies were not inspected | Source selection verified; hosted/off-site state UNKNOWN |
+| Restore test | No hosted backup restore was executed or its evidence inspected in this audit. Recoverability of a particular backup remains UNKNOWN | DEPENDENCY NOT VERIFIED |
+| Hosting-provider backups | Frequency, retention and restore procedure were not inspected | UNKNOWN |
+| Key custody | Source selects `BACKUP_ENCRYPTION_KEY` when defined, otherwise `BACKUP_KEY` (`BackupService::encryptionSecret`). Recovery needs the effective key used for the particular backup; actual custody and recoverability have not been verified in this audit | Source selection verified; hosted custody/recovery unverified |
+
+**Required before relying on backups; record completion separately:**
 1. Make a regular off-site copy of the encrypted backups.
 2. Record where the backup key is held, with two custodians.
 3. Run a restore test every quarter, into a disposable database, with the result recorded.
@@ -126,9 +128,9 @@ release signing and published APK metadata require their own acceptance evidence
    - A source version, successful CI build or downloaded APK does not prove publication or installation. Record each separately.
 4. **Signing (risk):**
    - Without `android/key.properties`, Gradle falls back to the **debug** signing configuration. Earlier release records describe debug-signed distribution; the currently distributed APK's signer has not been reverified.
-   - Android only installs an update that has the same signature as the installed app. Losing the build machine's debug keystore therefore stops in-place updates for every device.
-   - Switching to a proper release keystore requires every device to uninstall and reinstall. That would also erase unsynced offline data.
-   - A key-custody decision and a planned migration are needed. See `RELEASE.md` §3 and [§7.1](#71-known-limitations) (L-2).
+   - The Gradle `signingConfig` expression establishes the selected build configuration, not the signing identity of previously distributed APKs or installed devices. Historical Gradle comments about fleet trust are not runtime evidence.
+   - A different or unavailable signing identity creates an upgrade-compatibility verification requirement. This checkout does not establish that every device must uninstall/reinstall, and that is not an approved migration procedure. Preserve unsent work and obtain owner acceptance of a verified device-specific plan before any destructive step.
+   - The owner must verify actual offered/installed certificates, platform compatibility and key custody. See [the release guide](../Mobile/wbws_flutter_app/docs/RELEASE.md#3-signing-and-key-custody) and [§7.1](#71-known-limitations) (L-2).
 5. **Old-app compatibility:** before releasing server changes, check that installed older builds keep working, or are told to update. The legacy-token window for builds below 16 ended on 2026-09-24.
 
 ## 6. Monitoring and incident response
@@ -147,7 +149,7 @@ Security incidents follow [private security reporting](SECURITY.md#1-reporting-a
 
 ## 7. Known limitations and open questions
 
-Security and privacy findings are tracked privately and take precedence over the items below (see [SECURITY.md §5](SECURITY.md#5-open-findings)). This list contains only items whose publication does not increase risk.
+Security and privacy findings must be handled privately and take precedence over the items below (see [SECURITY.md §5](SECURITY.md#5-open-findings)). That is policy, not verification of a private register or operational response. This list is not a complete security assessment; keep sensitive evidence out of public documentation.
 
 ### 7.1 Known limitations
 
@@ -157,12 +159,12 @@ Historical observations are dated 2026-10-25 unless a row says otherwise. The CI
 |---|---|---|---|---|---|
 | L-1 | **Resolved 2026-10-28:** the earlier 79-skip CI environment gap | Closed | [Baseline checks](reports/DOCUMENTATION_BASELINE_2026-10-28.md), [historical explanation](DEVELOPMENT_AND_TESTING.md#32-the-79-skips) | All eight baseline checks passed; this does not verify a later SHA or runtime deployment | Retain zero-skip enforcement and run fresh checks for each candidate |
 | L-2 | Source falls back to debug signing without private `key.properties`; actual offered/installed certificates and custody are not freshly verified | High | Gradle signing selection; [release guide](../Mobile/wbws_flutter_app/docs/RELEASE.md#3-signing-and-key-custody) | A different/lost signing identity can prevent in-place upgrades; uninstall can destroy unsent work | Owner verifies actual certificate continuity and secure key custody before any publication or planned signer migration |
-| L-3 | Backups are kept in the same hosting account, with no off-site copy; a restore has never been tested | High | [§4](#4-backups) | Loss of the account means loss of the data; backups are unproven | Off-site copy, recorded key custody, quarterly restore test |
+| L-3 | Earlier documentation reported same-account backups, no off-site copy and no restore test; current storage, copies and recovery evidence were not inspected | High | [Historical provenance and source boundary in §4](#4-backups) | Backup recoverability and resilience to hosting-account loss remain unverified | Owner verifies off-site copies, effective-key custody and a disposable restore; record dated results |
 | L-4 | No migration ledger; the applied production schema is unverified | High | [DATABASE.md §4](DATABASE.md#4-applied-state-in-production-unverified) | Migrations may be missing or applied twice; deploys can break | Answer Q-1 and Q-2, then introduce a ledger |
 | L-5 | Development-first acceptance is now the owner policy; actual cron/deployment parity and rollback rehearsal remain unverified | Medium | [§1](#1-environments), [§2](#2-code-deployment-manual-sftp), [§3](#3-rollback) | A merge can be mistaken for a tested server deployment | Record the development revision and owner acceptance; separately authorize production; rehearse rollback safely |
-| L-6 | No branch protection on the production repository's `main` (not available on the current GitHub plan). The development repository requires only the *Branch guard* check, with no review | Medium | Repository settings | Unreviewed changes can reach production | Upgrade the plan, or adopt a written two-person review rule |
+| L-6 | Earlier documentation reported limited development protection and no production-main protection. Current protection, plan and review requirements were not verified by this audit | Medium | Historical settings claim; [release-policy boundary](PRODUCTION_WORKFLOW.md#historical-observations) | Source checkout and old settings records do not establish current enforcement | Verify authorized repository settings and required reviews before integration/promotion; do not bypass protection |
 | L-7 | Incident checklist exists, but named staffing, private escalation, uptime schedules and drills remain unverified | Medium | [Incident response](INCIDENT_RESPONSE.md); `monitor/uptime_cron.php` needs scheduling | Monitoring/response cannot be assumed operational from documentation alone | Owner assigns contacts and verifies schedules, escalation and a safe drill |
-| L-8 | The full test suite runs on PHP 8.4; production runs PHP 8.5. A separate CI job lints every PHP file on 8.5 and fails on deprecations | Medium | `.github/workflows/backend-checks.yml` | Behaviour differences between 8.4 and 8.5 are not covered by tests | Run the test suite on PHP 8.5 |
+| L-8 | Checked-in backend suite job selects PHP 8.4; the separate PHP 8.5 job performs first-party syntax/deprecation checks with explicit vendor exclusions. Earlier documentation reported PHP 8.5 hosting; current production PHP was not inspected | Medium | `.github/workflows/backend-checks.yml`, `security-tests` and `php-lint-85` | An 8.5 lint result is not execution of the backend suite on 8.5 or verification of hosted PHP | Consider a separately scoped PHP 8.5 suite run; verify target PHP before release |
 | L-9 | Three API layers with duplicated business rules | Medium | [ARCHITECTURE.md §3](ARCHITECTURE.md#3-the-three-api-layers-unfinished-consolidation) | Inconsistent behaviour between web and app; costly changes | Choose the canonical layer per domain and consolidate behind services |
 | L-10 | Runtime schema changes for Mezmur tables | Medium | `MezmurSchemaReconciler::apply` | Schema drift; changes happen during requests | Move these changes into migrations |
 | L-11 | Very large files: the HR, Information and Education dashboards (about 4,400–4,900 lines each) and `local_db.dart` (about 7,500 lines) | Low | Line counts | Slow, risky changes | Split by feature, behind tests, when the files are next changed |
