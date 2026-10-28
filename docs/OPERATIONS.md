@@ -141,12 +141,9 @@ release signing and published APK metadata require their own acceptance evidence
 | Uptime checks | `monitor/uptime_cron.php` needs cron. Whether a cron job is configured is unverified; there may be **no** external uptime monitoring |
 | On-call / escalation | None documented |
 
-**Incident response (current, informal):**
-1. One maintainer is the single point of contact; there is no on-call rota.
-2. Contain the problem by rolling back the code (section 3) or disabling the feature through its `FEATURE_*` flag in the secrets file.
-3. Record what happened in `docs/incidents/` (see `docs/incidents/INCIDENT_2026-10-03_TRACKING_SCHEMA.md` for an example).
+Use the [incident-response procedure](INCIDENT_RESPONSE.md) for authority, private evidence, unsent-work preservation, approved containment and recovery verification. It is a written checklist, **not proof of an operational on-call rota or drill**. The owner must still assign the lead/operator and private contact/escalation paths; these are not published here.
 
-Security incidents follow [SECURITY.md](SECURITY.md). A written incident-response plan with roles and contact paths does not exist yet.
+Security incidents follow [private security reporting](SECURITY.md#1-reporting-a-vulnerability). Rollback, feature changes, migrations and production access require the appropriate target-specific approval; do not treat an incident report as permission to perform them. Store only sanitized dated summaries in `docs/incidents/`.
 
 ## 7. Known limitations and open questions
 
@@ -159,12 +156,12 @@ Historical observations are dated 2026-10-25 unless a row says otherwise. The CI
 | ID | Limitation | Severity | Evidence | Impact | Recommended action |
 |---|---|---|---|---|---|
 | L-1 | **Resolved 2026-10-28:** the earlier 79-skip CI environment gap | Closed | [Baseline checks](reports/DOCUMENTATION_BASELINE_2026-10-28.md), [historical explanation](DEVELOPMENT_AND_TESTING.md#32-the-79-skips) | All eight baseline checks passed; this does not verify a later SHA or runtime deployment | Retain zero-skip enforcement and run fresh checks for each candidate |
-| L-2 | The distributed Android APK is debug-signed; keystore custody is not documented | High | `Mobile/wbws_flutter_app/android/app/build.gradle` (falls back to debug signing without `key.properties`); `RELEASE.md` §3 | Losing the keystore blocks updates on every device; changing keys forces reinstalls | Decide keystore custody and plan the move to a release key before the device fleet grows |
+| L-2 | Source falls back to debug signing without private `key.properties`; actual offered/installed certificates and custody are not freshly verified | High | Gradle signing selection; [release guide](../Mobile/wbws_flutter_app/docs/RELEASE.md#3-signing-and-key-custody) | A different/lost signing identity can prevent in-place upgrades; uninstall can destroy unsent work | Owner verifies actual certificate continuity and secure key custody before any publication or planned signer migration |
 | L-3 | Backups are kept in the same hosting account, with no off-site copy; a restore has never been tested | High | [§4](#4-backups) | Loss of the account means loss of the data; backups are unproven | Off-site copy, recorded key custody, quarterly restore test |
 | L-4 | No migration ledger; the applied production schema is unverified | High | [DATABASE.md §4](DATABASE.md#4-applied-state-in-production-unverified) | Migrations may be missing or applied twice; deploys can break | Answer Q-1 and Q-2, then introduce a ledger |
 | L-5 | Development-first acceptance is now the owner policy; actual cron/deployment parity and rollback rehearsal remain unverified | Medium | [§1](#1-environments), [§2](#2-code-deployment-manual-sftp), [§3](#3-rollback) | A merge can be mistaken for a tested server deployment | Record the development revision and owner acceptance; separately authorize production; rehearse rollback safely |
 | L-6 | No branch protection on the production repository's `main` (not available on the current GitHub plan). The development repository requires only the *Branch guard* check, with no review | Medium | Repository settings | Unreviewed changes can reach production | Upgrade the plan, or adopt a written two-person review rule |
-| L-7 | Monitoring and incident response are informal; uptime checks may not run | Medium | [§6](#6-monitoring-and-incident-response); `monitor/uptime_cron.php` needs cron | Outages are noticed by users first | External uptime check; a one-page incident plan |
+| L-7 | Incident checklist exists, but named staffing, private escalation, uptime schedules and drills remain unverified | Medium | [Incident response](INCIDENT_RESPONSE.md); `monitor/uptime_cron.php` needs scheduling | Monitoring/response cannot be assumed operational from documentation alone | Owner assigns contacts and verifies schedules, escalation and a safe drill |
 | L-8 | The full test suite runs on PHP 8.4; production runs PHP 8.5. A separate CI job lints every PHP file on 8.5 and fails on deprecations | Medium | `.github/workflows/backend-checks.yml` | Behaviour differences between 8.4 and 8.5 are not covered by tests | Run the test suite on PHP 8.5 |
 | L-9 | Three API layers with duplicated business rules | Medium | [ARCHITECTURE.md §3](ARCHITECTURE.md#3-the-three-api-layers-unfinished-consolidation) | Inconsistent behaviour between web and app; costly changes | Choose the canonical layer per domain and consolidate behind services |
 | L-10 | Runtime schema changes for Mezmur tables | Medium | `MezmurSchemaReconciler::apply` | Schema drift; changes happen during requests | Move these changes into migrations |

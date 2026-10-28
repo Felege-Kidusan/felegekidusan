@@ -16,7 +16,8 @@
 | [User manual](user_manual/README.md) | **Partial:** mobile account/device settings, updates and recovery; not yet all departments or controls |
 | [Manual coverage and verification](user_manual/COVERAGE.md) | Explicit reviewed scope and outstanding source/control/runtime work |
 | [Documentation standard](DOCUMENTATION_STANDARD.md) | Authoring, terminology, evidence, review and lifecycle rules |
-| [Document lifecycle register](DOCUMENT_LIFECYCLE.md) | Reviewed retirements, preserved knowledge and pending candidates |
+| [Document lifecycle register](DOCUMENT_LIFECYCLE.md) | Reviewed retirements, preserved knowledge and retained candidates |
+| [Documentation catalog](DOCUMENTATION_CATALOG.md) | Topic ownership/disposition, exact review boundaries and unfinished work |
 | [2026-10-28 source/CI baseline](reports/DOCUMENTATION_BASELINE_2026-10-28.md) | Dated evidence; not a deployment or checks of a later branch |
 
 ## 1. Getting started
@@ -38,7 +39,7 @@
 | [product/PRD.md](product/PRD.md): product requirements, with requirement IDs | Canonical |
 | [product/GLOSSARY.md](product/GLOSSARY.md): domain, calendar and technical terms | Canonical |
 | [architecture/TECHNICAL_DESIGN.md](architecture/TECHNICAL_DESIGN.md): technical design (arc42, C4 diagrams, runtime and deployment views) | Canonical |
-| [adr/README.md](adr/README.md): architecture decision records ADR-0001 to ADR-0020, plus a template | Canonical |
+| [adr/README.md](adr/README.md): dated decisions ADR-0001 to ADR-0021 and a template | Maintained index; preserve original decisions and explicit supersession boundaries |
 | [rfc/README.md](rfc/README.md): proposals for significant changes; [RFC 0001](rfc/0001-repository-structure.md) repository structure | Reference |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Canonical |
 | [FAILURE_INTELLIGENCE.md](FAILURE_INTELLIGENCE.md), [mobile client contract](../Mobile/wbws_flutter_app/docs/FAILURE_INTELLIGENCE_CLIENT.md) | Reference |
@@ -50,7 +51,7 @@
 | Document | Status |
 |---|---|
 | [API.md](API.md) | Canonical |
-| [api/openapi.yaml](api/openapi.yaml): OpenAPI 3.1 reference for `/api/v1` | Canonical |
+| [api/openapi.yaml](api/openapi.yaml): OpenAPI 3.1 reference for `/api/v1` | Source-dated summarized reference; route/service code governs field behavior |
 | [ROLES_AND_PERMISSIONS.md](ROLES_AND_PERMISSIONS.md) | Canonical |
 
 ## 4. Database
@@ -58,14 +59,15 @@
 | Document | Status |
 |---|---|
 | [DATABASE.md](DATABASE.md): engine, migration rules, migration inventory | Canonical |
-| [DATA_DICTIONARY.md](DATA_DICTIONARY.md): every table by domain, where it is defined, core ERD, declared foreign keys | Canonical |
+| [DATA_DICTIONARY.md](DATA_DICTIONARY.md): dated source table/foreign-key inventory and core diagrams | Historical generated reference; not current column-level or target-schema certification |
 | [incidents/INCIDENT_2026-10-03_TRACKING_SCHEMA.md](incidents/INCIDENT_2026-10-03_TRACKING_SCHEMA.md) | Historical (incident record) |
 
 ## 5. Security
 
 | Document | Status |
 |---|---|
-| [SECURITY.md](SECURITY.md): controls, secrets (key names only), reporting | Canonical |
+| [SECURITY.md](SECURITY.md): controls, secrets (key names only), private reporting and evidence limits | Maintained reference, not a security certification |
+| [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md): authority, private evidence, containment and recovery | Maintained procedure; staffing/contacts/drills remain owner dependencies |
 
 Open security findings are tracked privately, not in this repository (see [SECURITY.md §5](SECURITY.md#5-open-findings)).
 

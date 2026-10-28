@@ -1,8 +1,8 @@
 # Architecture
 
-**Status:** canonical. **Verified against:** `main` at `46fbaa7` (2026-10-22), by reading the source code. Runtime behaviour in production was **not** re-tested for this document.
+**Status:** maintained architecture overview. Original component review: `46fbaa7` (2026-10-22); hosting-policy, router, mobile schema and recovery/update clarifications reviewed at `7e28157` (2026-10-28). Source descriptions are not live deployment certification.
 
-Labels: **Verified** = read in the code at `46fbaa7`. **Unverified** = not confirmed; treat as an open question.
+Evidence labels: **VERIFIED** means supported by the cited source/date, not a runtime guarantee; **UNKNOWN / DEPENDENCY NOT VERIFIED** marks unobserved environment behavior. Historical “Verified” entries below retain their original source boundary. See [documentation standards](DOCUMENTATION_STANDARD.md).
 
 ## 1. System context
 
@@ -19,7 +19,7 @@ Labels: **Verified** = read in the code at `46fbaa7`. **Unverified** = not confi
                                  (single schema)             (Cloudflare R2: Mezmur media)    (failure alerts)
 ```
 
-Everything runs as one PHP code base in one hosting account. There are no background workers, queues or cron jobs that the application can rely on (see [OPERATIONS.md](OPERATIONS.md)).
+The server is a PHP monolith with shared services and database access; the mobile client has durable SQLite queues and Android scheduling. Do not read the hosting diagram as a verified current deployment. The repository includes CLI maintenance/reconciliation scripts that require operator scheduling. The owner's current workflow uses a development-server cron pull; actual hosting schedules and service activation remain unverified. See [OPERATIONS.md](OPERATIONS.md) and [the development-first release decision](adr/0021-development-acceptance-before-production.md).
 
 ## 2. PHP web application (`admin/`)
 
@@ -56,18 +56,18 @@ The `teacher` and `attendance_taker` roles are class-scoped, while `school_admin
 
 ## 4. Mobile application (`Mobile/wbws_flutter_app/`)
 
-| Concern | Implementation (verified at `46fbaa7`) |
+| Concern | Implementation (original baseline plus dated clarifications above) |
 |---|---|
 | Identity | Package `fkss_app`, source checkpoint 1.7.4+41 at `7209278` (not proof of publication); Android `applicationId com.arkeonethiopia.fkss`. The API base URL is in `lib/utils/config.dart` |
-| Local storage | SQLite through `sqflite`, file `wbws_offline_v4.db`, schema version 37 (`lib/services/local_schema_v34.dart`). It is **not encrypted at the application level**; the app relies on Android file-based encryption |
+| Local storage | SQLite through `sqflite`, file `wbws_offline_v4.db`, schema version 37 (`localDatabaseSchemaVersion` in `lib/services/local_schema_v34.dart`). Stores private read caches **and unsent durable work**. No application-level SQLCipher encryption; app-private/OS storage protection depends on the device. Owner/scope recovery and explicit discard are documented in [the mobile storage guide](../Mobile/wbws_flutter_app/README.md) |
 | Outboxes | `pending_attendance`, `pending_grades`, `pending_hr`, `pending_mezmur`, `pending_hymn_ops`, `comm_outbox`, `comm_drafts`. Bookkeeping in `sync_attempts`, `sync_state`, `sync_log` |
 | Sync | `AttendanceSyncCoordinator` and `BackgroundSyncCoordinator`, plus an Android background producer (`AndroidBackgroundSyncScheduler`). Writes carry `Idempotency-Key` and client-attempt headers, so the server can replay or deduplicate them (`api/v1/core/middleware.php`) |
 | Tokens | Kept in `flutter_secure_storage`. Access tokens last 15 minutes; refresh tokens rotate (see [API.md](API.md#2-authentication)) |
-| App lock | `local_auth` (PIN/biometric) |
+| App lock | `AppLockService`: separate 4–8 digit local PIN, with optional device biometric authentication through `local_auth`; not the online account password |
 | Updates | The app polls `/api/v1/app/config` and downloads an APK from the server. There is no store listing. See [OPERATIONS.md](OPERATIONS.md#5-mobile-release) |
 | Members | Members are never registered from the app; registration is web-only (HR) |
 
-Design history for the offline and sync work is in `docs/MOBILE_OFFLINE_SYNC_*.md` (historical, 2026-10-04 to 2026-10-06).
+Current recovery concepts and limitations are in [the mobile README](../Mobile/wbws_flutter_app/README.md), [sync/recovery guide](user_manual/SYNC_AND_RECOVERY.md), [sync-monitoring contract](WEB_ADMIN_SYNC_MONITORING.md) and [build-24 rollout record](audits/AUTH_OUTBOX_BUILD24_ROLLOUT_RUNBOOK.md). Older untracked phase-note filenames are not maintained references. [App updates](../Mobile/wbws_flutter_app/docs/PROFILE_APP_UPDATES.md) distinguishes current transfer/verification/installer behavior from unimplemented durable download resume.
 
 ## 5. Data access and schema management
 
@@ -98,9 +98,9 @@ Design history for the offline and sync work is in `docs/MOBILE_OFFLINE_SYNC_*.m
 ## 8. Known structural debt (documented, not fixed)
 
 1. Three API layers with duplicated rules (section 3).
-2. Very large PHP dashboard files and a 7,500-line `local_db.dart`.
+2. Large PHP dashboards and a multi-responsibility `local_db.dart`; historical line counts are not current size guarantees.
 3. Runtime DDL and no migration ledger (section 5).
-4. CI runs the tests on PHP 8.4 while production runs PHP 8.5 (an 8.5 lint job exists).
+4. CI runs behavioral tests on PHP 8.4 and lint on PHP 8.5. The last documented production PHP observation is dated, not freshly verified; behavioral parity with that environment remains unproven.
 5. Older identifiers (for example the `wbws_` prefix in table, folder and file names, including the local database file) differ from the product name FKSS.
 6. Duplicated vendored libraries (phpqrcode). Resolved 2026-10-23: one copy remains, in `admin/id_cards/libs/`.
 

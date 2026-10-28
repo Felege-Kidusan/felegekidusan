@@ -1,6 +1,6 @@
 # Engineer onboarding
 
-**Status:** canonical, written 2026-10-23. A first-week path for an engineer joining the project. It links to the reference documents rather than repeating them.
+**Status:** maintained, written 2026-10-23 and release/evidence paths clarified 2026-10-28. A first-week path for an engineer joining the project. It links to the reference documents rather than repeating them.
 
 ## 1. Before you start
 
@@ -25,9 +25,9 @@
 |---|---|
 | [architecture/TECHNICAL_DESIGN.md](architecture/TECHNICAL_DESIGN.md) | Context, containers, runtime flows and deployment, with diagrams |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Code-level map, including the three API layers |
-| [adr/README.md](adr/README.md) | Why the system is built this way (20 decision records) |
-| [API.md](API.md) and [api/openapi.yaml](api/openapi.yaml) | Mobile API conventions and the full `/api/v1` operation list |
-| [DATABASE.md](DATABASE.md) and [DATA_DICTIONARY.md](DATA_DICTIONARY.md) | Migration rules, schema sources and every table by domain |
+| [adr/README.md](adr/README.md) | Dated design decisions and the current development-before-production clarification |
+| [API.md](API.md) and [api/openapi.yaml](api/openapi.yaml) | Mobile API conventions and a source-dated, summarized operation reference; not a full field-level conformance guarantee |
+| [DATABASE.md](DATABASE.md) and [DATA_DICTIONARY.md](DATA_DICTIONARY.md) | Current numbered-migration inventory plus historical table-level/foreign-key source records; not verified target schema |
 
 ## 4. Day 3: set up and run the tests
 
@@ -40,10 +40,12 @@
 | Read | Why |
 |---|---|
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Workflow, coding standards, definition of done |
-| [BRANCHING.md](../BRANCHING.md) | `main` (production) and `dev` (beta), and what may move between them |
+| [BRANCHING.md](../BRANCHING.md) | Development `main`, one-way beta `dev` and separately authorized production promotion |
 | [OPERATIONS.md](OPERATIONS.md) | Deployment steps, rollback, backups and mobile release |
 | [CHANGELOG.md](../CHANGELOG.md) | What changed recently, and the production deployment record |
-| [SECURITY.md](SECURITY.md) | Security controls and how to report a vulnerability |
+| [SECURITY.md](SECURITY.md) | Source controls, evidence limits and private vulnerability reporting |
+| [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md) | Approved evidence/containment/recovery procedure; staffing and private escalation still need owner assignment |
+| [Documentation catalog](DOCUMENTATION_CATALOG.md) | Maintained references, historical boundaries, retained artifacts and explicit unfinished coverage |
 
 ## 6. Day 5: first contribution
 

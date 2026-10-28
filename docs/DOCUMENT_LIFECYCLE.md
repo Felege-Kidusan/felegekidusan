@@ -1,6 +1,6 @@
 # Documentation lifecycle and retirement register
 
-**Status:** maintained lifecycle reference. Review date: 2026-10-28. Baseline: `7209278`.
+**Status:** maintained lifecycle reference. Review date: 2026-10-28. Initial baseline: `7209278`; completion-phase review starts at pushed `7e28157`. [Catalog](DOCUMENTATION_CATALOG.md) distinguishes maintained references, historical evidence and uncompleted retirement/source coverage.
 
 Maintained procedures describe the reviewed implementation and current owner policy. Dated reports preserve the outcome at the time they were written. Obsolete proposals/templates can leave the active tree after useful knowledge and references are accounted for; Git history remains intact.
 
@@ -18,8 +18,8 @@ The retired proposal's decision not to introduce a second over-the-air patch sys
 | Path | Disposition and reason |
 |---|---|
 | `docs/ci_cd/SEARCH_LOAD_AND_ERRORS.md` | **Retained and rewritten** as a source reference. Useful request/retry/cache knowledge survives; unverified company/performance claims are removed. Executable debounce is 160 ms despite a nearby 250 ms comment; no application behavior is changed |
-| `docs/audits/DEPLOYMENT_RUNBOOK.md` | **Retained.** Migrations and security tests require its path and safeguards: 031 → 032 → 033 order, uniqueness preflight/DEPLOYMENT BLOCKER, validated restore script and foreign-key inventory, and the warning that SQL files are not a fresh-install sequence. A professional rewrite requires complete safeguard-by-safeguard review first |
-| `Mobile/code_dump.txt` | **Pending retirement review.** Stale duplicated source with a workstation path; discovered reference is the Mobile folder README. Complete unique-knowledge review is not yet finished, so it is not deleted in this pass |
+| `docs/audits/DEPLOYMENT_RUNBOOK.md` | **Retained with targeted safety/editorial corrections on 2026-10-28.** Required compatibility path, 031 → 032 → 033 order, uniqueness preflight/DEPLOYMENT BLOCKER, validated restore/FK inventory and not-a-fresh-install warning remain. Historical stages are explicitly noncurrent; blanket recursive chmod, command-line password examples, automatic restore and unsupported go-live assurance are removed/replaced. The detailed profile cleanup/storage/cron contract is preserved; no host operation was performed |
+| `Mobile/code_dump.txt` | **Retained; deletion not authorized by the evidence yet.** Structural review found 30 Dart-source sections, each with an existing current source counterpart, no preamble and workstation-path headers. Historical commit `2e2e7c5` introduced the snapshot; only 6/30 sections match that commit's counterpart after outer-whitespace normalization. The remaining differences were not fully reviewed for unique knowledge. README/lifecycle references are explicit and no executable reference was discovered. Preserve the snapshot/history rather than claim a complete review or delete unreviewed content; it is not current instructions or implementation truth |
 | Dated audit/incident/upload/CI reports | **Retained as evidence.** An intermediate failed run or incomplete status is not grounds for erasing history. Add a dated follow-up link when necessary; do not silently rewrite prior results |
 | Legitimate optional AI feature/security/API material | **Retained.** The request is professional documentation cleanup, not removal of implemented functionality or its privacy/security obligations |
 
