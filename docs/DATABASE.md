@@ -2,6 +2,10 @@
 
 **Status:** maintained migration reference. Original review: `46fbaa7` (2026-10-22); numbered-file count and `CREATE TABLE` targets rechecked at `7e28157` (2026-10-28), excluding SQL comments. **No production database was queried.** Source diagrams and historical table definitions are in the [table-level dictionary](DATA_DICTIONARY.md); neither is a verified live-schema export. Source inventories do not establish applied migrations, column parity or real row counts.
 
+## Source-defined ledger columns
+
+The [Finance/Materials column reference](database/LEDGER_COLUMNS.md), source-reviewed at `591e23d` (2026-10-28), records all columns in eight defining CREATE statements, their source indexes, later declared foreign keys and conditional index additions. It distinguishes literal DDL from runtime input defaults/validation and from an applied schema. It does not regenerate the historical dictionary or verify live database metadata.
+
 ## 1. Engine and access
 
 - **Engine:** MariaDB. CI uses the `mariadb:11.4` service image.

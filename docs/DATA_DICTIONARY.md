@@ -6,6 +6,10 @@
 
 **Scope:** one row per table, grouped by domain. Column-level detail lives in the defining migration and in later `ALTER TABLE` migrations; this page tells you where to look. Purpose lines are one-sentence summaries taken from the defining migration and the code that uses each table.
 
+## Source-reviewed column supplement
+
+For a newer, bounded column-level review, see [Finance/Materials ledger columns](database/LEDGER_COLUMNS.md), baseline `591e23d` (2026-10-28). It preserves the eight ledger CREATE definitions and identified later source constraints/indexes individually. It is not an applied-schema export and does not refresh this page's historical counts or the other domains.
+
 ## 1. Summary
 
 - **113 table definitions** found in source; older documents say "about 100" for the live schema. The difference is explained by legacy and retired tables (for example finance/materials from a legacy PHP migration). Which of these exist in production is unverified.

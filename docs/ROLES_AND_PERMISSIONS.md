@@ -2,6 +2,10 @@
 
 **Status:** maintained role reference. The page-level matrix was recorded against `46fbaa7` (2026-10-22); HR retirement/navigation was additionally traced at `7209278` (2026-10-28). Sources: `admin/access_control.php`, `api/v1/core/acl.php`, `admin/backend/user-save.php`. This is not a fresh complete per-action permission audit. Anything not evidenced in code is marked **Unresolved**.
 
+## Source-reviewed ledger action permissions
+
+The [Finance/Materials gate and action matrix](api/LEDGER_PERMISSIONS.md), baseline `591e23d` (2026-10-28), follows the actual HTTP handler/shim role and feature checks, bootstrap ordering, methods, CSRF, confirmation and per-action record conditions. Read its source exceptions and limits before extrapolating this older page-level matrix into action-level guarantees. This supplement does not re-audit every other module or verify hosted permission effectiveness.
+
 ## 1. Roles defined in code
 
 `admin/backend/user-save.php` (`$validRoles`) accepts 13 roles:
