@@ -93,4 +93,18 @@ flutter {
     source = "../.."
 }
 
+// FKSS's server and updater require the same assigned build code for the
+// universal and per-device APKs. Flutter's split default adds ABI offsets,
+// which would break that contract and ordinary cross-artifact upgrades.
+// Register after Flutter's variant callback; preserve the existing base code,
+// signing, SDKs and dependency versions. Actual artifacts are checked in CI.
+android.applicationVariants.configureEach { variant ->
+    if (variant.buildType.name == 'release'
+            && project.findProperty('split-per-abi')?.toString()?.toBoolean()) {
+        variant.outputs.each { output ->
+            output.versionCodeOverride = flutter.versionCode
+        }
+    }
+}
+
 

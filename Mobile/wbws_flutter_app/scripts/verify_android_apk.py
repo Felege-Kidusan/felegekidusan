@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Read-only release gate; requires Python3 and Android SDK build-tools36.0.0.
+"""Read-only release gate; requires Python 3.11+ and SDK build-tools 36.0.0.
 
-Checks actual APK metadata, CRC, ELF identity, ARM64 16KiB LOAD alignment,
+Checks actual APK metadata, CRC, complete native ABI core sets, ELF identity,
+64-bit 16 KiB LOAD alignment,
 ZIP alignment and SDK signature verification. Not installation, runtime,
 owner-certificate continuity or physical-device/performance acceptance.
 """
@@ -68,7 +69,12 @@ def inspect_native(apk, required):
         bad = archive.testzip()  # streaming CRC check, no extraction
         if bad:
             raise ValueError(f"ZIP CRC failed: {bad}")
-        for abi in required:
+        present = {name.split('/')[1] for name in names
+                   if name.startswith('lib/') and name.endswith('.so') and name.count('/') == 2}
+        # A plugin-only ABI can make Android select a native architecture for
+        # which Flutter has no engine/app. Check closure for every bundled ABI,
+        # not just the CLI's minimum required set.
+        for abi in sorted(set(required) | present):
             if abi not in ABIS:
                 raise ValueError(f"Unsupported ABI: {abi}")
             for library in ("libflutter.so", "libapp.so"):
@@ -82,7 +88,10 @@ def inspect_native(apk, required):
             if len(parts) != 3 or parts[1] not in ABIS:
                 raise ValueError(f"Unsupported native library path: {item.filename}")
             with archive.open(item) as stream:
-                libraries[item.filename] = elf_info(stream, item.file_size, parts[1])
+                try:
+                    libraries[item.filename] = elf_info(stream, item.file_size, parts[1])
+                except ValueError as error:
+                    raise ValueError(f'{item.filename}: {error}') from error
         return libraries
 
 

@@ -75,6 +75,14 @@ class AndroidApkGateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 gate.inspect_native(apk, tuple(gate.ABIS))
 
+    def test_plugin_only_extra_abi_cannot_claim_flutter_compatibility(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            apk = self.make_apk(Path(tmp) / 'test.apk', abis=('arm64-v8a',))
+            with zipfile.ZipFile(apk, 'a') as archive:
+                archive.writestr('lib/armeabi-v7a/libplugin.so', elf('armeabi-v7a'))
+            with self.assertRaisesRegex(ValueError, 'Missing armeabi-v7a/lib'):
+                gate.inspect_native(apk, ('arm64-v8a',))
+
     def test_wrong_slot_missing_library_and_duplicate_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             apk = self.make_apk(Path(tmp) / 'test.apk', abis=('arm64-v8a',))

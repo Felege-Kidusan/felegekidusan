@@ -88,7 +88,10 @@ function Add-Artifact {
     $abis = if ($Kind -eq 'universal') { 'armeabi-v7a,arm64-v8a,x86_64' } else { $Kind }
     $reportName = "$Name.compatibility.json"
     Invoke-Step "Verify $Kind APK metadata, native libraries, alignment and signatures" {
-        & $python.Source @pythonArgs scripts/verify_android_apk.py $Source --abis $abis --version $appVersion --version-code $appBuild --report (Join-Path $outDir $reportName)
+        # Resolve provider separators before passing a path to a native tool;
+        # this also exercises the owner procedure on Linux PowerShell in CI.
+        $resolvedSource = (Resolve-Path $Source).Path
+        & $python.Source @pythonArgs scripts/verify_android_apk.py $resolvedSource --abis $abis --version $appVersion --version-code $appBuild --report (Join-Path $outDir $reportName)
     }
     Copy-Item $Source $dest -Force
     $hash = (Get-FileHash -Algorithm SHA256 $dest).Hash.ToLower()

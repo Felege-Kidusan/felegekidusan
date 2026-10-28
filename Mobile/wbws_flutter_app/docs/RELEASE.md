@@ -16,13 +16,13 @@ From `Mobile/wbws_flutter_app`, with the pinned toolchain and reviewed lockfile:
 flutter --version
 flutter pub get --enforce-lockfile
 powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
-# Optional per-ABI path: read the version-code blocker below before use.
+# Optional: also produce ARM32/ARM64 APKs with the same assigned build code.
 powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1 -SplitPerAbi
 ```
 
 The script runs Flutter tests unless `-SkipTests` is supplied. Do **not** use that switch for an accepted release. It runs `flutter pub get --enforce-lockfile`; review the working tree afterward and stop if the committed lockfile or dependencies changed unexpectedly. Do not upgrade packages to obtain a passing build.
 
-**Known per-ABI blocker:** Flutter 3.44.9's `--split-per-abi` implementation adds ABI-specific version-code offsets. The server intentionally requires per-device files to match the universal build, and this script now verifies exact build identity. Consequently, offset split outputs are refused, not silently marked publishable. Use the universal candidate path; do not weaken version checks or change installed build numbering to work around this. A compatible per-ABI build strategy still requires a separately validated fix.
+**Per-ABI build identity:** Flutter 3.44.9's default `--split-per-abi` implementation adds ABI-specific version-code offsets. FKSS's release-only split variant callback reapplies the existing `flutter.versionCode`, after Flutter's callback, so the assigned universal/per-device build remains the same. This preserves the server's exact matching and ordinary updater ordering instead of normalizing offsets or weakening checks. The owner script verifies actual version codes before copying artifacts; Android CI additionally checks all three reports and sends the genuine artifacts through the real PHP inspector in an isolated fixture. Any mismatch must fail the candidate. Previously installed offset-code APKs are not assumed to exist or to have been migrated; inspect an actual installed version before accepting that upgrade path.
 
 The script's artifact layout under `dist\<version>+<build>\` is:
 

@@ -599,14 +599,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Build release-mode universal APK (test signing, never publish)
-        run: flutter build apk --release --target-platform android-arm,android-arm64,android-x64
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, xml
+          coverage: none
 
-      - name: Verify real release APK SDK, ABI, ELF, 16KiB alignment and signatures
+      - name: Exercise owner release script with universal and ARM splits (CI test signing only)
+        shell: pwsh
+        run: ./scripts/build-release.ps1 -SplitPerAbi
+
+      - name: Verify actual release-set identity and PHP architecture publication guards
         run: |
           set -euo pipefail
-          python scripts/verify_android_apk.py build/app/outputs/flutter-apk/app-release.apk \
-            --report build/android-compatibility.json
+          VERSION="$(sed -n 's/^version: *//p' pubspec.yaml)"
+          python ../../tests/e2e/android_release_artifacts.py "dist/$VERSION" \
+            --report build/android-release-set.json
           git diff --exit-code -- pubspec.yaml pubspec.lock android
 
       - name: Preserve release artifact compatibility evidence (not a publishable release)
@@ -614,7 +622,22 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-compatibility-evidence
-          path: Mobile/wbws_flutter_app/build/android-compatibility.json
+          path: |
+            Mobile/wbws_flutter_app/dist/**/*.compatibility.json
+            Mobile/wbws_flutter_app/dist/**/release-manifest.json
+            Mobile/wbws_flutter_app/build/android-release-set.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Preserve CI-test-signed release APKs for native inspection, never publication
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-ci-test-signed-apks-not-for-publication
+          path: |
+            Mobile/wbws_flutter_app/build/app/outputs/flutter-apk/app-release.apk
+            Mobile/wbws_flutter_app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            Mobile/wbws_flutter_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           if-no-files-found: warn
           retention-days: 7
 
