@@ -6,7 +6,6 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 
 import 'device_tier_service.dart';
-import '../utils/config.dart';
 
 /// P65 — the shared failure log reader/writer utilities.
 ///
@@ -268,7 +267,7 @@ class CrashLogService {
     required String crashLogTail,
   }) {
     final b = StringBuffer();
-    b.writeln('${AppConfig.appName} diagnostic report');
+    b.writeln('FKSS diagnostic report');
     b.writeln('App: $appVersion ($appBuild)');
     b.writeln('Server: $server');
     if (device != null) {

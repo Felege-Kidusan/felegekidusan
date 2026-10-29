@@ -136,8 +136,8 @@ class MezmurTrack {
     return MediaItem(
       id: 'mz-$hymnId',
       title: title.isEmpty ? 'መዝሙር $hymnId' : title,
-      album: category ?? '${AppConfig.appName} መዝሙር',
-      artist: '${AppConfig.appName} · Mezmur',
+      album: category ?? 'FKSS መዝሙር',
+      artist: 'FKSS · Mezmur',
       duration: durationSeconds == null
           ? null
           : Duration(seconds: durationSeconds!),

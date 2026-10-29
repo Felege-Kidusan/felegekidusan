@@ -1,7 +1,7 @@
 {
-    "name": "ውሉደ ብርሃን ሰንበት ት/ቤት",
-    "short_name": "ውሉደ ብርሃን",
-    "description": "የገላን ጉራ ቅዱስ ገብርኤል ቤተክርስቲያን ውሉደብርሃን ሰንበት ት/ቤት",
+    "name": "WBWS — ውሉደ ብርሃን Sunday School",
+    "short_name": "WBWS",
+    "description": "ውሉደ ብርሃን የሰንበት ት/ቤት Management System — Attendance, Members, Reports",
     "start_url": "/app/",
     "scope": "/",
     "display": "standalone",

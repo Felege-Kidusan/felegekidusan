@@ -1,6 +1,4 @@
-# Contributing to ውሉደ ብርሃን ሰንበት ት/ቤት
-
-See [display branding policy](docs/BRANDING.md); technical repository, package, domain and storage names remain unchanged.
+# Contributing to FKSS
 
 This guide is for engineers joining the project. Read it together with [README.md](README.md), [docs/ONBOARDING.md](docs/ONBOARDING.md) and [BRANCHING.md](BRANCHING.md).
 

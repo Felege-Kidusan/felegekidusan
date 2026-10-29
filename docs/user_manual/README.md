@@ -1,4 +1,4 @@
-# ውሉደ ብርሃን ሰንበት ት/ቤት user manual
+# FKSS user manual
 
 **Edition:** source checkpoint 1.7.4+41, development baseline `7209278` (2026-10-28).
 
@@ -6,7 +6,7 @@
 
 ## Start here
 
-The school application supports staff administration, member records, education, attendance, Mezmur, communications and reporting. Web and mobile capabilities differ by role, class assignment, academic year, feature flags and installed app version. A missing or disabled control is not permission to bypass a restriction.
+FKSS supports staff administration, member records, education, attendance, Mezmur, communications and reporting. Web and mobile capabilities differ by role, class assignment, academic year, feature flags and installed app version. A missing or disabled control is not permission to bypass a restriction.
 
 | Task | Guide |
 |---|---|

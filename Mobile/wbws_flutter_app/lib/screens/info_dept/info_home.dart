@@ -1,4 +1,3 @@
-import '../../utils/config.dart';
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
@@ -59,7 +58,7 @@ class InfoHomeScreenState extends State<InfoHomeScreen> {
           slivers: [
             SliverAppBar(floating: true, automaticallyImplyLeading: false,
               title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text(AppConfig.appName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const Text('FKSS', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                 Text('የመረጃ ክፍል • Info Department', style: TextStyle(fontSize: 11, color: Colors.white70)),
               ]),
               actions: [const NotificationBellButton(color: Colors.white), IconButton(icon: const Icon(Icons.refresh_rounded, size: 22), onPressed: _load)],

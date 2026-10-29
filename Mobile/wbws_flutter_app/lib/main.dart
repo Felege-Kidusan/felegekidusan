@@ -22,7 +22,6 @@ import 'services/mezmur_download_manager.dart';
 import 'services/lyrics_reader_settings.dart';
 import 'utils/scrolling.dart';
 import 'utils/theme.dart';
-import 'utils/config.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/session_recovery_screen.dart';
 import 'screens/shell/app_shell.dart';
@@ -39,7 +38,7 @@ void main() async {
   try {
     await JustAudioBackground.init(
       androidNotificationChannelId: 'com.arkeonethiopia.fkss.channel.audio',
-      androidNotificationChannelName: '${AppConfig.appName} Mezmur',
+      androidNotificationChannelName: 'መዝሙር · FKSS Mezmur',
       androidNotificationOngoing: true,
     );
   } catch (_) {}
@@ -163,7 +162,7 @@ class _OfflineDataProtectionFailureAppState
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: AppConfig.appNameAmharic,
+      title: 'FKSS',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       scrollBehavior: const SmoothScrollBehavior(),
@@ -333,7 +332,7 @@ class _FKSSAppState extends State<FKSSApp> {
     }
 
     return MaterialApp(
-      title: AppConfig.appNameAmharic,
+      title: 'FKSS',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,

@@ -26,22 +26,20 @@ define('ACTIVE_THEME', 'fkss');
 // │  The core names used across dashboards, titles, exports     │
 // └─────────────────────────────────────────────────────────────┘
 
-// Owner-supplied short school name (page titles and display metadata).
-define('SCHOOL_NAME', 'ውሉደ ብርሃን ሰንበት ት/ቤት');
+// Full system name (shown in page titles, API responses)
+define('SCHOOL_NAME', 'FKSS School Management System');
 
-// Compact root of the supplied short name, for narrow navigation labels.
-// Display text only: technical identifiers below must not derive from it.
-define('SCHOOL_NAME_SHORT', 'ውሉደ ብርሃን');
+// Short code (shown in headers, nav bars, mobile app)
+define('SCHOOL_NAME_SHORT', 'FKSS');
 
-// Exact full institution name, including the owner's joined ውሉደብርሃን.
-define('SCHOOL_NAME_AMHARIC', 'የገላን ጉራ ቅዱስ ገብርኤል ቤተክርስቲያን ውሉደብርሃን ሰንበት ት/ቤት');
+// Full Amharic name (shown in landing page, reports, ID cards)
+define('SCHOOL_NAME_AMHARIC', 'ፈለገ ቅዱሳን ሰንበት ትምህርት ቤት');
 
-// Compact root; consumers append SCHOOL_TYPE_AM where required.
-define('SCHOOL_NAME_SHORT_AM', SCHOOL_NAME_SHORT);
+// Short Amharic name (shown in sidebar subtitles, compact labels)
+define('SCHOOL_NAME_SHORT_AM', 'ፈለገ ቅዱሳን');
 
-// Legacy display slot: no official English name was supplied.
-// Retain the canonical Amharic name rather than inventing a translation.
-define('SCHOOL_TRANSLATION_EN', SCHOOL_NAME_SHORT);
+// English translation of school name (Felege Kidusan = "Spring of Saints")
+define('SCHOOL_TRANSLATION_EN', 'Spring of Saints');
 
 // Tagline — English and Amharic
 define('SCHOOL_TAGLINE', 'Sunday School Management System');
@@ -58,9 +56,8 @@ define('SCHOOL_TYPE_AM', 'ሰንበት ት/ቤት');
 // └─────────────────────────────────────────────────────────────┘
 
 // Parish/church full name — Amharic and English
-define('PARISH_NAME_AM', 'የገላን ጉራ ቅዱስ ገብርኤል ቤተክርስቲያን');
-// No owner-approved English parish name: use the supplied canonical identity.
-define('PARISH_NAME_EN', PARISH_NAME_AM);
+define('PARISH_NAME_AM', 'የቦሌ ቡልቡላ ፍ/ሕ ቅድስት ድንግል ማርያም እና መ/መ/ ቅ/ዮሐንስ ቤ/ክ');
+define('PARISH_NAME_EN', 'Bole Bulbula St. Mary & St. John Holy Church');
 
 // Denomination — the broader religious organization
 define('DENOMINATION_AM', 'የኢትዮጵያ ኦርቶዶክስ ተዋሕዶ ቤተ ክርስቲያን');
@@ -246,17 +243,16 @@ define('SCHOOL_SEAL_PATH_LEGACY', '/admin/id_cards/assets/seals/school_seal.png'
 // └─────────────────────────────────────────────────────────────┘
 
 // Prefix for export filenames (CSV, PDF, DOCX, XLSX downloads)
-// Compatibility identifiers remain unchanged by a display-only rebrand.
-define('EXPORT_PREFIX', 'fkss');
+define('EXPORT_PREFIX', strtolower(SCHOOL_NAME_SHORT));
 
 // Backup SQL header comment
 define('BACKUP_HEADER', SCHOOL_NAME_SHORT . ' Automated Backup');
 
 // PWA cache name
-define('PWA_CACHE_NAME', 'fkss-v5');
+define('PWA_CACHE_NAME', strtolower(SCHOOL_NAME_SHORT) . '-v5');
 
 // PWA cache prefix
-define('PWA_CACHE_PREFIX', 'fkss_');
+define('PWA_CACHE_PREFIX', strtolower(SCHOOL_NAME_SHORT) . '_');
 
 
 // ┌─────────────────────────────────────────────────────────────┐
@@ -264,9 +260,9 @@ define('PWA_CACHE_PREFIX', 'fkss_');
 // │  Progressive Web App manifest values                        │
 // └─────────────────────────────────────────────────────────────┘
 
-define('PWA_NAME', SCHOOL_NAME);
+define('PWA_NAME', SCHOOL_NAME_SHORT . ' — ' . SCHOOL_NAME_SHORT_AM . ' ' . SCHOOL_TYPE);
 define('PWA_SHORT_NAME', SCHOOL_NAME_SHORT);
-define('PWA_DESCRIPTION', SCHOOL_NAME_AMHARIC . ' — ' . SCHOOL_TAGLINE);
+define('PWA_DESCRIPTION', SCHOOL_NAME_SHORT_AM . ' የ' . SCHOOL_TYPE_AM . ' ' . SCHOOL_TAGLINE);
 
 
 // ┌─────────────────────────────────────────────────────────────┐
@@ -314,8 +310,7 @@ define('AI_SCHOOL_CONTEXT', 'This is an Ethiopian ' . SCHOOL_TYPE . ' (' . SCHOO
 // │  REST API identification                                    │
 // └─────────────────────────────────────────────────────────────┘
 
-// API identification is a compatibility contract, not a display label.
-define('API_NAME', 'FKSS School Management System');
+define('API_NAME', SCHOOL_NAME);
 define('API_MEMBER_PREFIX', MEMBER_CODE_PREFIX);
 
 
@@ -340,10 +335,19 @@ define('GROUP_UNDER_SS_LABEL_AM', 'በ' . SCHOOL_TYPE_AM . ' ስር');
 // └─────────────────────────────────────────────────────────────┘
 
 define('LEAK_DETECT_KEYWORDS', serialize([
-    'ፈለገ ቅዱሳን',
-    'Felege Kidusan',
-    'Spring of Saints',
-    'የቦሌ ቡልቡላ',
-    'Bole Bulbula St. Mary & St. John Holy Church',
+    'WBWS',
+    'wbws',
+    'Wulde Birhan',
+    'Wulud Birhan',
+    'Wlude Brhan',
+    'ውሉደ ብርሃን',
+    'ውሉደ',
+    'Children of Light',
+    'Gelana Gura',
+    'ገላን ጉራ',
+    'ፈለገግዮን',
+    'ቅዱስ ገብርኤል',
+    'wbws.pro.et',
+    'wbwsprvr',
     'Wolaita Bethel',
 ]));
