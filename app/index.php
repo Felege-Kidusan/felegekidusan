@@ -3,7 +3,7 @@ require_once __DIR__ . '/../school_config.php';
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 $adminUrl = defined('ADMIN_URL') ? ADMIN_URL : '/admin';
-$siteName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'Sunday School';
+$siteName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'FKSS';
 $siteAm = defined('SCHOOL_NAME_SHORT_AM') ? SCHOOL_NAME_SHORT_AM : '';
 ?>
 <!DOCTYPE html>
@@ -35,7 +35,7 @@ $siteAm = defined('SCHOOL_NAME_SHORT_AM') ? SCHOOL_NAME_SHORT_AM : '';
   <h1><?= htmlspecialchars($siteName) ?></h1>
   <?php if ($siteAm): ?><div class="am"><?= htmlspecialchars($siteAm) ?></div><?php endif; ?>
   <p>The old phone website is closed so student records stay in one safe place.</p>
-  <p>Teachers: use the <strong><?= htmlspecialchars(SCHOOL_NAME) ?></strong> phone app for attendance and grades.</p>
+  <p>Teachers: use the <strong>FKSS</strong> phone app for attendance and grades.</p>
   <p>Everyone else: sign in on the website.</p>
   <a class="btn" href="<?= htmlspecialchars($adminUrl) ?>">Open the website</a>
 </div>

@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import '../../services/app_lock_service.dart';
 import '../../services/session_service.dart';
 import '../../utils/theme.dart';
-import '../../utils/config.dart';
 
 /// Full-screen passcode gate (Telegram-style). Shown on cold start when
 /// a passcode is set, after auto-lock, and on manual lock. The rest of
@@ -212,8 +211,7 @@ class _LockScreenState extends State<LockScreen>
                 Icon(Icons.lock_outline_rounded,
                     size: 44, color: isThrottled ? Colors.red : AppTheme.primary),
                 const SizedBox(height: 14),
-                const Text('${AppConfig.appName} is locked',
-                    textAlign: TextAlign.center,
+                const Text('Felege Kidusan is locked',
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Text('Enter your passcode to continue',

@@ -84,7 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           width: 100,
                           height: 100,
                           fit: BoxFit.contain,
-                          semanticLabel: AppConfig.appNameAmharic),
+                          semanticLabel: 'Spring of Saints Sunday School'),
                     ),
                   ),
                 ),
@@ -94,7 +94,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 // Title
                 const Text(
                   AppConfig.appNameAmharic,
-                  textAlign: TextAlign.center,
                   style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
@@ -103,8 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  AppConfig.appFullNameAmharic,
-                  textAlign: TextAlign.center,
+                  'Spring of Saints Sunday School',
                   style: TextStyle(fontSize: 14, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
                 ),
 

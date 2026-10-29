@@ -40,7 +40,7 @@ try {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Attendance Taker · <?= e(SCHOOL_NAME_SHORT_AM ?? 'Sunday School') ?></title>
+<title>Attendance Taker · <?= e(SCHOOL_NAME_SHORT_AM ?? 'FKSS') ?></title>
 <style>
 :root{--maroon:#5A1212;--gold:#D4AF37;--bg:#F9FAFB;--card:#fff;--ink:#111827;--dim:#6B7280;--line:#E5E7EB}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -79,14 +79,14 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background
 <main class="wrap">
     <div class="card">
         <span class="badge"><?= e($userName) ?></span>
-        <h2 style="font-size:1.05rem;margin-top:14px">Attendance is recorded from the <?= e(SCHOOL_NAME_SHORT) ?> mobile app</h2>
+        <h2 style="font-size:1.05rem;margin-top:14px">Attendance is recorded from the FKSS mobile app</h2>
         <p class="dim" style="margin-top:8px">
-            Your account belongs to the <strong><?= e($deptName) ?></strong> only. Open the <?= e(SCHOOL_NAME_SHORT) ?> app,
+            Your account belongs to the <strong><?= e($deptName) ?></strong> only. Open the FKSS app,
             sign in with this account, and take attendance for your department's sections.
             Sheets you save appear as drafts; submitting sends them to your department for review.
         </p>
         <ol class="steps">
-            <li>Open the <strong><?= e(SCHOOL_NAME_SHORT) ?> app</strong> on your phone.</li>
+            <li>Open the <strong>FKSS app</strong> on your phone.</li>
             <li>Sign in with your taker username and password.</li>
             <li>Pick the date and section, mark each member, then <strong>Save</strong> or <strong>Submit</strong>.</li>
         </ol>

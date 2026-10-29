@@ -101,7 +101,7 @@ Current recovery concepts and limitations are in [the mobile README](../Mobile/w
 2. Large PHP dashboards and a multi-responsibility `local_db.dart`; historical line counts are not current size guarantees.
 3. Runtime DDL and no migration ledger (section 5).
 4. CI runs behavioral tests on PHP 8.4 and lint on PHP 8.5. The last documented production PHP observation is dated, not freshly verified; behavioral parity with that environment remains unproven.
-5. Older identifiers (for example the `wbws_` prefix in table, folder and file names, including the local database file) differ from the development display identity (see [branding policy](BRANDING.md)).
+5. Older identifiers (for example the `wbws_` prefix in table, folder and file names, including the local database file) differ from the product name FKSS.
 6. Duplicated vendored libraries (phpqrcode). Resolved 2026-10-23: one copy remains, in `admin/id_cards/libs/`.
 
 Severity and recommended actions: [OPERATIONS.md §7](OPERATIONS.md#7-known-limitations-and-open-questions).

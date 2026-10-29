@@ -1,6 +1,6 @@
-# ውሉደ ብርሃን ሰንበት ት/ቤት mobile app
+# FKSS mobile app
 
-Flutter client for **የገላን ጉራ ቅዱስ ገብርኤል ቤተክርስቲያን ውሉደብርሃን ሰንበት ት/ቤት**. This is a development-only display rebrand; see [branding policy](../../docs/BRANDING.md) for unchanged identifiers and retained artwork. Role-based online workflows coexist with offline attendance/grade packets, communication drafts and read caches. Source checkpoint at development baseline `7209278` is **1.7.4+41**; this is not evidence of a published or installed APK.
+Flutter client for Felege Kidusan Sunday School. Role-based online workflows coexist with offline attendance/grade packets, communication drafts and read caches. Source checkpoint at development baseline `7209278` is **1.7.4+41**; this is not evidence of a published or installed APK.
 
 - User procedures: [mobile account/device settings](../../docs/user_manual/ACCOUNT_AND_DEVICE.md), [sync and recovery](../../docs/user_manual/SYNC_AND_RECOVERY.md), [app updates](../../docs/user_manual/APP_UPDATES.md).
 - Build/signing: [release guide](docs/RELEASE.md).
