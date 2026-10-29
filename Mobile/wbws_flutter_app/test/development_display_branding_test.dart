@@ -19,29 +19,33 @@ void main() {
       testWidgets('login identity wraps at width $width and text scale $scale',
           (tester) async {
         final semantics = tester.ensureSemantics();
-        addTearDown(semantics.dispose);
-        tester.view.devicePixelRatio = 1;
-        tester.view.physicalSize = Size(width, 800);
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        await tester.pumpWidget(MaterialApp(
-          theme: AppTheme.lightTheme,
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(scale)),
-            child: child!,
-          ),
-          home: const LoginScreen(),
-        ));
-        await tester.pumpAndSettle();
-        expect(find.text(AppConfig.appNameAmharic), findsOneWidget);
-        expect(find.text(AppConfig.appFullNameAmharic), findsOneWidget);
-        expect(tester.widget<Image>(find.byType(Image)).semanticLabel,
-            AppConfig.appNameAmharic);
-        // Logo and heading both correctly expose the school's name.
-        expect(find.bySemanticsLabel(AppConfig.appNameAmharic), findsWidgets);
-        expect(find.textContaining('Spring of Saints'), findsNothing);
-        expect(tester.takeException(), isNull);
+        try {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = Size(width, 800);
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          await tester.pumpWidget(MaterialApp(
+            theme: AppTheme.lightTheme,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: const LoginScreen(),
+          ));
+          await tester.pumpAndSettle();
+          expect(find.text(AppConfig.appNameAmharic), findsOneWidget);
+          expect(find.text(AppConfig.appFullNameAmharic), findsOneWidget);
+          expect(tester.widget<Image>(find.byType(Image)).semanticLabel,
+              AppConfig.appNameAmharic);
+          // Logo and heading both correctly expose the school's name.
+          expect(find.bySemanticsLabel(AppConfig.appNameAmharic), findsWidgets);
+          expect(find.textContaining('Spring of Saints'), findsNothing);
+          expect(tester.takeException(), isNull);
+        } finally {
+          // Flutter verifies handles before package:test tearDown callbacks.
+          semantics.dispose();
+        }
       });
     }
   }
