@@ -109,3 +109,60 @@ def test_flutter_canonical_identity_and_launcher_match_php():
         source = (base / 'lib/screens' / name).read_text()
         assert 'Text(AppConfig.appName, maxLines: 1, overflow: TextOverflow.ellipsis' in source
         assert "Text('FKSS'" not in source
+
+
+def test_group_pdf_title_uses_existing_ethiopic_font_before_text_and_restores_body_font():
+    run_group_pdf('ok')
+
+
+def test_group_pdf_does_not_save_an_unreadable_title_when_font_http_request_fails():
+    run_group_pdf('http-error')
+
+
+def test_group_pdf_handles_font_network_failure_without_saving():
+    run_group_pdf('network-error')
+
+
+def run_group_pdf(mode):
+    # Execute the actual production function with isolated synthetic dependencies.
+    source = (ROOT / 'admin/groups.php').read_text()
+    function = source.split('async function generatePdf(){', 1)[1].split('// ===== EXCEL =====', 1)[0]
+    function = 'async function generatePdf(){' + function
+    function = function.replace('<?= json_encode(SCHOOL_NAME) ?>', json.dumps(SHORT))
+    assert '<?' not in function
+    harness = r'''
+const assert = require('node:assert/strict');
+const calls=[]; const notices=[];
+const doc = new Proxy({
+  internal:{getNumberOfPages:()=>1}, lastAutoTable:{finalY:60}
+}, {get:(target,key)=>key in target?target[key]:(...args)=>{calls.push([key,...args]);return doc;}});
+global.window = {jspdf:{jsPDF:function(){return doc;}}};
+global.document = {getElementById:id=>({checked:id==='pdfInfo'})};
+global.toast = (...args)=>notices.push(args);
+global.closeModal = ()=>{}; global.curGid=7;
+global.api=async()=>({success:true,data:{group:{group_name:'Synthetic Group'}}});
+global.fetch=async(url,options)=>{
+ assert.equal(url,'/admin/backend/pdf/tcpdf/fonts/notosansethiopic.ttf');
+ assert.equal(options.credentials,'same-origin');
+ if(MODE==='network-error') throw new Error('Synthetic network interruption');
+ return {ok:MODE==='ok',arrayBuffer:async()=>new Uint8Array([0,1,2,3]).buffer};
+};
+FUNCTION
+(async()=>{
+ await generatePdf();
+ if(MODE==='ok') {
+  assert(calls.some(x=>x[0]==='addFileToVFS'&&x[1]==='school-title.ttf'));
+  const select=calls.findIndex(x=>x[0]==='setFont'&&x[1]==='school-title');
+  const title=calls.findIndex(x=>x[0]==='text'&&x[1]===TITLE);
+  const restore=calls.findIndex(x=>x[0]==='setFont'&&x[1]==='helvetica');
+  assert(select>=0&&title>select&&restore>title);
+  assert(calls.some(x=>x[0]==='save'));
+ } else {
+  assert(!calls.some(x=>x[0]==='save'));
+  assert(notices.some(x=>x[1]==='error'&&x[0].includes('school-name font')));
+ }
+})().catch(error=>{console.error(error);process.exitCode=1;});
+'''.replace('FUNCTION', function).replace('MODE', json.dumps(mode)).replace('TITLE', json.dumps(SHORT))
+    result = subprocess.run(['node', '-e', harness], cwd=ROOT, text=True,
+                            capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
