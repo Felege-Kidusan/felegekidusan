@@ -575,7 +575,7 @@ class AppUpdateService extends ChangeNotifier {
       if (!await canRequestPackageInstalls()) {
         await openInstallPermissionSettings();
         installMessage =
-            'Allow installs from FKSS in Android settings, then return and tap Install update again.';
+            'Allow installs from ${AppConfig.appNameAmharic} in Android settings, then return and tap Install update again.';
         return;
       }
       // Metadata might have changed while permission/file checks were awaited.

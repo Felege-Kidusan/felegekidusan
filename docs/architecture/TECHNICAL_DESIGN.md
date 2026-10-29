@@ -1,4 +1,6 @@
-# FKSS — Technical Design Document (software architecture)
+# ውሉደ ብርሃን ሰንበት ት/ቤት — Technical Design Document (software architecture)
+
+Current development display identity: [branding policy](../BRANDING.md). Dated architecture baselines and technical FKSS identifiers below remain unchanged; production is not rebranded.
 
 | Field | Value |
 |---|---|

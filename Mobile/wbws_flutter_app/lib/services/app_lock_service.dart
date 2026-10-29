@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../utils/config.dart';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
@@ -174,7 +175,7 @@ class AppLockService extends ChangeNotifier {
       final isSupported = await _localAuth.isDeviceSupported();
       if (!canCheck || !isSupported) return false;
       final ok = await _localAuth.authenticate(
-        localizedReason: 'Unlock Felege Kidusan',
+        localizedReason: 'Unlock ${AppConfig.appName}',
         options: const AuthenticationOptions(
           stickyAuth: true,
           biometricOnly: true,

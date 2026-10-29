@@ -52,7 +52,7 @@ class UpdateScreen extends StatelessWidget {
     if (svc.decision.any) return 'Update available';
     if (svc.isChecking) return 'Checking for updates…';
     if (svc.checkFailed) return 'Couldn’t check for updates';
-    if (svc.lastSuccessfulCheck == null) return 'Check for FKSS updates';
+    if (svc.lastSuccessfulCheck == null) return 'Check for ${AppConfig.appName} updates';
     if (!svc.hasVersionInformation) {
       return 'Version information unavailable';
     }
@@ -185,7 +185,7 @@ class UpdateScreen extends StatelessWidget {
                         '${_size(svc.receivedBytes)} of ${_size(svc.totalBytes)}'),
                   const SizedBox(height: 8),
                   const Text(
-                      'Keep FKSS open while downloading. Returning to this page shows the same operation; continuation after closing the app is not guaranteed.',
+                      'Keep ${AppConfig.appName} open while downloading. Returning to this page shows the same operation; continuation after closing the app is not guaranteed.',
                       style: TextStyle(
                           fontSize: 12, color: AppTheme.textSecondary)),
                 ] else if (svc.hasReadyDownload) ...[
@@ -199,7 +199,7 @@ class UpdateScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                      'Android may ask for permission and confirmation. Installation may close FKSS. Downloading alone does not install the update.',
+                      'Android may ask for permission and confirmation. Installation may close ${AppConfig.appName}. Downloading alone does not install the update.',
                       style: TextStyle(
                           fontSize: 12, color: AppTheme.textSecondary)),
                 ] else if (svc.canDownload) ...[

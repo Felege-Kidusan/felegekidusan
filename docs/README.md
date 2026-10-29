@@ -1,5 +1,7 @@
 # Documentation index
 
+Development display identity: **ውሉደ ብርሃን ሰንበት ት/ቤት**. See [branding policy](BRANDING.md) for exact full identity, unchanged technical identifiers and retained artwork. Historical records retain their original names; a development merge does not change production.
+
 **Status labels**
 
 | Label | Meaning |

@@ -20,7 +20,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
-        android:label="FKSS"
+        android:label="ውሉደ ብርሃን ሰንበት ት/ቤት"
         android:name=".FkssApplication"
         android:icon="@mipmap/launcher_icon"
         android:allowBackup="false"

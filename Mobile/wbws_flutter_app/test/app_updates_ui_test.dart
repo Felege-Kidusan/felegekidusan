@@ -49,7 +49,7 @@ void main() {
     await tester.tap(find.byTooltip('Dismiss update reminder'));
     await tester.pumpAndSettle();
     expect(find.byType(UpdateBanner), findsOneWidget);
-    expect(find.textContaining('New FKSS version'), findsNothing);
+    expect(find.textContaining('New ${AppConfig.appName} version'), findsNothing);
     expect(find.text('App updates'), findsOneWidget);
     expect(find.text('Version 9.0.0 available'), findsOneWidget);
     final context = tester.element(find.byType(AppUpdatesTile));
@@ -89,7 +89,7 @@ void main() {
         ? ApiResponse(success: false)
         : ApiResponse(success: true, data: config(current: true)));
     await tester.pumpWidget(MaterialApp(home: UpdateScreen(service: svc)));
-    expect(find.text('Check for FKSS updates'), findsOneWidget);
+    expect(find.text('Check for ውሉደ ብርሃን updates'), findsOneWidget);
     expect(find.text('You’re up to date'), findsNothing);
     await svc.check();
     await tester.pump();
