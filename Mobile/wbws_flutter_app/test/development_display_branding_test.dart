@@ -36,7 +36,10 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text(AppConfig.appNameAmharic), findsOneWidget);
         expect(find.text(AppConfig.appFullNameAmharic), findsOneWidget);
-        expect(find.bySemanticsLabel(AppConfig.appNameAmharic), findsOneWidget);
+        expect(tester.widget<Image>(find.byType(Image)).semanticLabel,
+            AppConfig.appNameAmharic);
+        // Logo and heading both correctly expose the school's name.
+        expect(find.bySemanticsLabel(AppConfig.appNameAmharic), findsWidgets);
         expect(find.textContaining('Spring of Saints'), findsNothing);
         expect(tester.takeException(), isNull);
       });
