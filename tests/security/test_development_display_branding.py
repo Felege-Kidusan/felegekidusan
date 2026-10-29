@@ -128,7 +128,7 @@ def run_group_pdf(mode):
     source = (ROOT / 'admin/groups.php').read_text()
     function = source.split('async function generatePdf(){', 1)[1].split('// ===== EXCEL =====', 1)[0]
     function = 'async function generatePdf(){' + function
-    function = function.replace('<?= json_encode(SCHOOL_NAME) ?>', json.dumps(SHORT))
+    function = function.replace('<?= json_encode(SCHOOL_NAME_SHORT_AM) ?>', json.dumps(COMPACT))
     assert '<?' not in function
     harness = r'''
 const assert = require('node:assert/strict');
@@ -162,7 +162,7 @@ FUNCTION
   assert(notices.some(x=>x[1]==='error'&&x[0].includes('school-name font')));
  }
 })().catch(error=>{console.error(error);process.exitCode=1;});
-'''.replace('FUNCTION', function).replace('MODE', json.dumps(mode)).replace('TITLE', json.dumps(SHORT))
+'''.replace('FUNCTION', function).replace('MODE', json.dumps(mode)).replace('TITLE', json.dumps(COMPACT))
     result = subprocess.run(['node', '-e', harness], cwd=ROOT, text=True,
                             capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
