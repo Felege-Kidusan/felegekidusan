@@ -1,3 +1,4 @@
+import '../../utils/config.dart';
 import 'package:flutter/material.dart';
 import '../../widgets/use_website_note.dart';
 import '../../widgets/notification_bell_button.dart';
@@ -18,7 +19,7 @@ class FinanceHomeScreenState extends State<FinanceHomeScreen> {
         slivers: [
           SliverAppBar(floating: true, automaticallyImplyLeading: false, actions: [const NotificationBellButton(color: Colors.white),],
             title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('FKSS', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const Text(AppConfig.appName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               Text('የፋይናንስ ክፍል • Finance Dept', style: TextStyle(fontSize: 11, color: Colors.white70)),
             ]),
           ),

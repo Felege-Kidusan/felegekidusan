@@ -11,8 +11,11 @@ class AppConfig {
   static String get siteOrigin =>
       apiBaseUrl.replaceFirst(RegExp(r'/api/v1$'), '');
 
-  static const String appName = 'FKSS';
-  static const String appNameAmharic = 'ፈለገ ቅዱሳን ሰንበት ት/ቤት';
+  // Display identity only; package, API, storage and signing IDs stay unchanged.
+  static const String appName = 'ውሉደ ብርሃን';
+  static const String appNameAmharic = 'ውሉደ ብርሃን ሰንበት ት/ቤት';
+  static const String appFullNameAmharic =
+      'የገላን ጉራ ቅዱስ ገብርኤል ቤተክርስቲያን ውሉደብርሃን ሰንበት ት/ቤት';
   // ⚠ SINGLE SOURCE OF TRUTH for the update system: the app compares
   // THESE values against the server's .fkss_app_release.php — pubspec.yaml's
   // version only feeds the Android package version. They MUST stay in sync

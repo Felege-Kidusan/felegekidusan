@@ -42,7 +42,7 @@ class ExcelExportService
         $lastColumnString = Coordinate::stringFromColumnIndex(count($columns));
 
         $sheet->mergeCells("A1:{$lastColumnString}1");
-        $sheet->setCellValue('A1', 'ፈለገ ቅዱሳን ሰንበት ትምህርት ቤት');
+        $sheet->setCellValue('A1', defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Sunday School');
         $sheet->getRowDimension(1)->setRowHeight(34.5);
         $sheet->getStyle("A1:{$lastColumnString}1")->applyFromArray([
             'font' => [

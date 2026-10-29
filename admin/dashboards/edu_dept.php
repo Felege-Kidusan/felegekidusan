@@ -1221,8 +1221,8 @@ Classes with low curriculum recorded percentages indicate pending exam score sub
 <!-- ═══ REPORT CARDS ═══ -->
 <div id="sec-reportcards" class="sec">
 <div class="rc-print-banner" id="rcPrintBanner">
-<div class="am">ፈለገ ቅዱሳን ሰንበት ትምህርት ቤት</div>
-<div class="en">Felege Kidusan Sunday School · Class report</div>
+<div class="am"><?= htmlspecialchars(SCHOOL_NAME_AMHARIC) ?></div>
+<div class="en"><?= htmlspecialchars(SCHOOL_NAME) ?> · Class report</div>
 <div class="en" id="rcPrintBannerMeta"></div>
 </div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">

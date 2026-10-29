@@ -565,7 +565,7 @@ class EducationAnalyticsService
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Executive Education Intelligence Report — <?= htmlspecialchars($brand['school_short'] ?? 'FKSS') ?></title>
+<title>Executive Education Intelligence Report — <?= htmlspecialchars($brand['school_short'] ?? 'Sunday School') ?></title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=DM+Sans:wght@400;500;700&display=swap');
 *{box-sizing:border-box}
@@ -922,7 +922,7 @@ table.rpt-tbl tr:nth-child(even){background:#fafafa}
         $s1 = $spreadsheet->getActiveSheet();
         $s1->setTitle('Executive Summary');
 
-        $s1->setCellValue('A1', ($brand['school_am'] ?? 'FKSS') . ' — ' . ($brand['school_en'] ?? ''));
+        $s1->setCellValue('A1', ($brand['school_am'] ?? 'Sunday School') . ' — ' . ($brand['school_en'] ?? ''));
         $s1->setCellValue('A2', 'Executive Education Intelligence Summary');
         $s1->setCellValue('A3', 'Total Students: ' . ($stats['total'] ?? 0) . ' | Grade Mean: ' . ($stats['avg_grade'] ?? 0) . '% | Attendance Mean: ' . ($stats['avg_attendance'] ?? 0) . '% | Exam Delivery: ' . ($data['exam_governance']['summary']['delivery_rate'] ?? 0) . '% | Exported: ' . (function_exists('ethio_export_datetime') ? ethio_export_datetime('now') : date('Y-m-d H:i')));
 

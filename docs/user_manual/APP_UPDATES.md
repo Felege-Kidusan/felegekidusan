@@ -8,8 +8,8 @@
 
 - Review unsent work in Sync Center. Do not uninstall the app, clear its data or discard private work to solve an installation problem.
 - Have a usable connection, sufficient free storage and enough battery. Mobile data charges may apply.
-- Only install an administrator-approved FKSS release. An APK's existence or a download progress indicator is not evidence that it has passed verification or has been installed.
-- Keep FKSS open while downloading. This version does **not** guarantee saved-progress resume, automatic retry, background completion or continuation after process death.
+- Only install an administrator-approved school app release. An APK's existence or a download progress indicator is not evidence that it has passed verification or has been installed.
+- Keep the school app open while downloading. This version does **not** guarantee saved-progress resume, automatic retry, background completion or continuation after process death.
 
 ## 2. Check for a release
 
@@ -22,7 +22,7 @@
 
 | Status | Meaning and next action |
 |---|---|
-| **Check for FKSS updates** | No successful check has completed; request one when connected |
+| **Check for ውሉደ ብርሃን updates** | No successful check has completed; request one when connected |
 | **Checking for updates…** | A check is running; wait rather than repeatedly selecting the control |
 | **Couldn’t check for updates** | The check failed; inspect connection and try again |
 | **Version information unavailable** | A successful response did not supply usable version information; contact the administrator if it persists |
@@ -48,9 +48,9 @@ If the server offers a different release during the transfer, the previous artif
 ## 4. Install and verify
 
 1. Select **Install update** when the file is ready. The service rechecks the file before requesting Android installation.
-2. If Android opens install-permission settings, allow installation from FKSS only if this is the approved release. Return to FKSS and select **Install update** again.
-3. Finish the system installer's confirmation. Android may close FKSS. Opening the installer does **not** establish that replacement succeeded.
-4. Reopen FKSS and check **Profile → Version** or the update screen's **Installed** value against the approved build. Follow the administrator's acceptance instructions.
+2. If Android opens install-permission settings, allow installation from **ውሉደ ብርሃን ሰንበት ት/ቤት** only if this is the approved release. Return to the school app and select **Install update** again.
+3. Finish the system installer's confirmation. Android may close the school app. Opening the installer does **not** establish that replacement succeeded.
+4. Reopen the school app and check **Profile → Version** or the update screen's **Installed** value against the approved build. Follow the administrator's acceptance instructions.
 
 If installation was canceled, a still-valid verified file can remain ready in the same operation; select **Install update** again when appropriate. Process restarts, changed release metadata or a missing file can require a new download. Never uninstall merely because Android reports a signature/package conflict: the administrator must check signing compatibility and the risk to unsent work first.
 
@@ -74,11 +74,11 @@ Disabled controls prevent conflicting operations; do not interpret them as a com
 | Message or symptom | Safe response |
 |---|---|
 | Connection interrupted | Reconnect and use **Download again**; expect a full restart |
-| Cannot save / insufficient storage | Free safe space without deleting FKSS private data, then retry |
+| Cannot save / insufficient storage | Free safe space without deleting the school app’s private data, then retry |
 | Verification information missing | Ask the administrator to verify release metadata/artifact publication; do not bypass verification |
 | Incomplete, wrong-size or unverifiable file | Download again; persistent failures need administrator investigation |
 | No compatible Android update file | Ask for a release compatible with the device; repeated checks cannot create an artifact |
-| Install settings cannot open / permission not granted | Review Android's install permission for FKSS; return and retry the install action |
+| Install settings cannot open / permission not granted | Review Android's install permission for **ውሉደ ብርሃን ሰንበት ት/ቤት**; return and retry the install action |
 | Android refuses installation | Preserve offline work; report device/build and installer message privately so signing/package compatibility can be checked |
 | Required update cannot complete | Contact the administrator; do not clear data or bypass the gate |
 

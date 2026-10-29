@@ -7,6 +7,6 @@ header('Content-Type: application/json; charset=utf-8');
 http_response_code(410);
 echo json_encode([
     'status' => 'error',
-    'message' => 'This phone website API is closed. Use the FKSS app or the main website.',
+    'message' => 'This phone website API is closed. Use the school app or the main website.',
     'use' => '/api/v1',
 ], JSON_UNESCAPED_UNICODE);

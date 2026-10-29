@@ -1,4 +1,6 @@
-# FKSS — Product Requirements Document
+# ውሉደ ብርሃን ሰንበት ት/ቤት — Product Requirements Document
+
+Current development display identity is governed by [branding policy](../BRANDING.md). The dated requirements/source baseline below retains its historical terminology; it is not a production rebrand.
 
 | Field | Value |
 |---|---|

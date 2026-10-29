@@ -2240,7 +2240,7 @@ class ReportCardService
         ];
 
         // Format Title & Banner
-        $sheet->setCellValue('A1', ($brand['school_am'] ?? 'FKSS') . ' — ' . ($brand['school_en'] ?? ''));
+        $sheet->setCellValue('A1', ($brand['school_am'] ?? 'Sunday School') . ' — ' . ($brand['school_en'] ?? ''));
         $sheet->setCellValue('A2', 'Filtered Student Performance & Attendance Report');
         $sheet->setCellValue('A3', 'Total Students: ' . ($stats['total'] ?? 0) . ' | Avg Grade: ' . ($stats['avg_grade'] ?? 0) . '% | Avg Attendance (recorded): ' . ($stats['avg_attendance'] ?? 0) . '% | Exported: ' . (function_exists('ethio_export_datetime') ? ethio_export_datetime('now') : date('Y-m-d H:i')));
 
@@ -2317,10 +2317,10 @@ class ReportCardService
     public static function brand(): array
     {
         return [
-            'school_am' => defined('SCHOOL_NAME_AMHARIC') ? SCHOOL_NAME_AMHARIC : 'ፈለገ ቅዱሳን ሰንበት ትምህርት ቤት',
-            'school_en' => trim((defined('SCHOOL_TRANSLATION_EN') ? SCHOOL_TRANSLATION_EN : 'Spring of Saints') . ' ' . (defined('SCHOOL_TYPE') ? SCHOOL_TYPE : 'Sunday School')),
-            'school_short_am' => defined('SCHOOL_NAME_SHORT_AM') ? SCHOOL_NAME_SHORT_AM : 'ፈለገ ቅዱሳን',
-            'school_short' => defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'FKSS',
+            'school_am' => defined('SCHOOL_NAME_AMHARIC') ? SCHOOL_NAME_AMHARIC : 'Sunday School',
+            'school_en' => trim((defined('SCHOOL_TRANSLATION_EN') ? SCHOOL_TRANSLATION_EN : 'Sunday School') . ' ' . (defined('SCHOOL_TYPE') ? SCHOOL_TYPE : 'Sunday School')),
+            'school_short_am' => defined('SCHOOL_NAME_SHORT_AM') ? SCHOOL_NAME_SHORT_AM : 'Sunday School',
+            'school_short' => defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'Sunday School',
             'parish_am' => defined('PARISH_NAME_AM') ? PARISH_NAME_AM : '',
             'parish_en' => defined('PARISH_NAME_EN') ? PARISH_NAME_EN : '',
             'invocation' => defined('RELIGIOUS_INVOCATION') ? RELIGIOUS_INVOCATION : '',
