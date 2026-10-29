@@ -29,7 +29,7 @@ Domain, local and technical terms used in the FKSS code and documentation. Code 
 | **Section / age group** | One concept with three values, defined in `MemberCategory.php`: **A ህጻናት** (Children, 7–13, `7_13`), **B ማዕከላዊያን** (Intermediate, 14–17, `14_17`), **C ወጣቶች** (Youth, 18+, `18_plus`) |
 | **Membership tier** | `temporary` or `permanent`. A temporary member is eligible for promotion after 6 months |
 | **Registration type** | How the person joined: `waiting` (waiting list), `transfer` (from another Sunday school), `direct` |
-| **Member type** | `regular`, `special_regular` (ልዩ መደበኛ), `honorary` |
+| **Member type** | `regular`, `special_regular` (ልዩ መደበኛ), `honorary`. Manually selected by an authorized editor; positions, teacher accounts, role flags and teaching assignments never change it. Omission on an existing-record update preserves the stored type; new registrations retain their initial defaults. Automatic batch synchronization is retired, with no automatic repair of historical values |
 | **Christian name** | Baptismal name, stored separately from the legal name |
 | **Identity code / member code** | `{PREFIX}-{5 digits}`. Students: `A-`, `B-`, `C-`. Staff: a department and position prefix. A smaller `N` marks ordinary (non-head) staff ([`MemberCodeFormat.php`](../../admin/backend/services/MemberCodeFormat.php)) |
 | **Promotion (upgrade)** | Converting a temporary member to permanent. Done by HR on the existing record |
