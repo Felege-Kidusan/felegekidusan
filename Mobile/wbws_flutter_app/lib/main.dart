@@ -149,10 +149,13 @@ class OfflineDataProtectionFailureApp extends StatefulWidget {
   final String detail;
   // Kept constructor name also covers orphaned ordinary SQLite sidecars.
   final bool migrationRecoveryRequired;
+  /// Defaults to the real bootstrap; injectable for isolated lifecycle tests.
+  final Future<void> Function() retryBootstrap;
   const OfflineDataProtectionFailureApp({
     super.key,
     required this.detail,
     this.migrationRecoveryRequired = false,
+    this.retryBootstrap = runBootstrap,
   });
 
   @override
@@ -165,8 +168,15 @@ class _OfflineDataProtectionFailureAppState
   bool _retrying = false;
 
   Future<void> _retry() async {
+    if (_retrying) return;
     setState(() => _retrying = true);
-    await runBootstrap(); // replaces this app on success
+    try {
+      await widget.retryBootstrap(); // replaces this app on success
+    } finally {
+      // A handled failure can update this same State with a new error detail.
+      // Success may instead dispose it; never update an unmounted screen.
+      if (mounted) setState(() => _retrying = false);
+    }
   }
 
   @override

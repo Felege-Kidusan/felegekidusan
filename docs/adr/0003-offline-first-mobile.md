@@ -95,3 +95,19 @@ Standalone sidecars therefore cannot justify a clean first-install decision.
 See [SQLite corruption guidance](https://www.sqlite.org/howtocorrupt.html),
 sections 1.2–1.4, for why main and recovery journals must stay together. Actual
 recovery of incomplete survivor sets remains separate reviewed work.
+
+
+## Recovery Retry lifecycle
+
+The storage-protection screen permits one bootstrap attempt at a time and
+restores Retry after an attempt completes if the screen is still mounted.
+Handled storage failures can replace the root with another instance of the
+same widget type and retain its State; a new error detail is not evidence that
+the busy flag was reset. Successful root replacement or disposal must not
+cause a later setState on the old screen. Unexpected bootstrap errors still
+propagate; busy cleanup is not error suppression.
+
+Production Retry still invokes the existing runBootstrap and all storage,
+session and lock checks. An injectable bootstrap callback supports isolated
+widget lifecycle tests, not a new UI bypass. No automatic retry, file recovery,
+discard/reset action, worker or authorization policy is added.
