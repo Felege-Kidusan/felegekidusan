@@ -85,6 +85,7 @@ class FakeApi implements ApiService {
 
 class FakeDb implements LocalDb {
   int saves = 0;
+  int lockCleanupCalls = 0;
   LegacyOperationRef? undone;
   int localEdits = 0;
   bool refuseSave = false;
@@ -119,7 +120,12 @@ class FakeDb implements LocalDb {
   }
 
   @override
-  Future<void> dropPendingAttendance(int id, String date) async {}
+  Future<void> dropPendingAttendance(int id, String date) async {
+    lockCleanupCalls++;
+    // Model the unsafe production helper so the test detects data loss,
+    // rather than hiding the caller behind a no-op mock.
+    saved.remove('$id:$date');
+  }
   @override
   Future<void> cacheStudents(int id, List<dynamic> rows) async {}
   @override
@@ -280,6 +286,38 @@ void main() {
     expect(api.sentEtag, '"v1"');
     expect(submitEnabled(tester), false);
   });
+  for (final packet in ['submitted', 'approved']) {
+    testWidgets("$packet sheet lock preserves this phone's pending intent",
+        (tester) async {
+      api.code = 'o';
+      api.packet = packet;
+      final key = '3:${api.date}';
+      final original = <String, dynamic>{
+        'member_id': 30,
+        'status': 'present',
+        'notes': 'Original unsynchronized note',
+        'client_op_id': 'original-offline-operation',
+        'owner_user_id': 7,
+        'created_authorization_version': 2,
+        'packet_kind': 'draft',
+        'sync_state': 'pending',
+        'attempt_count': 0,
+      };
+      db.saved[key] = [Map<String, dynamic>.from(original)];
+
+      await open(tester);
+
+      expect(db.lockCleanupCalls, 0);
+      expect(db.saved[key], [original]);
+      expect(find.widgetWithText(OutlinedButton, 'Submit'), findsNothing);
+      expect(find.text('Scan'), findsNothing);
+      await tester.tap(find.text('P'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(db.saves, 0);
+      expect(db.saved[key], [original]);
+    });
+  }
+
   testWidgets('submitted packet stays locked even on an allowed day',
       (tester) async {
     api.code = 'o';

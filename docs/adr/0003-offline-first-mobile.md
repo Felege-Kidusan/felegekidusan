@@ -25,3 +25,25 @@ Teachers record attendance and marks on low-end phones over 2G/3G or with no net
 ## Evidence
 
 `sql/009_api_idempotency.sql`, `sql/046_message_client_tag.sql`, `sql/057_sync_change_feed.sql`; `api/v1/core/middleware.php`; commits `86fdf15`, `3ed96b7`, `5ac8a1e`; `docs/MOBILE_OFFLINE_SYNC_*.md`.
+
+
+## Locked-sheet preservation
+
+A cached or freshly fetched packet lock proves workflow status, not receipt of
+this phone's exact pending operation. Attendance, Mezmur and grade load paths
+must keep their lock/read-only gates **without deleting local pending work**.
+Only operation-specific settlement can establish upload acceptance; a locked
+sheet must not silently acknowledge an unattempted draft.
+
+The legacy `LocalDb.dropPendingAttendance`, `dropPendingGrades`,
+`dropPendingMezmur` and `dropPendingHr` cleanup entry points are deprecated and
+have no production callers. They are retained temporarily; their deletion
+semantics are not safe automatic lock reconciliation. A source guard prevents
+new production callers, and attendance widget tests verify locked responses
+preserve the original pending payload and identity.
+
+This is a bounded preservation fix, not a complete offline-first rollout.
+Immutable attempted generations, exact business/receipt atomicity, final
+reconciliation UX and the approved authorization/logout/device policy remain
+separate implementation work. Existing explicit discard paths are unchanged
+by this fix. No new database migration, API, role grant or encryption is added.
