@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'package:sqflite/sqflite.dart';
 
 import 'attendance_delta.dart';
+import 'interrupted_database_migration.dart';
 import 'amharic_text.dart' as amharic;
 import 'search_index_policy.dart';
 import 'search_matching.dart';
@@ -95,11 +95,11 @@ class LocalDb {
   Future<Database> _initDb() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'wbws_offline_v4.db');
-    await _recoverFromInterruptedEncryptionUpgrade(path);
+    await ensureNoInterruptedDatabaseMigration(path);
 
-    // The offline DB is a sandboxed cache of server data. At-rest protection
-    // comes from the OS (app sandbox + device file-based encryption); the
-    // server remains the source of truth for everything synced.
+    // The offline DB contains caches AND durable unsynchronized work. It is
+    // ordinary SQLite, not app-level encrypted. OS sandbox/encryption varies
+    // by device; server authority does not make pending local data disposable.
     return await openDatabase(
       path,
       // A warm UI engine and a cold background engine may open the production
@@ -1758,38 +1758,6 @@ class LocalDb {
       batch.insert('hymn_search_grams', {'gram': g, 'hymn_id': id});
     }
     await batch.commit(noResult: true);
-  }
-
-  /// Version 1.1.15 briefly attempted an in-place SQLCipher upgrade. If that
-  /// step was interrupted it may have left sibling files behind, and in the
-  /// worst state the original file was set aside. This build no longer uses
-  /// app-level encryption, so: restore the original file whenever the current
-  /// one is missing or the original is still parked beside it, then remove
-  /// the stale siblings. No data is deleted here.
-  Future<void> _recoverFromInterruptedEncryptionUpgrade(String path) async {
-    final backup = File('$path.plaintext-migration-backup');
-    final main = File(path);
-    try {
-      if (!await main.exists() && await backup.exists()) {
-        // Swap interrupted before promotion: the original is the only copy.
-        await backup.rename(path);
-      } else if (await main.exists() && await backup.exists()) {
-        // Swap interrupted after promotion: the current file is the encrypted
-        // export and the parked original holds the same data.
-        await main.delete();
-        await backup.rename(path);
-      }
-    } catch (_) {}
-    for (final stale in [
-      '$path.encrypted-migration',
-      '$path.encrypted-migration-wal',
-      '$path.encrypted-migration-shm',
-      '$path.plaintext-migration-backup',
-    ]) {
-      try {
-        await File(stale).delete();
-      } catch (_) {}
-    }
   }
 
   /// P1-B (DB v27): local-first Notification Center store. Two

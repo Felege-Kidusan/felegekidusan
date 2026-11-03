@@ -47,3 +47,28 @@ Immutable attempted generations, exact business/receipt atomicity, final
 reconciliation UX and the approved authorization/logout/device policy remain
 separate implementation work. Existing explicit discard paths are unchanged
 by this fix. No new database migration, API, role grant or encryption is added.
+
+
+## Interrupted historical migration files
+
+Before a writable SQLite open, inspect the database directory without following
+links for historical plaintext-backup/encrypted-staging files and their
+WAL/SHM/journal siblings. If any recognized artifact exists, keep all candidate
+files unchanged and stop in the storage-protection screen. Directory inspection
+errors also fail closed. A clean first install may create its parent directory;
+ordinary main-only databases and their active SQLite WAL/SHM/journal are allowed.
+
+Do not infer format, integrity, freshness or identical operation contents from
+a backup filename. There is no automatic backup promotion, main deletion or
+staging cleanup. Retry repeats inspection; it does not select or remove a copy.
+The screen explains that files were preserved and warns against reinstalling
+or clearing app data. This can intentionally block an installation with old
+migration artifacts, even when its main database appears usable, until a safe
+recovery decision is available.
+
+This guard replaces the unsafe historical self-heal path; it does **not**
+implement candidate comparison, full historical recovery, exclusive encrypted
+conversion, SQLCipher or lost-key recovery. Those remain separate, tested design
+work. Synthetic filesystem tests plus a real SQLite/LocalDb fixture verify that
+a newer main database is not replaced by an older backup and that staging-only
+survivors cannot authorize a fresh empty database.
