@@ -485,7 +485,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         setState(() => _packetStatus = packet.isEmpty ? 'submitted' : packet);
         _autoSave.cancel();
         _syncSaveGate();
-        await _db.dropPendingAttendance(classId, date);
+        // A workflow lock is not an acceptance receipt for local work.
       }
       if (!current()) return;
       setState(() {

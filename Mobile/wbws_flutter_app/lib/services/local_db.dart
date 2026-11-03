@@ -4477,6 +4477,7 @@ class LocalDb {
     return List<Map<String, dynamic>>.from(meta['students'] as List);
   }
 
+  @Deprecated('A lock is not an acceptance receipt; do not use for lock cleanup.')
   Future<void> dropPendingAttendance(int classId, String date) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -4500,6 +4501,7 @@ class LocalDb {
     });
   }
 
+  @Deprecated('A lock is not an acceptance receipt; do not use for lock cleanup.')
   Future<void> dropPendingGrades(int assessmentId) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -4613,6 +4615,7 @@ class LocalDb {
 
 
 
+  @Deprecated('A lock is not an acceptance receipt; do not use for lock cleanup.')
   Future<void> dropPendingMezmur(String date, String section) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -5273,6 +5276,7 @@ class LocalDb {
         : SyncRecoveryActionResult.stale;
   }
 
+  @Deprecated('A lock is not an acceptance receipt; do not use for lock cleanup.')
   Future<void> dropPendingHr(String date, String section) async {
     final db = await database;
     await db.transaction((txn) async {

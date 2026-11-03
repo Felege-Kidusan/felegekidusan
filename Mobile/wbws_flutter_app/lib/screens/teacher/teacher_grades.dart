@@ -793,9 +793,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       final locked = PacketLock.isLocked(packet, flagged: res.data['locked'] == true);
       final termInfo = (res.data['assessment'] is Map) ? res.data['assessment'] as Map : null;
       final termLockedNow = termInfo?['term_locked'] == true;
-      if (locked) {
-        await _db.dropPendingGrades(widget.assessmentId);
-      }
+      // Preserve pending grades: this packet lock does not settle their intent.
       setState(() {
         _isOffline = !ConnectivityService().hasLink;
         _loading = false;
@@ -836,7 +834,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     if (cacheLocked) {
       _packetStatus = '${meta?['submission_status'] ?? widget.initialStatus}';
       if (_packetStatus.isEmpty) _packetStatus = 'submitted';
-      await _db.dropPendingGrades(widget.assessmentId);
+      // Cached locks cannot acknowledge or delete this phone's pending work.
     }
     final pending = cacheLocked ? <int, Map<String, dynamic>>{} : await _pendingByMember();
     final sheet = meta == null ? null : List<Map<String, dynamic>>.from(meta['students'] as List);
