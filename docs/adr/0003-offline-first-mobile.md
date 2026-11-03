@@ -72,3 +72,26 @@ conversion, SQLCipher or lost-key recovery. Those remain separate, tested design
 work. Synthetic filesystem tests plus a real SQLite/LocalDb fixture verify that
 a newer main database is not replaced by an older backup and that staging-only
 survivors cannot authorize a fresh empty database.
+
+
+## Orphaned ordinary SQLite sidecars
+
+The same pre-open guard also blocks when `-wal`, `-shm` or `-journal` exists
+without a regular main database file. A directory or symlink under the main
+filename is not accepted as a regular main for this check. Preserve all files;
+do not create a new main, pair/reconstruct survivors, checkpoint or delete them.
+The file-review screen covers both historical migration and ordinary orphan
+sidecar errors, with the same no-clear-data/no-reinstall guidance.
+
+A regular main with its ordinary sidecars remains allowed: SQLite, not this
+metadata guard, owns normal crash recovery. Enumeration must finish before
+judging main absence because directory order is unspecified. This is not an
+exclusive file-lock protocol or a diagnosis of corruption/format/unknown names.
+An external writer after inspection remains a separate race boundary.
+
+Synthetic regression evidence includes a committed update isolated in a WAL:
+opening a missing main can create an unrelated database and discard that WAL.
+Standalone sidecars therefore cannot justify a clean first-install decision.
+See [SQLite corruption guidance](https://www.sqlite.org/howtocorrupt.html),
+sections 1.2–1.4, for why main and recovery journals must stay together. Actual
+recovery of incomplete survivor sets remains separate reviewed work.
