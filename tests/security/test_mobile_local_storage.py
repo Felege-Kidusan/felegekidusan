@@ -79,10 +79,18 @@ class MobileLocalStorageTests(unittest.TestCase):
         self.assertNotIn("await backup.rename(path)", self.database)
 
     def test_migration_failure_gets_specific_preservation_guidance(self):
-        self.assertIn("migrationRecoveryRequired: error is InterruptedDatabaseMigration",
+        self.assertIn("migrationRecoveryRequired: error is OfflineDatabaseRecoveryRequired",
                       self.main)
         self.assertIn("Do not clear app data or reinstall", self.main)
-        self.assertIn("Historical database migration files need review", self.main)
+        self.assertIn("Offline database files need review", self.main)
+
+    def test_orphaned_main_sidecars_cannot_authorize_empty_main(self):
+        self.assertIn("'$name-wal', '$name-shm', '$name-journal'", self.migration_guard)
+        self.assertIn("entryName == name && entity is File", self.migration_guard)
+        self.assertIn("!hasRegularMain && sidecarName != null", self.migration_guard)
+        self.assertIn("throw OrphanedDatabaseSidecar(sidecarName)", self.migration_guard)
+        self.assertIn("class OrphanedDatabaseSidecar extends OfflineDatabaseRecoveryRequired",
+                      self.migration_guard)
 
     def test_tokens_and_profile_stay_in_platform_secure_storage(self):
         self.assertIn("flutter_secure_storage", self.pubspec)
