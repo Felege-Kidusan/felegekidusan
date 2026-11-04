@@ -4214,8 +4214,24 @@ class LocalDb {
   /// Record the outcome of a sync attempt without moving the cursor.
   /// Used for failures, so the UI can say "sync failed" while the cursor
   /// still points at the last revision that was genuinely applied.
-  Future<void> setSyncStatus(String domain, String status, {String? error}) async {
+  Future<void> setSyncStatus(String domain, String status,
+      {String? error, LegacyWriteSession? expectedSession}) async {
     final db = await database;
+    if (expectedSession != null) {
+      await db.transaction((txn) async {
+        await _requireAttendanceSyncSession(txn, expectedSession);
+        final rows = await txn.query('sync_state', columns: ['cursor'],
+            where: 'domain = ?', whereArgs: [domain], limit: 1);
+        await txn.insert('sync_state', {
+          'domain': domain,
+          'cursor': rows.isEmpty ? 0 : _asIntLocal(rows.first['cursor']),
+          'last_sync_at': DateTime.now().toIso8601String(),
+          'status': status,
+          'error': error,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      });
+      return;
+    }
     try {
       await db.insert(
         'sync_state',
@@ -4231,6 +4247,19 @@ class LocalDb {
     } catch (_) {}
   }
 
+  Future<void> _requireAttendanceSyncSession(
+      DatabaseExecutor executor, LegacyWriteSession expectedSession) async {
+    if (!expectedSession.isValid ||
+        !await activeSessionMatches(
+          runtimeGeneration: expectedSession.runtimeGeneration,
+          ownerUserId: expectedSession.ownerUserId,
+          authorizationVersion: expectedSession.authorizationVersion,
+          executor: executor,
+        )) {
+      throw const StaleAttendanceSyncSession();
+    }
+  }
+
   /// Apply one page of attendance changes and advance the cursor, both
   /// inside a single SQLite transaction.
   ///
@@ -4244,6 +4273,7 @@ class LocalDb {
   /// [records] maps attendance id to the canonical server row. An id
   /// missing from [records] is a tombstone.
   Future<void> applyAttendanceDelta({
+    required LegacyWriteSession expectedSession,
     required List<Map<String, dynamic>> items,
     required Map<String, dynamic> records,
     required int nextCursor,
@@ -4251,6 +4281,7 @@ class LocalDb {
   }) async {
     final db = await database;
     await db.transaction((txn) async {
+      await _requireAttendanceSyncSession(txn, expectedSession);
       // Sheets are rewritten once each, not once per change, so a class
       // day with thirty corrections costs one read and one write.
       final touched = <String, Map<String, dynamic>>{};
@@ -4323,9 +4354,11 @@ class LocalDb {
   /// Drop the cached attendance sheets and reset the cursor together, so
   /// a bootstrap cannot leave an empty cache paired with a cursor that
   /// claims to be up to date.
-  Future<void> resetAttendanceSyncForBootstrap() async {
+  Future<void> resetAttendanceSyncForBootstrap(
+      {required LegacyWriteSession expectedSession}) async {
     final db = await database;
     await db.transaction((txn) async {
+      await _requireAttendanceSyncSession(txn, expectedSession);
       await txn.delete('cached_attendance');
       await txn.insert(
         'sync_state',
@@ -4342,19 +4375,23 @@ class LocalDb {
   }
 
   /// Store the cursor a completed bootstrap corresponds to.
-  Future<void> completeAttendanceBootstrap(int cursor) async {
+  Future<void> completeAttendanceBootstrap(int cursor,
+      {required LegacyWriteSession expectedSession}) async {
     final db = await database;
-    await db.insert(
-      'sync_state',
-      {
-        'domain': 'attendance',
-        'cursor': cursor,
-        'last_sync_at': DateTime.now().toIso8601String(),
-        'status': 'ok',
-        'error': null,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.transaction((txn) async {
+      await _requireAttendanceSyncSession(txn, expectedSession);
+      await txn.insert(
+        'sync_state',
+        {
+          'domain': 'attendance',
+          'cursor': cursor,
+          'last_sync_at': DateTime.now().toIso8601String(),
+          'status': 'ok',
+          'error': null,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
   }
 
   Future<void> cacheAttendanceResponse(int classId, String date, List<Map<String, dynamic>> students,

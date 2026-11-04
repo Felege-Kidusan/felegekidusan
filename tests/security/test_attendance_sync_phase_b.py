@@ -267,7 +267,7 @@ class TestCoordinatorContract:
 
     def test_bootstrap_clears_cache_and_cursor_together(self):
         match = re.search(
-            r"Future<void> resetAttendanceSyncForBootstrap\(\) async \{.*?Future<void> completeAttendanceBootstrap",
+            r"Future<void> resetAttendanceSyncForBootstrap\(\s*\{required LegacyWriteSession expectedSession\}\) async \{.*?Future<void> completeAttendanceBootstrap",
             self.local_db, re.S,
         )
         assert match, "resetAttendanceSyncForBootstrap not found"
