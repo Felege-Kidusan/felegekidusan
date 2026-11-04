@@ -352,3 +352,78 @@ release activation or production deployment is introduced. Exact manifests,
 long-lived atomic receipt storage, positive receipt validation and full safe
 reconciliation remain release blockers. Fake transport plus real coordinator/
 SQLite regressions prove this boundary, not installed-phone crash recovery.
+
+## Exact attendance request-manifest codec (internal, not activated)
+
+`AttendanceOperationManifest` in PHP and Dart is a pure, versioned identity
+building block. Neither existing uploads nor outbox workers call it. Strict
+receipt versions remain unsupported; the diagnostic cache and legacy request
+hash are unchanged. A fingerprint is NOT acceptance, retry authority, a roster
+snapshot, authorization, encryption, a durable receipt or permission to settle,
+clean up, switch accounts or log out.
+
+The canonical input has exactly `owner_user_id`, `client_op_id`, `packet_kind`,
+`class_id`, `academic_year_id`, `date`, and `records`. Each record has exactly
+`member_id`, `status`, `notes`. Extra or missing fields, including the ambiguous
+legacy `note` alias, fail closed. Packet kind is exactly `draft` or `submit`;
+a future legacy adapter must explicitly map `submitted`, not guess it. IDs are
+actual positive integers at most 9007199254740991, not strings, booleans or
+floats. Operation keys are 1–80 ASCII letters/digits/period/underscore/hyphen,
+without trimming. Date is exact Gregorian YYYY-MM-DD, years 0001–9999. Original
+class, year and date are mandatory, never today's replacements. Existing legacy
+claim snapshots lack original academic-year provenance: they cannot be silently
+upgraded to this contract. Capturing that provenance atomically in the existing
+local intent remains separate future work, not a second queue.
+
+Records number 1–2000, with unique member IDs and exact lowercase status
+`present`, `absent`, `late`, or `excused`. Notes are valid Unicode strings of at
+most 500 scalar values. Invalid UTF-8 and unpaired UTF-16 surrogates are rejected,
+not replaced. No trimming, newline conversion or Unicode normalization occurs;
+NUL, CRLF, non-BMP text and distinct combining forms retain their exact identity.
+These are internal codec constraints aligned with the current attendance
+service's limits, NOT changes to its legacy coercion/normalization rules.
+Partial drafts may be hashed; submit completeness and date/roster/permission
+rules are still the authoritative server's responsibility.
+
+Each frame is the UTF-8 netstring `ASCII decimal byte length:bytes,`, with no
+leading zeros. Records are sorted by NUMERIC member ID without changing the
+caller's input. All integers are canonical unsigned decimal; hashes are
+lowercase hexadecimal SHA-256. The exact frame sequences are:
+
+1. Records: `ssms.attendance.records.v1`, record count, then member ID, exact
+   status, exact notes for each sorted record.
+2. Manifest: `ssms.attendance.manifest.v1`, owner ID, operation key, packet kind,
+   original class ID, original academic-year ID, original date, record count,
+   records SHA-256 (64 lowercase ASCII hex characters, not 32 binary bytes).
+
+Hashing is incremental, without assembling a full encoded preimage. Validation
+and sorting are bounded to 2000 records / 500 note scalars per record (at most
+4,000,000 note UTF-8 bytes). There is no I/O or clock/session access. JSON/map
+field ordering, retries, connection headers, current authority and mutable
+attempt metadata do not enter the digest. Such metadata must never become
+unhashed accepted request fields; a changed semantic contract needs a new
+version/domain separator, not silent extension of v1.
+
+The result is `manifest_version: 1`, `domain: attendance`, original owner/key/
+kind/class/year/date, `record_count`, `records_sha256`, `manifest_sha256`. It
+contains no raw roster, marks or notes, nor a positive settlement flag. Dart
+returns an immutable map of scalar values; PHP returns a value array. Context
+and digests remain sensitive metadata: hashing is not anonymization and does
+not permit public logging/disclosure.
+
+This binds the ORIGINAL canonical request DTO, not normalized business rows.
+Future server integration must bind that original identity before legacy note
+trimming or other permitted effect normalization; never recompute the original
+request fingerprint from normalized rows to manufacture a match. Receipt
+storage, atomic terminal outcome, retention, normalized-effects evidence,
+authoritative conflict handling and positive client validation are NOT supplied
+here. Owner ID in this pure DTO is not trusted authentication: a future handler
+must bind it to the signed current owner and original operation, and preserve
+all unresolved legacy work whose provenance cannot be proven.
+
+Shared fixtures contain independently Python-generated expected netstring bytes
+and SHA-256 vectors, executed against both real codecs. They include numeric
+ordering, draft/submit, Unicode/delimiters, bounds and a full 2000-record / 500
+non-BMP-scalar notes case. Malformed/missing context and records fail closed.
+Synthetic unit and backend tests are not deployed-schema, phone, cold-restart,
+receipt-lifecycle or production acceptance evidence.
