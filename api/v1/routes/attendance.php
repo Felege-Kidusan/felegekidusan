@@ -443,7 +443,20 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
                 $packet['message'] ?? 'Could not update the attendance workflow.'
             );
         }
+        $responseData = [
+            'message' => $packet['message'] ?? "{$saved} records saved as a draft for Education",
+            'saved' => $saved,
+            'class_id' => $classId,
+            'date' => $date,
+            'submission_id' => $packet['id'] ?? 0,
+            'submission_status' => $packet['status'] ?? 'draft',
+        ];
+        apiIdempotencyCompleteDatabaseSuccess($responseData, 201);
         $conn->commit();
+    } catch (ApiIdempotencyResponseNotRecorded $error) {
+        apiIdempotencyRollbackResponse($conn);
+        err('Could not record the attendance response. Please retry.', 503,
+            ['code' => 'IDEMPOTENCY_RESPONSE_NOT_RECORDED']);
     } catch (\DomainException $error) {
         $conn->rollback();
         $safeMessage = $error->getMessage();
@@ -456,14 +469,7 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
 
     logApiAction($auth['uid'], $auth['usr'], 'Attendance Saved', "Class: {$classId}, Date: {$date}, Records: {$saved}");
 
-    ok([
-        'message' => $packet['message'] ?? "{$saved} records saved as a draft for Education",
-        'saved' => $saved,
-        'class_id' => $classId,
-        'date' => $date,
-        'submission_id' => $packet['id'] ?? 0,
-        'submission_status' => $packet['status'] ?? 'draft',
-    ], 201);
+    ok($responseData, 201);
 }
 
 // ============================================================
@@ -533,7 +539,20 @@ if ($method === 'POST' && $action === 'submit') {
                 $packet['message'] ?? 'Could not mark attendance complete.'
             );
         }
+        $responseData = [
+            'message' => $packet['message'] ?? "{$saved} attendance records marked complete for Education",
+            'saved' => $saved,
+            'class_id' => $classId,
+            'date' => $date,
+            'submission_id' => $packet['id'] ?? 0,
+            'submission_status' => $packet['status'] ?? 'submitted',
+        ];
+        apiIdempotencyCompleteDatabaseSuccess($responseData, 201);
         $conn->commit();
+    } catch (ApiIdempotencyResponseNotRecorded $error) {
+        apiIdempotencyRollbackResponse($conn);
+        err('Could not record the attendance response. Please retry.', 503,
+            ['code' => 'IDEMPOTENCY_RESPONSE_NOT_RECORDED']);
     } catch (\DomainException $error) {
         $conn->rollback();
         $safeMessage = $error->getMessage();
@@ -558,14 +577,7 @@ if ($method === 'POST' && $action === 'submit') {
         );
     }
 
-    ok([
-        'message' => $packet['message'] ?? "{$saved} attendance records marked complete for Education",
-        'saved' => $saved,
-        'class_id' => $classId,
-        'date' => $date,
-        'submission_id' => $packet['id'] ?? 0,
-        'submission_status' => $packet['status'] ?? 'submitted',
-    ], 201);
+    ok($responseData, 201);
 }
 
 // ============================================================
