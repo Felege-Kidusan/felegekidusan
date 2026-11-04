@@ -35,6 +35,30 @@ enum SubmitUndoResult {
   supersededSession,
 }
 
+/// Original sheet identity; this is a write fence, not an authorization grant.
+final class LegacyWriteSession {
+  final int ownerUserId;
+  final int authorizationVersion;
+  final int runtimeGeneration;
+
+  const LegacyWriteSession({
+    required this.ownerUserId,
+    required this.authorizationVersion,
+    required this.runtimeGeneration,
+  });
+
+  bool get isValid =>
+      ownerUserId > 0 && authorizationVersion >= 0 && runtimeGeneration >= 0;
+}
+
+final class StaleLegacyWriteSession implements Exception {
+  const StaleLegacyWriteSession();
+
+  @override
+  String toString() =>
+      'Sign-in changed. These edits are not saved. Existing saved work was kept.';
+}
+
 /// Immutable, PII-light handle for one complete saved packet generation.
 final class LegacyOperationRef {
   final LegacyOperationKind kind;

@@ -191,6 +191,11 @@ void main() {
           'status': 'late',
         },
       ],
+      expectedSession: const LegacyWriteSession(
+        ownerUserId: 101,
+        authorizationVersion: 3,
+        runtimeGeneration: 7,
+      ),
     );
     expect(attendanceRef.clientOpId, isNotEmpty);
     expect(attendanceRef.ownerUserId, ownerUserId);
@@ -333,6 +338,11 @@ void main() {
       [
         {'member_id': 7003, 'status': 'present'},
       ],
+      expectedSession: const LegacyWriteSession(
+        ownerUserId: 101,
+        authorizationVersion: 3,
+        runtimeGeneration: 7,
+      ),
     );
     await db.persistLocalSession(
       state: SessionState.active,

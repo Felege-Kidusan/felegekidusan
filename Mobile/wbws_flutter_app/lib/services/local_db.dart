@@ -3880,6 +3880,7 @@ class LocalDb {
     required String packetKind,
     DateTime? notBefore,
     required List<Map<String, Object?>> rows,
+    LegacyWriteSession? expectedSession,
   }) {
     final memberIds = rows
         .map((row) => _asIntLocal(row['member_id']))
@@ -3898,6 +3899,18 @@ class LocalDb {
       late Map<String, int> binding;
       late int runtimeGeneration;
       await db.transaction((txn) async {
+        // Attendance captures belong to the issuing sheet, not a later login.
+        // Check in this same transaction before any replacement can delete rows.
+        if (expectedSession != null &&
+            (!expectedSession.isValid ||
+                !await activeSessionMatches(
+                  runtimeGeneration: expectedSession.runtimeGeneration,
+                  ownerUserId: expectedSession.ownerUserId,
+                  authorizationVersion: expectedSession.authorizationVersion,
+                  executor: txn,
+                ))) {
+          throw const StaleLegacyWriteSession();
+        }
         binding = await requireActiveOwnerBinding(txn);
         runtimeGeneration = await _activeRuntimeGeneration(txn);
         await txn.delete(
@@ -3953,7 +3966,8 @@ class LocalDb {
 
   Future<LegacyOperationRef> saveAttendanceLocal(int classId, String className, String date,
       List<Map<String, dynamic>> records,
-      {String packetKind = 'draft', DateTime? notBefore}) async {
+      {required LegacyWriteSession expectedSession,
+      String packetKind = 'draft', DateTime? notBefore}) async {
     const validStatuses = {'present', 'absent', 'late', 'excused'};
     if (records.isEmpty) {
       throw ArgumentError('Attendance records are required.');
@@ -3975,6 +3989,7 @@ class LocalDb {
       naturalKeyArgs: [classId, date],
       naturalKey: {'class_id': classId, 'date': date},
       packetKind: packetKind,
+      expectedSession: expectedSession,
       notBefore: notBefore,
       rows: records
           .map((r) => <String, Object?>{
