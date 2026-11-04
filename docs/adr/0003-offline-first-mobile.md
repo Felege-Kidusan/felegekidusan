@@ -244,3 +244,42 @@ the permissive wrapper that also runs advisory monitor SQL. Monitoring remains
 in the ordinary postcommit sender. An advisory deadlock must not silently roll
 back business/receipt writes after their final checkpoint; a lost response may
 leave stale advisory monitoring, but cannot invalidate the committed receipt.
+
+## Read-only attendance replay-cache inspection (development only)
+
+`POST /api/v1/attendance/operation-status?kind=draft|submit` inspects the existing
+shared database replay cache. Send the unchanged original JSON and original
+operation key (header or `client_op_id`; conflicting keys are rejected). JSON
+requests are bounded to 1 MiB for this diagnostic endpoint only; larger original
+uploads cannot use this diagnostic and must remain unresolved. Existing upload
+limits and clients are unchanged. Hashing uses the existing canonical request
+helper with the ORIGINAL `POST attendance` or `POST attendance/submit` scope,
+not the lookup URL. The signed current user supplies the owner identity.
+
+Current account/role/authorization-version checks are mandatory even for clients
+outside the legacy authorization rollout cohort. The shared scope verifier has
+an optional server-only current-scope requirement; its existing callers retain
+their compatibility behavior. Current attendance role, class assignment and
+academic-year access must pass. This is not a historical/revoked-scope access
+exception. Inspection does not rerun roster, class-day or backdate WRITE rules.
+
+Every result identifies version 1, authority `legacy_replay_cache`, `durable:
+false` and `authorizes_settlement: false`. States are `unknown`, `processing`,
+`payload_mismatch`, or `completed` (only `cached_http_status` is exposed).
+Unavailable backend/schema produces fixed 503 `OPERATION_STATUS_UNAVAILABLE`
+with the same non-settlement flags. No cached response, request hash, lease or
+owner token is disclosed. A completed cached 500 is not a business rejection.
+
+The service performs one indexed SELECT. It never claims work, recovers an
+expired lease, extends expiry, sweeps/deletes rows, reads legacy/file caches,
+creates schema or invokes attendance mutations. Uncommitted completion is not
+visible from another connection. Expired completion is `unknown`, NOT evidence
+that nothing committed; an expired processing lease is still `processing`
+while its cache record is unexpired. All observations preserve unsent work and
+provide neither retry authority nor permission for cleanup/logout/settlement.
+
+This endpoint is deliberately not wired into mobile settlement. Durable receipt
+lifetime, manifest coverage, negotiation, safe reconciliation, immediate
+access/refresh lost-device revocation and installed-schema/device evidence
+remain separate blockers. This is development-source evidence, not deployment
+or full P5 acceptance.
