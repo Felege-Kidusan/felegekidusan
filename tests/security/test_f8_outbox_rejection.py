@@ -306,15 +306,12 @@ class F8LocalOutbox(unittest.TestCase):
 
 
 class F8DropPendingReconciliation(unittest.TestCase):
-    """Audit blocker fix (2026-09-18): locked-day screen cleanup
-    (dropPending*) must NEVER delete F8-rejected rows
-    (synced=0 + sync_error NOT NULL) — they belong to the Needs
-    Attention review / explicit Discard flow. Ordinary stale pending
-    rows (sync_error NULL) keep the pre-existing cleanup behavior.
+    """Attendance cleanup now fails closed, including never-rejected drafts.
 
-    Runtime DB-level testing is impossible in this repo (no sqflite
-    test harness — documented limitation); these are the strongest
-    static pins: the SQL WHERE clauses themselves."""
+    Other-domain F8 filters still spare rejected rows. These source pins
+    supplement production LocalDb/real SQLite coverage in
+    attendance_confirmation_required_test.dart; they are not phone acceptance.
+    """
 
     def setUp(self):
         self.db = read(LDB)
@@ -326,11 +323,16 @@ class F8DropPendingReconciliation(unittest.TestCase):
         j = self.db.find('\n  Future<', i + 8)
         return self.db[i:j if j > i else None]
 
+    def test_attendance_drop_refuses_all_unconfirmed_cleanup(self):
+        body = self._method('dropPendingAttendance')
+        self.assertIn('throw StateError(', body)
+        self.assertNotIn('.delete(', body)
+        self.assertNotIn('await database', body)
+
     def test_locked_day_cleanup_spares_rejected_rows(self):
         # Case 2: synced=0 + sync_error NOT NULL must survive the
-        # automatic locked-day cleanup on all four outboxes.
-        for name in ('dropPendingAttendance', 'dropPendingGrades',
-                     'dropPendingMezmur', 'dropPendingHr'):
+        # legacy cleanup on the other three outboxes.
+        for name in ('dropPendingGrades', 'dropPendingMezmur', 'dropPendingHr'):
             body = self._method(name)
             self.assertIn('synced = 0', body, name)
             self.assertIn('sync_error IS NULL', body,
@@ -339,8 +341,7 @@ class F8DropPendingReconciliation(unittest.TestCase):
     def test_stale_pending_cleanup_behavior_unchanged(self):
         # Case 1: ordinary stale pending rows are still cleaned, but only for
         # the active owner/scope and never by a stale cross-session action.
-        for name in ('dropPendingAttendance', 'dropPendingGrades',
-                     'dropPendingMezmur', 'dropPendingHr'):
+        for name in ('dropPendingGrades', 'dropPendingMezmur', 'dropPendingHr'):
             body = self._method(name)
             self.assertNotIn('synced = 1', body, name)
             self.assertIn("txn.delete(", body, name)
