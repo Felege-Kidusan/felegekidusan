@@ -134,3 +134,24 @@ remain separate work. Rejecting a stale, uncommitted save does not persist it
 for recovery; preservation of such captures across screen disposal still needs
 the lifecycle/durability design. No claim of full unsent-work recovery or P2
 completion is made. No schema, API, authorization-duration or lock-policy change.
+
+
+## Attendance download-session fence
+
+The feed coordinator captures owner, authorization version and runtime
+generation once per pull, reusing `LegacyWriteSession`. Before requests and
+after responses it checks both the runtime identity and durable active session.
+`applyAttendanceDelta`, bootstrap reset/completion, and scoped attendance status
+writes require that original identity inside the same SQLite transaction before
+mutation. Status recording reads its existing cursor inside that transaction.
+A stale download raises `StaleAttendanceSyncSession`; it must not write a failure
+status into a later account. Error reporting remains best-effort and the running
+gate is released on failure. No new queue, schema or server authority is added.
+
+This is not complete preparation or a repaired bootstrap contract. The existing
+current-session bootstrap still clears cached sheets and adopts a server cursor;
+complete authorized datasets, preservation-first staging and coverage validation
+remain release blockers. Direct screen/WarmStore cache writers, read ownership,
+inter-isolate cursor ordering and account-transition quiescence remain separate
+work. The fence protects against obsolete download mutations, not all cache
+races or recovery of uncommitted edits.
