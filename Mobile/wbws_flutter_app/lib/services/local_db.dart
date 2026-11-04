@@ -4550,26 +4550,7 @@ class LocalDb {
 
   @Deprecated('A lock is not an acceptance receipt; do not use for lock cleanup.')
   Future<void> dropPendingAttendance(int classId, String date) async {
-    final db = await database;
-    await db.transaction((txn) async {
-      final binding = await requireActiveOwnerBinding(txn);
-      await txn.delete(
-        'pending_attendance',
-        // F8: never delete workflow-rejected rows here (they stay for
-        // the Needs Attention review / explicit Discard) — only stale
-        // never-rejected drafts for a day the server has since locked.
-        where: 'class_id = ? AND date = ? AND synced = 0 '
-            "AND sync_state IN ('pending', 'retry_wait') "
-            'AND sync_error IS NULL AND owner_user_id = ? '
-            'AND created_authorization_version = ?',
-        whereArgs: [
-          classId,
-          date,
-          binding['owner_user_id'],
-          binding['created_authorization_version'],
-        ],
-      );
-    });
+    throw StateError('Attendance requires exact server confirmation before removal.');
   }
 
   @Deprecated('A lock is not an acceptance receipt; do not use for lock cleanup.')
@@ -5052,6 +5033,11 @@ class LocalDb {
     String clientOpId, {
     String? expectedState,
   }) async {
+    // Neither explicit consent nor a local rejection/conflict label is proof
+    // that this attendance operation has a terminal server disposition.
+    if (kind == 'attendance') {
+      return SyncRecoveryActionResult.serverConfirmationRequired;
+    }
     const terminal = {
       'needs_attention',
       'blocked_dependency',
