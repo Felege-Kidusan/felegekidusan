@@ -396,17 +396,32 @@ function scenarioAttendanceResponse(array $payload): void
     require_once dirname(__DIR__, 2) . '/api/v1/core/middleware.php';
     resetSchema();
     $r = responseContext('op-response-atomic', $payload);
+    // Shadow only this connection: advisory monitoring must not write inside
+    // the business transaction after the authoritative receipt checkpoint.
+    db()->query("CREATE TEMPORARY TABLE api_sync_attempts (
+        id INT PRIMARY KEY, status VARCHAR(30), idempotency_state VARCHAR(30),
+        retry_decision VARCHAR(30), error_category VARCHAR(50), error_code VARCHAR(100),
+        http_status INT, completed_at DATETIME, updated_at DATETIME
+    ) ENGINE=InnoDB");
+    db()->query("INSERT INTO api_sync_attempts (id,status) VALUES (17,'in_flight')");
+    $GLOBALS['_fkss_idem']['monitor_id'] = 17;
     $data = ['message' => 'Synthetic ተሳክቷል', 'saved' => 2, 'class_id' => 7, 'date' => $payload['date'], 'submission_id' => 42, 'submission_status' => 'draft'];
     $wire = apiEncodeJsonResponse(apiSuccessPayload($data));
     db()->begin_transaction();
     db()->query("INSERT INTO probe_messages (thread_id,sender_id,body) VALUES (9,1,'synthetic attendance effect')");
     check(apiIdempotencyCompleteDatabaseSuccess($data, 201), 'J: response recorded before business commit');
+    check(db()->query('SELECT status FROM api_sync_attempts WHERE id=17')->fetch_assoc()['status'] === 'in_flight',
+        'J: advisory monitoring performs no precommit write after the receipt checkpoint');
     db()->commit(); // Simulate crash here: no ordinary response completion.
     $replay = service()->begin(1, 'op-response-atomic', SCOPE, requestHash($payload));
     check($replay['state'] === 'replay' && $replay['body'] === $wire, 'J: lost response replays byte-identical success');
     check($replay['status_code'] === 201 && countRows('probe_messages') === 1, 'J: one effect and original 201');
-    apiIdempotencyStore('{"status":"error"}', 500);
-    check(recordState($r['record_hash'])['response_body'] === $wire, 'J: late ordinary completion cannot replace committed success');
+    apiIdempotencyStore($wire, 201); // normal sender, AFTER business commit
+    check(db()->query('SELECT status FROM api_sync_attempts WHERE id=17')->fetch_assoc()['status'] === 'completed',
+        'J: ordinary postcommit sender still completes advisory monitoring');
+    service()->complete($r, '{"status":"error"}', 500);
+    check(recordState($r['record_hash'])['response_body'] === $wire, 'J: late completion cannot replace committed success');
+    db()->query('DROP TEMPORARY TABLE api_sync_attempts');
 
     resetSchema();
     responseContext('op-response-rollback', $payload);

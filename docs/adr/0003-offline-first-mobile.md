@@ -238,3 +238,9 @@ is still seven days, authenticated long-lived status lookup/manifest binding,
 capability negotiation, audit delivery, cross-device ordering and installed
 transactional-schema verification remain release blockers. No schema, TTL,
 permission, URL, mobile settlement or rollout policy changes are implied.
+
+The strict attendance path invokes the existing replay service directly, not
+the permissive wrapper that also runs advisory monitor SQL. Monitoring remains
+in the ordinary postcommit sender. An advisory deadlock must not silently roll
+back business/receipt writes after their final checkpoint; a lost response may
+leave stale advisory monitoring, but cannot invalidate the committed receipt.

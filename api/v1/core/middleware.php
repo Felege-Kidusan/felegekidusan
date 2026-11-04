@@ -356,7 +356,13 @@ function apiIdempotencyCompleteDatabaseSuccess($data, int $code): bool {
     }
     try {
         $json = apiEncodeJsonResponse(apiSuccessPayload($data));
-        if ($json === false || !apiIdempotencyCompleteAtomically($json, $code)) {
+        // Keep this the last authoritative write. The permissive wrapper also
+        // performs advisory monitor SQL whose swallowed deadlock could roll
+        // back the whole transaction. Monitoring belongs in the existing
+        // ordinary response sender AFTER business commit instead.
+        if ($json === false || !$pack['service']->completeWithinTransaction(
+            $pack['reservation'], $json, $code
+        )) {
             throw new ApiIdempotencyResponseNotRecorded('Response was not recorded.');
         }
     } catch (ApiIdempotencyResponseNotRecorded $error) {

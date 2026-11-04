@@ -37,7 +37,9 @@ def test_sender_detaches_before_rollback_and_abandon_requires_confirmation():
     assert "apiIdempotencyKey() === ''" in strict
     assert "if ($backend === 'file') return false" in strict
     assert 'apiEncodeJsonResponse(apiSuccessPayload($data))' in strict
-    assert '!apiIdempotencyCompleteAtomically($json, $code)' in strict
+    assert "!$pack['service']->completeWithinTransaction(" in strict
+    assert 'apiIdempotencyCompleteAtomically(' not in strict
+    assert 'ApiSyncAttemptMonitorService::' not in strict
     assert 'throw new ApiIdempotencyResponseNotRecorded' in strict
 
 
