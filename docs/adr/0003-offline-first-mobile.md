@@ -200,3 +200,21 @@ Existing destructive discard/reset/logout paths are not approved implementations
 of the confirmed no-override policy. Their safe replacement/guarding, legacy
 inconsistent-ledger repair and malformed-operation quarantine remain release
 blockers. This change neither adds nor authorizes such bypasses.
+
+
+## Attendance recovery requires exact server disposition
+
+The attendance recovery UI no longer offers destructive Discard or Acknowledge.
+Both previously reached the same unsynced-row deletion. A local rejected/review/
+resolved-conflict label and explicit user consent are not an exact receipt or a
+terminal server-confirmed disposition. LocalDb now rejects attendance manual
+recovery deletion with a typed confirmation-required result. The deprecated
+natural-key attendance drop fails closed too; there is no force/receipt boolean
+bypass. A stale action explains why saved attendance is retained.
+
+This deliberately holds attendance history until protected authoritative
+reconciliation exists. It does not implement that receipt/review contract or
+claim that the existing upload settlement response proves full acceptance.
+Normal settlement and accepted-row cleanup are unchanged. Other-domain recovery,
+account reset/logout/private cleanup and revocation remain separate release
+blockers; their existing destructive paths are not approved policy by analogy.
