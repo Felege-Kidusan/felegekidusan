@@ -36,7 +36,7 @@ function handleCors() {
     }
     // If Origin is set but NOT in our list → no CORS header = browser blocks it
     
-    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Idempotency-Key, X-Client-Attempt-Id, X-Client-Attempt-Number, X-Execution-Source, X-App-Version, X-App-Build, X-Installation-Id');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Idempotency-Key, X-Client-Attempt-Id, X-Client-Attempt-Number, X-Execution-Source, X-App-Version, X-App-Build, X-Installation-Id, X-Attendance-Receipt-Version');
     header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');

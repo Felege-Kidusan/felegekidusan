@@ -8,9 +8,12 @@
  */
 
 $auth = apiRequireAuth();
-// New diagnostic contract has no old-client authority exception. Reuse the
-// current scope verifier even when legacy compatibility skipped it above.
-if (($ROUTE['id'] ?? '') === 'operation-status') {
+$action = $ROUTE['id'] ?? '';
+$receiptVersionRequested = $method === 'POST'
+    && in_array($action, ['', 'submit'], true)
+    && array_key_exists('HTTP_X_ATTENDANCE_RECEIPT_VERSION', $_SERVER);
+// New diagnostics/receipt preconditions have no old-client authority exception.
+if (in_array($action, ['operation-status', 'capabilities'], true) || $receiptVersionRequested) {
     $auth = apiRevalidateAuthorizationScope($auth, true);
 }
 
@@ -26,7 +29,26 @@ if (!apiRoleIs($auth, apiRolesAttendance())) {
     err('You cannot take or view attendance.', 403);
 }
 
-$action = $ROUTE['id'] ?? '';
+// Negative capability negotiation only: no durable receipt version is ready.
+// Keep both discovery and explicit precondition failure outside the legacy
+// claim/replay/body paths. A 412 is NOT a terminal disposition of prior work.
+$receiptCapabilities = ['version' => 1, 'durable_receipt_versions' => [],
+    'durable' => false, 'authorizes_settlement' => false];
+if ($action === 'capabilities') {
+    if ($method !== 'GET') {
+        header('Allow: GET');
+        err('Use GET for attendance capabilities.', 405);
+    }
+    if (!empty($ROUTE['sub'])) err('Unknown capabilities endpoint.', 404);
+    header('Cache-Control: no-store');
+    ok($receiptCapabilities);
+}
+if ($receiptVersionRequested) {
+    header('Cache-Control: no-store');
+    err('Durable attendance receipts are not supported. Preserve unresolved work.', 412,
+        ['code' => 'ATTENDANCE_RECEIPT_CONTRACT_UNSUPPORTED',
+         'capabilities' => $receiptCapabilities]);
+}
 $year = getCurrentAcademicYear();
 $yearId = $year ? (int)$year['id'] : 0;
 
