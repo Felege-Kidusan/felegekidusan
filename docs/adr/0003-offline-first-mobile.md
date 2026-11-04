@@ -111,3 +111,26 @@ Production Retry still invokes the existing runBootstrap and all storage,
 session and lock checks. An injectable bootstrap callback supports isolated
 widget lifecycle tests, not a new UI bypass. No automatic retry, file recovery,
 discard/reset action, worker or authorization policy is added.
+
+
+## Attendance capture-session write fence
+
+Manual save, submit and autosave supply an immutable snapshot of the loaded
+sheet's owner, authorization version and runtime session generation. This is
+capture identity, not an authorization grant. Attendance's internal save API
+requires it; no unchecked default is supplied. Class/date/record arguments are
+also materialized synchronously before the serialized save can await.
+
+Inside the same SQLite transaction, before any pending-row replacement, reuse
+the durable active-session predicate with that expected identity. A mismatch,
+inactive session or invalid capture raises a typed stale-save error and leaves
+already-durable rows unchanged. A delayed capture is never rebound to a later
+active account. The UI explicitly reports that these edits were not saved,
+keeps dirty/rendered state when still mounted, and does not report success.
+
+This fence covers attendance only. Other-domain writers, cache-application
+fences, immutable attempted generations and account-transition quiescence
+remain separate work. Rejecting a stale, uncommitted save does not persist it
+for recovery; preservation of such captures across screen disposal still needs
+the lifecycle/durability design. No claim of full unsent-work recovery or P2
+completion is made. No schema, API, authorization-duration or lock-policy change.

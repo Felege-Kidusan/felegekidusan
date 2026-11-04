@@ -101,6 +101,11 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   bool get _sheetSessionCurrent => _sheetOwner == _api.userId &&
       _sheetGeneration == (_api.sessionGenerationProvider?.call() ?? 0) &&
       _sheetAuthorizationVersion == _api.authorizationVersion;
+  LegacyWriteSession get _sheetWriteSession => LegacyWriteSession(
+        ownerUserId: _sheetOwner!,
+        authorizationVersion: _sheetAuthorizationVersion!,
+        runtimeGeneration: _sheetGeneration!,
+      );
   bool get _canEdit => !_accessDenied && _sheetSessionCurrent &&
       _dayAllowed && !_locked && !_loadingStudents && _rosterReady;
   String get _dayMessage {
@@ -571,6 +576,10 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   /// the SyncService outbox's job and is never awaited from a button tap —
   /// no spinner, no "Sending…" text, buttons stay live (last write wins:
   /// saving again simply replaces the queued packet).
+  String _saveFailureMessage(Object error) => error is StaleLegacyWriteSession
+      ? error.toString()
+      : 'Phone storage refused the save. Free up space and try again.';
+
   Future<void> _saveAttendance() async {
     if (!_dayAllowed) {
       final detail = _dayMessage;
@@ -594,13 +603,14 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         _selectedClassName ?? '',
         _selectedDate,
         records,
+        expectedSession: _sheetWriteSession,
         packetKind: 'draft',
       );
-    } catch (_) {
+    } catch (error) {
       if (mounted && epoch == _loadEpoch) {
         setState(() {
           _error =
-              'Phone storage refused the save. Free up space and try again.';
+              _saveFailureMessage(error);
           _successMsg = null;
         });
       }
@@ -650,15 +660,16 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         _selectedClassName ?? '',
         _selectedDate,
         records,
+        expectedSession: _sheetWriteSession,
         packetKind: 'submitted',
         notBefore: DateTime.now().add(const Duration(seconds: 5)),
       );
-    } catch (_) {
+    } catch (error) {
       _submitting = false;
       if (mounted && epoch == _loadEpoch) {
         setState(() {
           _error =
-              'Phone storage refused the save. Free up space and try again.';
+              _saveFailureMessage(error);
           _successMsg = null;
         });
       }
@@ -743,8 +754,12 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     try {
       await _db.saveAttendanceLocal(
           classId, _selectedClassName ?? '', _selectedDate, records,
+          expectedSession: _sheetWriteSession,
           packetKind: 'draft');
-    } catch (_) {
+    } catch (error) {
+      if (error is StaleLegacyWriteSession && mounted && epoch == _loadEpoch) {
+        setState(() => _error = _saveFailureMessage(error));
+      }
       return false; // caller must not discard an unsaved sheet
     }
     if (!mounted || epoch != _loadEpoch || !_sheetSessionCurrent) return false;
@@ -762,7 +777,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     _autoSave.cancel();
     while (_durableRevision < _editRevision && _canEdit) {
       if (!await _autoSaveNow()) {
-        if (mounted) {
+        if (mounted && _error == null) {
           setState(() => _error = 'Phone storage refused the save. Free up space and try again.');
         }
         return false;
