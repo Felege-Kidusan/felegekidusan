@@ -3494,6 +3494,17 @@ class LocalDb {
     });
   }
 
+  // Shared with scheduling/status: a blocked newer generation is not due.
+  static const _attendanceClaimEligibilityWhere =
+      "AND client_op_id IS NOT NULL AND TRIM(client_op_id) <> '' "
+      "AND NOT EXISTS (SELECT 1 FROM pending_attendance older "
+      "WHERE older.class_id = pending_attendance.class_id "
+      "AND older.date = pending_attendance.date "
+      "AND older.owner_user_id = pending_attendance.owner_user_id "
+      "AND older.id < pending_attendance.id AND older.synced = 0 "
+      "AND COALESCE(older.client_op_id, '') <> pending_attendance.client_op_id "
+      "AND COALESCE(older.sync_state, '') <> 'resolved_conflict') ";
+
   /// Atomically claims and snapshots one due operation. The returned immutable
   /// snapshot is the only object that may cross the HTTP boundary.
   Future<LegacyClaimSnapshot?> claimNextLegacyOperation({
@@ -3520,6 +3531,10 @@ class LocalDb {
         executor: txn,
       );
       if (!sessionMatches) return null;
+      // A newer attendance intent may be saved while an older one is in
+      // flight. Never send it ahead of that unresolved same-owner sheet.
+      final attendanceOrder = kind == LegacyOperationKind.attendance
+          ? _attendanceClaimEligibilityWhere : '';
       final candidates = await txn.rawQuery(
         'SELECT client_op_id, MIN(id) AS first_id '
         'FROM ${spec.table} '
@@ -3528,7 +3543,7 @@ class LocalDb {
         'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '
         'AND owner_user_id = ? '
         'AND created_authorization_version = ? '
-        "AND client_op_id IS NOT NULL AND TRIM(client_op_id) <> '' "
+        "AND client_op_id IS NOT NULL AND TRIM(client_op_id) <> '' $attendanceOrder"
         'GROUP BY client_op_id '
         'ORDER BY MIN(created_at), MIN(id) LIMIT 1',
         [claimedAtText, ownerUserId, authorizationVersion],
@@ -3821,10 +3836,13 @@ class LocalDb {
           operation.ownerUserId,
           operation.createdAuthorizationVersion,
         ];
+        final attendance = operation.kind == LegacyOperationKind.attendance;
+        final latestOnly = attendance ? ' AND $_latestAttendanceGenerationWhere' : '';
         final rows = await txn.query(
           spec.table,
-          columns: ['client_op_id', 'packet_kind', 'sync_state'],
-          where: baseWhere,
+          columns: ['client_op_id', 'packet_kind', 'sync_state',
+            'attempt_count', 'last_attempt_at'],
+          where: '$baseWhere$latestOnly',
           whereArgs: baseArgs,
         );
         if (rows.isEmpty) return SubmitUndoResult.alreadyClaimed;
@@ -3833,6 +3851,15 @@ class LocalDb {
             '${row['packet_kind']}' == 'submitted');
         if (exact.isEmpty || exact.length != rows.length) {
           return SubmitUndoResult.supersededLocal;
+        }
+        if (attendance) {
+          if (exact.any((row) => row['attempt_count'] != 0 ||
+              row['last_attempt_at'] != null)) {
+            return SubmitUndoResult.alreadyClaimed;
+          }
+          final attempts = await txn.query('sync_attempts', columns: ['id'],
+              where: 'client_op_id = ?', whereArgs: [operation.clientOpId], limit: 1);
+          if (attempts.isNotEmpty) return SubmitUndoResult.alreadyClaimed;
         }
         if (exact.any((row) => '${row['sync_state']}' == 'in_flight')) {
           return SubmitUndoResult.alreadyClaimed;
@@ -3864,6 +3891,7 @@ class LocalDb {
           whereArgs: [...baseArgs, operation.clientOpId],
         );
         if (affected != rows.length) {
+          if (attendance) throw StateError('Attendance undo was not atomic.');
           return SubmitUndoResult.supersededLocal;
         }
         return SubmitUndoResult.applied;
@@ -3913,11 +3941,22 @@ class LocalDb {
         }
         binding = await requireActiveOwnerBinding(txn);
         runtimeGeneration = await _activeRuntimeGeneration(txn);
+        final replaceable = kind == LegacyOperationKind.attendance
+            ? " AND sync_state = 'pending' AND attempt_count = 0 "
+                "AND last_attempt_at IS NULL "
+                "AND client_op_id IS NOT NULL AND TRIM(client_op_id) <> '' "
+                "AND NOT EXISTS (SELECT 1 FROM pending_attendance sibling "
+                "WHERE sibling.client_op_id = pending_attendance.client_op_id "
+                "AND (sibling.synced IS NOT 0 OR sibling.sync_state IS NOT 'pending' "
+                "OR sibling.attempt_count IS NOT 0 OR sibling.last_attempt_at IS NOT NULL)) "
+                "AND NOT EXISTS (SELECT 1 FROM sync_attempts attempts "
+                "WHERE attempts.client_op_id = pending_attendance.client_op_id)"
+            : '';
         await txn.delete(
           table,
           where: '$naturalKeyWhere AND synced = 0 '
               'AND owner_user_id = ? '
-              'AND created_authorization_version = ?',
+              'AND created_authorization_version = ?$replaceable',
           whereArgs: [
             ...naturalKeyArgs,
             binding['owner_user_id'],
@@ -4007,6 +4046,16 @@ class LocalDb {
     );
   }
 
+  // Select across synced and unsynced history: an acknowledged newer intent
+  // must not expose an older terminal/needs-review generation as new marks.
+  static const _latestAttendanceGenerationWhere =
+      'client_op_id IS (SELECT newest.client_op_id FROM pending_attendance newest '
+      'WHERE newest.class_id = pending_attendance.class_id '
+      'AND newest.date = pending_attendance.date '
+      'AND newest.owner_user_id = pending_attendance.owner_user_id '
+      'AND newest.created_authorization_version = pending_attendance.created_authorization_version '
+      'ORDER BY newest.id DESC LIMIT 1)';
+
   Future<List<Map<String, dynamic>>> getPendingAttendance() async {
     final db = await database;
     return db.transaction((txn) async {
@@ -4022,6 +4071,7 @@ class LocalDb {
         FROM pending_attendance
         WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
           AND owner_user_id = ? AND created_authorization_version = ?
+          AND $_latestAttendanceGenerationWhere
         GROUP BY class_id, date ORDER BY date DESC
       ''', [
         binding['owner_user_id'],
@@ -4038,7 +4088,8 @@ class LocalDb {
       return txn.query(
         'pending_attendance',
         where: 'class_id = ? AND date = ? AND synced = 0 '
-            'AND owner_user_id = ? AND created_authorization_version = ?',
+            'AND owner_user_id = ? AND created_authorization_version = ? '
+            'AND $_latestAttendanceGenerationWhere',
         whereArgs: [
           classId,
           date,
@@ -4781,7 +4832,8 @@ class LocalDb {
         "SELECT next_attempt_at AS due FROM ${spec.table} "
             "WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait') "
             'AND next_attempt_at IS NOT NULL AND owner_user_id = ? '
-            'AND created_authorization_version = ?',
+            'AND created_authorization_version = ? '
+            "${spec.table == 'pending_attendance' ? _attendanceClaimEligibilityWhere : ''}",
       "SELECT next_attempt_at AS due FROM pending_hymn_ops "
           "WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait') "
           'AND next_attempt_at IS NOT NULL',
@@ -4976,9 +5028,10 @@ class LocalDb {
         spec.table,
         {
           'sync_state': 'pending',
-          'attempt_count': 0,
+          // Attendance ledger numbers must stay monotonic across retries.
+          if (kind != 'attendance') 'attempt_count': 0,
           'next_attempt_at': null,
-          'last_attempt_at': null,
+          if (kind != 'attendance') 'last_attempt_at': null,
           'failure_code': null,
           'failure_http_status': null,
           'failed_at': null,
@@ -7075,7 +7128,8 @@ class LocalDb {
           "WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait') "
           'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '
           'AND owner_user_id = ? '
-          'AND created_authorization_version = ? LIMIT 1',
+          'AND created_authorization_version = ? '
+          "${spec.table == 'pending_attendance' ? _attendanceClaimEligibilityWhere : ''}LIMIT 1",
           [
             nowText,
             binding['owner_user_id'],
@@ -7107,12 +7161,14 @@ class LocalDb {
       }
 
       Future<int> legacyState(String predicate,
-          [List<Object?> args = const []]) async {
+          [List<Object?> args = const [], String? attendancePredicate]) async {
         var total = 0;
         for (final spec in legacyOutboxTableSpecs) {
+          final scopedPredicate = spec.table == 'pending_attendance'
+              ? attendancePredicate ?? predicate : predicate;
           total += await scalar(
             'SELECT COUNT(DISTINCT client_op_id) FROM ${spec.table} '
-            'WHERE synced = 0 AND ($predicate) '
+            'WHERE synced = 0 AND ($scopedPredicate) '
             'AND owner_user_id = ? '
             'AND created_authorization_version = ?',
             [...args, ownerUserId, authorizationVersion],
@@ -7138,11 +7194,12 @@ class LocalDb {
         String legacyPredicate,
         String hymnPredicate,
         String commPredicate, {
+        String? attendancePredicate,
         List<Object?> legacyArgs = const [],
         List<Object?> hymnArgs = const [],
         List<Object?> commArgs = const [],
       }) async {
-        return await legacyState(legacyPredicate, legacyArgs) +
+        return await legacyState(legacyPredicate, legacyArgs, attendancePredicate) +
             await scalar(
               'SELECT COUNT(DISTINCT client_op_id) FROM pending_hymn_ops '
               'WHERE synced = 0 AND ($hymnPredicate)',
@@ -7167,6 +7224,9 @@ class LocalDb {
             'AND dependency.synced = 1))',
         "state IN ('pending', 'retry_wait') AND "
             '(next_attempt_at IS NULL OR next_attempt_at <= ?)',
+        attendancePredicate: "sync_state IN ('pending', 'retry_wait') AND "
+            '(next_attempt_at IS NULL OR next_attempt_at <= ?) '
+            '$_attendanceClaimEligibilityWhere',
         legacyArgs: [nowText],
         hymnArgs: [nowText],
         commArgs: [nowText],
@@ -7180,6 +7240,8 @@ class LocalDb {
             'WHERE dependency.id = pending_hymn_ops.depends_on '
             'AND dependency.synced = 0))',
         "state IN ('pending', 'retry_wait') AND next_attempt_at > ?",
+        attendancePredicate: "sync_state IN ('pending', 'retry_wait') "
+            'AND next_attempt_at > ? $_attendanceClaimEligibilityWhere',
         legacyArgs: [nowText],
         hymnArgs: [nowText],
         commArgs: [nowText],
@@ -7222,6 +7284,9 @@ class LocalDb {
         "sync_state = 'blocked_dependency'",
         "sync_state = 'blocked_dependency'",
         "state = 'blocked_dependency'",
+        attendancePredicate: "sync_state = 'blocked_dependency' OR "
+            "(sync_state IN ('pending', 'retry_wait') "
+            'AND NOT (1 = 1 $_attendanceClaimEligibilityWhere))',
       );
       final conflicts = await allState(
         "sync_state = 'resolved_conflict'",
@@ -7398,8 +7463,24 @@ class LocalDb {
     final db = await database;
     final cutoff =
         DateTime.now().subtract(const Duration(days: 7)).toIso8601String();
+    // Keep just the newest accepted checkpoint while older unsynced history
+    // could otherwise reappear in the latest-generation attendance overlay.
     await db.delete('pending_attendance',
-        where: 'synced = 1 AND synced_at < ?', whereArgs: [cutoff]);
+        where: 'synced = 1 AND synced_at < ? AND ('
+            'EXISTS (SELECT 1 FROM pending_attendance newer '
+            'WHERE newer.class_id = pending_attendance.class_id '
+            'AND newer.date = pending_attendance.date '
+            'AND newer.owner_user_id = pending_attendance.owner_user_id '
+            'AND newer.created_authorization_version = pending_attendance.created_authorization_version '
+            'AND newer.synced = 1 AND newer.id > pending_attendance.id '
+            'AND newer.client_op_id IS NOT pending_attendance.client_op_id) '
+            'OR NOT EXISTS (SELECT 1 FROM pending_attendance older '
+            'WHERE older.class_id = pending_attendance.class_id '
+            'AND older.date = pending_attendance.date '
+            'AND older.owner_user_id = pending_attendance.owner_user_id '
+            'AND older.created_authorization_version = pending_attendance.created_authorization_version '
+            'AND older.synced = 0 AND older.id < pending_attendance.id))',
+        whereArgs: [cutoff]);
     await db.delete('pending_grades',
         where: 'synced = 1 AND synced_at < ?', whereArgs: [cutoff]);
     await db.delete('pending_mezmur',

@@ -155,3 +155,48 @@ remain release blockers. Direct screen/WarmStore cache writers, read ownership,
 inter-isolate cursor ordering and account-transition quiescence remain separate
 work. The fence protects against obsolete download mutations, not all cache
 races or recovery of uncommitted edits.
+
+
+## Attempted attendance generation preservation
+
+Attendance saves retain previously attempted or non-pristine generations in the
+existing pending table. Only whole pristine pending generations with known IDs,
+zero attempts, no attempt time and no ledger evidence may coalesce. Attempt or
+non-pristine evidence in any sibling row protects the entire generation. New edits still save a complete generation
+with a fresh stable ID. No schema or parallel queue is required.
+
+Attendance claims respect same-owner/class/date insertion order across unresolved
+generations, including older authorization versions. An in-flight, backed-off,
+paused, review or unknown older operation blocks later sending for that sheet;
+other sheets may progress. Exact accepted or resolved-conflict outcomes release
+the next generation. This is local ordering, not cross-device conflict authority.
+
+Attendance read projections show the latest complete persisted generation, not
+a union of historical member rows. The latest-generation selection includes
+synced history so older terminal rows cannot reappear after newer acceptance.
+Undo targets only that newest generation and refuses all evidence of a previous
+attempt; an unexpected partial undo rolls back. Exact settlement and attempt
+closure remain scoped to their original operation ID.
+
+Other packet domains, complete preparation/bootstrap retention, exact server
+receipts/partial acceptance, cross-device ordering, workflow-lock reconciliation,
+account-transition quiescence and auth/logout/revocation remain separate release
+blockers. An older paused authorization generation may intentionally hold newer
+sending until authorized reconciliation; no destructive override is introduced.
+
+Attendance eligibility is shared by claims, due-work checks, retry wakeups and
+status inventory. Newer blocked generations count as dependencies, not due work;
+they cannot cause repeated immediate rescans or earlier useless retry wakeups.
+Recovery retry preserves attendance attempt counters/timestamps so the next
+transmission uses the next ledger attempt number, not a reused attempt 1.
+
+Seven-day cleanup retains only the newest accepted attendance generation while
+older same-owner/authorization/sheet unsynced history needs it as a projection
+checkpoint. This also applies while an even newer edit remains unsynced.
+Unneeded/intermediate accepted generations follow the existing cleanup rule;
+unsynced rows are never removed by cleanup. No new retention period is invented.
+
+Existing destructive discard/reset/logout paths are not approved implementations
+of the confirmed no-override policy. Their safe replacement/guarding, legacy
+inconsistent-ledger repair and malformed-operation quarantine remain release
+blockers. This change neither adds nor authorizes such bypasses.
