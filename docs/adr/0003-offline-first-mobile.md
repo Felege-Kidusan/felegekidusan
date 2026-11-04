@@ -319,3 +319,36 @@ or responses to authorize settlement, cleanup, retry or logout.
 No receipt schema, lifetime/compaction, conflict arbitration, mobile settlement,
 revocation exception, owner signing or production deployment is enabled here.
 Those contracts and their positive end-to-end acceptance tests remain required.
+
+## Mobile non-settlement response guard
+
+ApiResponse preserves typed `nonSettlement` evidence from the response root,
+normalized data, or the known `lookup`/`capabilities` protocol containers.
+Presence of `authorizes_settlement` (including true or malformed values),
+`durable_receipt_versions`, or authority `legacy_replay_cache` is not validated
+operation receipt proof. Arbitrary member/record payloads are not recursively
+searched; ordinary `durable:false` alone does not change legacy behavior.
+Generation/refresh response copies retain the evidence. The unsupported receipt
+contract code is independently recognized regardless of HTTP success/status.
+
+The existing outbox policy holds this evidence as needs-attention, never as
+accepted, successful replay or resolved conflict, and does not consume five
+ordinary unknown retries. Session supersession and definitive authentication/
+scope outcomes retain their precedence. A transient refresh result cannot turn
+non-settlement evidence into retry authority. The attempt ledger describes held
+observations as protocol errors/user action required, not successful execution.
+Saved payloads remain owned by their exact operation and generation; newer
+local edits are not erased. Recovery/cleanup permissions are unchanged.
+
+The worker explains that server confirmation is incomplete and saved work is
+kept. Passes containing needs-attention work no longer promise automatic retry;
+they direct the user to Sync Recovery, which retains its confirmation-required
+attendance deletion guard. No manual acknowledgement/discard is enabled.
+
+This is a negative-evidence guard, not positive receipt validation: marker-free
+legacy upload acceptance remains unchanged. No new endpoint call, strict upload
+header, capability handshake, durable receipt version, schema migration,
+release activation or production deployment is introduced. Exact manifests,
+long-lived atomic receipt storage, positive receipt validation and full safe
+reconciliation remain release blockers. Fake transport plus real coordinator/
+SQLite regressions prove this boundary, not installed-phone crash recovery.
