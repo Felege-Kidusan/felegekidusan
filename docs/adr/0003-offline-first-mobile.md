@@ -283,3 +283,39 @@ lifetime, manifest coverage, negotiation, safe reconciliation, immediate
 access/refresh lost-device revocation and installed-schema/device evidence
 remain separate blockers. This is development-source evidence, not deployment
 or full P5 acceptance.
+
+## Negative durable-receipt negotiation (development only)
+
+`GET /api/v1/attendance/capabilities` is an authenticated, current-scope,
+attendance-role-only protocol declaration: version 1,
+`durable_receipt_versions: []`, `durable: false`,
+`authorizes_settlement: false`. It exposes no roster, assignments, backend
+status or installed-schema readiness. It is not a complete offline-readiness
+capability and does not claim strict receipts are available. GET only; no
+nested paths; no-store. Existing global OPTIONS preflight remains unchanged.
+
+An attendance draft/submit POST carrying **any present**
+`X-Attendance-Receipt-Version` header fails with 412
+`ATTENDANCE_RECEIPT_CONTRACT_UNSUPPORTED`, the same negative capability flags
+and no-store. Empty, unknown and future versions also fail. Current account,
+role and authorization scope are checked even outside the legacy rollout
+cohort. The precondition guard precedes body parsing, reservation/replay,
+write-rate accounting, workflow and attendance mutations. Even an existing
+legacy success cache entry is not replayed to satisfy this header.
+The header is permitted by CORS without expanding origin/credential policy.
+Header-free legacy writes/replays keep their prior behavior and envelopes.
+
+This is server-side **negative negotiation infrastructure**, not implementation
+of any durable receipt version or a mobile handshake. No existing client is
+switched onto it. Future clients must discover an explicitly supported known
+version before transmitting strict operations: old servers may ignore unknown
+headers and commit without receipts. A ping, successful login, cached
+capability, old replay, or mixed-server rollout is not adequate compatible
+receipt proof. The 412 describes this attempt's unsupported precondition, not
+a terminal business disposition of this operation or proof that earlier
+attempts did not commit. Preserve all unresolved work; never use these flags
+or responses to authorize settlement, cleanup, retry or logout.
+
+No receipt schema, lifetime/compaction, conflict arbitration, mobile settlement,
+revocation exception, owner signing or production deployment is enabled here.
+Those contracts and their positive end-to-end acceptance tests remain required.
