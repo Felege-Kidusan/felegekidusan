@@ -342,7 +342,7 @@ local edits are not erased. Recovery/cleanup permissions are unchanged.
 
 The worker explains that server confirmation is incomplete and saved work is
 kept. Passes containing needs-attention work no longer promise automatic retry;
-they direct the user to Sync Recovery, which retains its confirmation-required
+they direct the user to Sync Center, which retains its confirmation-required
 attendance deletion guard. No manual acknowledgement/discard is enabled.
 
 This is a negative-evidence guard, not positive receipt validation: marker-free

@@ -426,7 +426,7 @@ class SyncService {
       synced: synced,
       failed: failed,
       message: passSummary.operationsNeedingAttention > 0
-          ? 'Saved work needs attention. Open Sync Recovery.'
+          ? 'Saved work needs attention. Open Sync Center.'
           : synced > 0
               ? (failed > 0
                   ? 'Sent $synced. $failed still waiting — will retry.'
