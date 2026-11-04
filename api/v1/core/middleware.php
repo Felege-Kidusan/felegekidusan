@@ -333,6 +333,73 @@ function apiIdempotencyCompleteAtomically(string $json, int $code): bool {
     return $completed;
 }
 
+/** A DB-backed attendance success could not join its business transaction. */
+final class ApiIdempotencyResponseNotRecorded extends \RuntimeException {}
+
+/**
+ * Strict for acquired database reservations only. Caller owns an OPEN business
+ * transaction on the same connection. Legacy unkeyed/file modes return false;
+ * that compatibility result is NOT an atomic-response guarantee.
+ */
+function apiIdempotencyCompleteDatabaseSuccess($data, int $code): bool {
+    $pack = $GLOBALS['_fkss_idem'] ?? null;
+    if ($pack === null && apiIdempotencyKey() === '') return false;
+    if (!is_array($pack)
+        || !(($pack['service'] ?? null) instanceof \App\Services\ApiIdempotencyService)
+        || !is_array($pack['reservation'] ?? null)) {
+        throw new ApiIdempotencyResponseNotRecorded('Missing response reservation.');
+    }
+    $backend = $pack['reservation']['backend'] ?? '';
+    if ($backend === 'file') return false;
+    if ($backend !== 'database') {
+        throw new ApiIdempotencyResponseNotRecorded('Unknown response backend.');
+    }
+    try {
+        $json = apiEncodeJsonResponse(apiSuccessPayload($data));
+        // Keep this the last authoritative write. The permissive wrapper also
+        // performs advisory monitor SQL whose swallowed deadlock could roll
+        // back the whole transaction. Monitoring belongs in the existing
+        // ordinary response sender AFTER business commit instead.
+        if ($json === false || !$pack['service']->completeWithinTransaction(
+            $pack['reservation'], $json, $code
+        )) {
+            throw new ApiIdempotencyResponseNotRecorded('Response was not recorded.');
+        }
+    } catch (ApiIdempotencyResponseNotRecorded $error) {
+        throw $error;
+    } catch (\Throwable $error) {
+        throw new ApiIdempotencyResponseNotRecorded('Response was not recorded.', 0, $error);
+    }
+    return true;
+}
+
+/**
+ * Only for the typed PRECOMMIT response failure, never an unknown commit result.
+ * Detach the sender first: even an outer exception response must not be cached.
+ * A failed/throwing rollback must leave the durable reservation untouched.
+ */
+function apiIdempotencyRollbackResponse(\mysqli $connection): void {
+    $pack = $GLOBALS['_fkss_idem'] ?? null;
+    unset($GLOBALS['_fkss_idem']); // Suppress ordinary AND outer error recording.
+    if (!$connection->rollback()) {
+        throw new \RuntimeException('Attendance rollback was not confirmed.');
+    }
+    if (is_array($pack)
+        && ($pack['service'] ?? null) instanceof \App\Services\ApiIdempotencyService
+        && is_array($pack['reservation'] ?? null)
+        && ($pack['reservation']['backend'] ?? '') === 'database') {
+        $pack['service']->abandon($pack['reservation']); // owner-token CAS
+        $monitorId = (int)($pack['monitor_id'] ?? 0);
+        if ($monitorId > 0) {
+            \App\Services\ApiSyncAttemptMonitorService::complete(
+                $connection, $monitorId,
+                '{"status":"error","code":"IDEMPOTENCY_RESPONSE_NOT_RECORDED"}',
+                503, 'abandoned'
+            );
+        }
+    }
+}
+
 function apiIdempotencyStore(string $json, int $code): void {
     $pack = $GLOBALS['_fkss_idem'] ?? null;
     unset($GLOBALS['_fkss_idem']);

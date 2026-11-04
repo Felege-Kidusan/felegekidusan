@@ -218,3 +218,29 @@ claim that the existing upload settlement response proves full acceptance.
 Normal settlement and accepted-row cleanup are unchanged. Other-domain recovery,
 account reset/logout/private cleanup and revocation remain separate release
 blockers; their existing destructive paths are not approved policy by analogy.
+
+## Database-backed attendance success-response atomicity
+
+Attendance draft/submit now build their unchanged success envelope and complete
+an acquired database-backed replay reservation inside the existing business
+transaction, before commit. The wire sender shares envelope/JSON encoding. A
+failed completion/encoding raises a typed precommit failure; rollback must
+succeed before the processing reservation can be abandoned. The ordinary
+response sender is detached BEFORE rollback so even an outer exception-handler
+500 cannot replace an uncertain outcome. The resulting fixed 503 is retryable, not stored
+as a permanent replay. An unconfirmed rollback does not abandon anything.
+Unknown commit outcomes never use this precommit cleanup path.
+
+Existing unkeyed and known file-backed legacy compatibility behavior remains;
+it is NOT strict response atomicity. Other endpoints and the permissive generic
+helper are unchanged. This is not the full exact receipt contract: replay expiry
+is still seven days, authenticated long-lived status lookup/manifest binding,
+capability negotiation, audit delivery, cross-device ordering and installed
+transactional-schema verification remain release blockers. No schema, TTL,
+permission, URL, mobile settlement or rollout policy changes are implied.
+
+The strict attendance path invokes the existing replay service directly, not
+the permissive wrapper that also runs advisory monitor SQL. Monitoring remains
+in the ordinary postcommit sender. An advisory deadlock must not silently roll
+back business/receipt writes after their final checkpoint; a lost response may
+leave stale advisory monitoring, but cannot invalidate the committed receipt.
