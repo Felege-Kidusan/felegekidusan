@@ -186,10 +186,11 @@ function apiAuthorizationScopeEnforcedForClient(): bool {
  * unavailable authority fails closed with a typed response.
  *
  * @param array<string,mixed> $payload verified access-token payload
+ * @param bool $requireCurrentScope server-only opt-in; never relaxes authority
  * @return array<string,mixed>
  */
-function apiRevalidateAuthorizationScope(array $payload): array {
-    if (!apiAuthorizationScopeEnforcedForClient()) {
+function apiRevalidateAuthorizationScope(array $payload, bool $requireCurrentScope = false): array {
+    if (!$requireCurrentScope && !apiAuthorizationScopeEnforcedForClient()) {
         return $payload;
     }
 

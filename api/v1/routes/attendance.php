@@ -8,6 +8,11 @@
  */
 
 $auth = apiRequireAuth();
+// New diagnostic contract has no old-client authority exception. Reuse the
+// current scope verifier even when legacy compatibility skipped it above.
+if (($ROUTE['id'] ?? '') === 'operation-status') {
+    $auth = apiRevalidateAuthorizationScope($auth, true);
+}
 
 // /attendance/warnings[/{id}[/close]] — department attendance warnings
 // (Phase 2). Its own role set (HR / Info / Edu / Mezmur / admins read;
@@ -193,6 +198,52 @@ function apiReplaceAttendanceRows(
             $userId,
             $records
         );
+}
+
+// POST /attendance/operation-status?kind=draft|submit
+// Read-only cache observation, not a resubmission or durable receipt. Send the
+// unchanged original JSON/key so the existing canonical hash can bind it.
+if ($action === 'operation-status') {
+    if ($method !== 'POST') {
+        header('Allow: POST');
+        err('Use POST for operation status.', 405);
+    }
+    if (!empty($ROUTE['sub'])) err('Unknown operation-status endpoint.', 404);
+    $kind = $_GET['kind'] ?? '';
+    if (!in_array($kind, ['draft', 'submit'], true)) err('kind must be draft or submit.', 400);
+    $contentType = strtolower(trim(explode(';', (string)($_SERVER['CONTENT_TYPE'] ?? ''))[0]));
+    if ($contentType !== 'application/json') err('Use the original JSON request.', 415);
+    $input = getBody(1048576); // bounded diagnostic request, no upload policy change
+    $classId = filter_var($input['class_id'] ?? null, FILTER_VALIDATE_INT);
+    $date = $input['date'] ?? null;
+    if ($classId === false || $classId <= 0 || !is_string($date)
+        || !preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/D', $date)
+        || !checkdate((int)substr($date, 5, 2), (int)substr($date, 8, 2), (int)substr($date, 0, 4))) {
+        err('Original class_id and date are required.', 400);
+    }
+    // CURRENT authority, never cached assignments or historical write rights.
+    apiRequireClassAccess($conn, $auth, $classId, $yearId);
+    $bodyKey = $input['client_op_id'] ?? '';
+    if (!is_string($bodyKey)) err('Invalid original operation key.', 400);
+    $bodyKey = trim($bodyKey);
+    if (empty($_SERVER['HTTP_IDEMPOTENCY_KEY']) && $bodyKey !== '') {
+        $_SERVER['HTTP_IDEMPOTENCY_KEY'] = $bodyKey;
+    }
+    $key = apiIdempotencyKey();
+    if ($key === '' || ($bodyKey !== '' && !hash_equals($bodyKey, $key))) {
+        err('A matching original operation key is required.', 400);
+    }
+    $scope = 'POST attendance' . ($kind === 'submit' ? '/submit' : '');
+    $result = apiIdempotencyService()->lookup(
+        (int)$auth['uid'], $key, $scope, apiIdempotencyRequestHash('POST', $scope)
+    );
+    $inspection = ['version' => 1, 'authority' => 'legacy_replay_cache',
+        'durable' => false, 'authorizes_settlement' => false] + $result;
+    if ($result['state'] === 'unavailable') {
+        err('Operation status is temporarily unavailable.', 503,
+            ['code' => 'OPERATION_STATUS_UNAVAILABLE', 'lookup' => $inspection]);
+    }
+    ok($inspection);
 }
 
 // ============================================================

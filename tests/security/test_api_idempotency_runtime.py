@@ -86,6 +86,9 @@ class ApiIdempotencyRuntimeTests(unittest.TestCase):
     def test_attendance_response_failure_rolls_back_and_keeps_retryable(self):
         self._assert_pass("attendance_response_failures")
 
+    def test_readonly_lookup_does_not_claim_renew_or_expose_results(self):
+        self._assert_pass("readonly_lookup")
+
     # ── §16 scenarios ───────────────────────────────────────────────────────
     def test_a_normal_success_stores_exactly_one_effect_and_one_record(self):
         out = self._assert_pass("success")

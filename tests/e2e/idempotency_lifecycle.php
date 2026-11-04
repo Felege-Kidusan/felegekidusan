@@ -528,6 +528,53 @@ function scenarioAttendanceResponseFailures(array $payload): void
     }
 }
 
+/** Inspecting uncertainty must not claim, renew, recover or expose a response. */
+function scenarioReadOnlyLookup(array $payload): void
+{
+    resetSchema();
+    $svc = service();
+    $hash = requestHash($payload);
+    $snapshot = static fn() => db()->query('SELECT * FROM api_idempotency_records ORDER BY record_hash')->fetch_all(MYSQLI_ASSOC);
+    check($svc->lookup(1, 'lookup-op', SCOPE, $hash)['state'] === 'unknown', 'L: absent operation is unknown');
+    check(countRows('api_idempotency_records') === 0, 'L: lookup never inserts a reservation');
+    $r = $svc->begin(1, 'lookup-op', SCOPE, $hash);
+    $before = $snapshot();
+    check($svc->lookup(1, 'lookup-op', SCOPE, $hash)['state'] === 'processing', 'L: observes processing');
+    check($before === $snapshot(), 'L: processing lookup changes no fields');
+    expireLease($r['record_hash']);
+    $before = $snapshot();
+    check($svc->lookup(1, 'lookup-op', SCOPE, $hash)['state'] === 'processing', 'L: expired lease stays processing, never reacquired');
+    check($before === $snapshot(), 'L: expired lease owner and timestamps preserved');
+    check($svc->lookup(1, 'lookup-op', SCOPE, str_repeat('a', 64))['state'] === 'payload_mismatch', 'L: changed payload has no outcome evidence');
+    check($svc->lookup(2, 'lookup-op', SCOPE, $hash)['state'] === 'unknown', 'L: another owner sees unknown');
+    check($svc->lookup(1, 'lookup-op', SCOPE . '/submit', $hash)['state'] === 'unknown', 'L: another route sees unknown');
+    check($before === $snapshot(), 'L: mismatch/owner/route checks are nonmutating');
+    db()->begin_transaction();
+    db()->query("INSERT INTO probe_messages (thread_id,sender_id,body) VALUES (9,1,'synthetic lookup effect')");
+    check($svc->completeWithinTransaction($r, '{"status":"success","private_note":"never expose"}', 201), 'L: stage completion');
+    $reader = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+    $readerSvc = new \App\Services\ApiIdempotencyService($reader, fallbackDir());
+    check($readerSvc->lookup(1, 'lookup-op', SCOPE, $hash)['state'] === 'processing', 'L: reader never observes uncommitted acceptance');
+    db()->commit();
+    $before = $snapshot();
+    $found = $readerSvc->lookup(1, 'lookup-op', SCOPE, $hash);
+    check($found === ['state' => 'completed', 'cached_http_status' => 201], 'L: only bounded cached metadata, never raw response');
+    check($before === $snapshot(), 'L: completed lookup changes no fields');
+    db()->query("UPDATE api_idempotency_records SET expires_at=DATE_SUB(NOW(),INTERVAL 1 SECOND)");
+    $before = $snapshot();
+    check($svc->lookup(1, 'lookup-op', SCOPE, $hash)['state'] === 'unknown', 'L: expired completion is unknown, NOT permission to retry');
+    check($before === $snapshot(), 'L: expired proof is not deleted, renewed or reset');
+    $r2 = $svc->begin(1, 'lookup-error', SCOPE, $hash);
+    $svc->complete($r2, '{"status":"error","private_note":"never expose"}', 500);
+    check($svc->lookup(1, 'lookup-error', SCOPE, $hash) === ['state' => 'completed', 'cached_http_status' => 500], 'L: cached failure is NOT inferred business rejection');
+    $offline = new \App\Services\ApiIdempotencyService(null, '/unusable-status-fallback');
+    check($offline->lookup(1, 'lookup-op', SCOPE, $hash)['state'] === 'unavailable', 'L: missing DB does not create/read file fallback');
+    check($svc->lookup(0, 'lookup-op', SCOPE, $hash)['state'] === 'unavailable', 'L: invalid owner fails closed');
+    db()->query('DROP TABLE api_idempotency_records');
+    check($svc->lookup(1, 'lookup-op', SCOPE, $hash)['state'] === 'unavailable', 'L: missing schema does not create/fallback');
+    $reader->close();
+}
+
 $PAYLOAD = ['class_id' => 7, 'date' => '2026-03-01', 'records' => [
     ['member_id' => 101, 'status' => 'present'],
     ['member_id' => 102, 'status' => 'absent'],
@@ -738,6 +785,7 @@ switch ($SCENARIO) {
     case 'replay':              scenarioReplay($PAYLOAD); break;
     case 'error_pinning':       scenarioErrorPinning($PAYLOAD); break;
     case 'atomic_completion':   scenarioAtomicCompletion($PAYLOAD); break;
+    case 'readonly_lookup': scenarioReadOnlyLookup($PAYLOAD); break;
     case 'attendance_response': scenarioAttendanceResponse($PAYLOAD); break;
     case 'attendance_response_failures': scenarioAttendanceResponseFailures($PAYLOAD); break;
     case 'all':
@@ -753,6 +801,7 @@ switch ($SCENARIO) {
         scenarioAtomicCompletion($PAYLOAD);
         scenarioAttendanceResponse($PAYLOAD);
         scenarioAttendanceResponseFailures($PAYLOAD);
+        scenarioReadOnlyLookup($PAYLOAD);
         break;
     default:
         fwrite(STDERR, "unknown scenario: $SCENARIO\n");
