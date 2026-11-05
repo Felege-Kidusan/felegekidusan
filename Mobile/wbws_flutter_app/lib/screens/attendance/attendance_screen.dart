@@ -11,8 +11,11 @@ import '../../services/connectivity_service.dart';
 import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
 import '../../services/session_models.dart';
+import '../../services/api_service.dart';
 import '../../services/attendance_preparation_adapter.dart';
+import '../../services/attendance_preparation_fetcher.dart';
 import '../../services/attendance_preparation_readiness.dart';
+import '../../services/attendance_preparation_store.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
@@ -261,6 +264,8 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     }
   }
 
+  bool _refreshingPrep = false;
+
   Future<void> _loadPreparationStatus() async {
     try {
       final res = await _prepAdapter.resolve();
@@ -268,6 +273,44 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
       setState(() => _prepResolution = res);
     } catch (_) {
       // Preparation status is advisory; never blocks the roster.
+    }
+  }
+
+  Future<void> _refreshPreparation() async {
+    if (_refreshingPrep) return;
+    setState(() => _refreshingPrep = true);
+    try {
+      final sessionRec = await _db.getLocalSession();
+      final session = LegacyWriteSession(
+        ownerUserId: sessionRec.ownerUserId ?? _api.userId,
+        authorizationVersion: sessionRec.authorizationVersion ?? _api.authorizationVersion,
+        runtimeGeneration: sessionRec.generation,
+      );
+      final fetcher = AttendancePreparationFetcher(store: AttendancePreparationStore(db: _db));
+      await fetcher.fetchAndPublish(
+        session: session,
+        get: (path) => _api.get(path),
+      );
+      await _loadPreparationStatus();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Preparation refreshed'), backgroundColor: AppTheme.success),
+        );
+      }
+    } on AttendancePreparationFetchException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: AppTheme.warning),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Refresh failed: $e'), backgroundColor: AppTheme.warning),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingPrep = false);
     }
   }
 
@@ -1052,9 +1095,35 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
 
           // Offline preparation readiness (truthful, never blocks roster).
           if (_prepBanner != null)
-            StatusBanner.warning(_prepBanner!),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(children: [
+                Expanded(child: StatusBanner.warning(_prepBanner!)),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _refreshingPrep ? null : _refreshPreparation,
+                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                  child: _refreshingPrep
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Refresh', style: TextStyle(fontSize: 12)),
+                ),
+              ]),
+            ),
           if (_prepResolution?.isReady == true && _prepResolution?.dataset?.classes.isEmpty == true)
             StatusBanner.info('Your preparation has no classes — you are ready, but there is nothing to mark.'),
+          // Also allow explicit refresh when ready (lease renewal).
+          if (_prepResolution?.isReady == true)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _refreshingPrep ? null : _refreshPreparation,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('Refresh preparation', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+            ),
 
           // Class + Date selector
           Padding(
