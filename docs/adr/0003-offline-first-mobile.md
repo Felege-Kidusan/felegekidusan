@@ -530,3 +530,26 @@ snapshot, lease, original-year producer, receipt or offline-readiness grant.
 Legacy UI publication timing and other consumers' independent cache writes do
 not establish complete authorized preparation. Server-consistent datasets and
 atomic calendar/context/readiness publication remain separate work.
+
+## Strict minimal preparation roster reads (opt-in primitives)
+
+`EnrollmentService.resolvePreparationRosterYear` preserves the existing
+preferred-year / unscoped / rollover-fallback rule but throws on query failure
+instead of interpreting it as zero. Its preferred write year remains separate
+from the resolved roster year. `fetchPreparationRoster` reads only the member
+identity, student/father names and member code used by attendance UI/QR, under
+that explicit server-resolved scope and date. Invalid, orphaned or duplicate
+identities fail rather than silently produce an apparently complete roster.
+
+The opt-in strict argument to `DepartmentStatusService.exclusionSql` requires
+an explicit valid date and probes all eligibility columns when attendance v2
+is enabled. It does not trust the legacy permissive availability cache. Feature
+OFF remains OFF; all existing callers retain the old default behavior. Both
+mysqli reporting modes fail closed in the new read primitives, with no slim
+query or error-to-empty fallback. A genuinely empty successful query is valid.
+
+These helpers do not authenticate, grant offline work, own/commit transactions,
+or activate a route. Their future preparation caller must bind current authority,
+class access, write year, strict calendar and workflow facts inside one consistent
+read transaction. Server snapshot publication and atomic mobile calendar/context/
+readiness binding remain unfinished. No schema, lease or policy activation.
