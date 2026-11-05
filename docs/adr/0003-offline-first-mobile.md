@@ -496,3 +496,19 @@ Synthetic route tests execute the real adapter with boundary doubles. Separate
 isolated HTTP tests exercise actual authorization/class checks, including real
 assignment-version invalidation and a previous-roster-year fallback. These are
 not hosted deployment, phone, server-race or offline acceptance evidence.
+
+## Atomic shared roster-cache refresh (preparation prerequisite only)
+
+`LocalDb.cacheStudents` captures incoming cache rows before its first await and
+replaces one class's roster in a single SQLite transaction. The delete and all
+inserts either commit together or roll back together; a late SQL/duplicate/input
+failure must not erase the previous complete roster. Successful empty responses
+retain their existing meaning and replace only that class. The legacy ID alias,
+field defaults and all three established callers remain unchanged.
+
+This fixes cache-integrity failure, not authorized preparation: rows are not a
+lease, scope-bound snapshot, original-year proof, complete roster-plus-sheet
+commit or offline-readiness grant. Server consistency and atomic owner/context/
+calendar/sheet binding remain required before new offline activation. Synthetic
+real-SQLite tests cover rollback and an independent committed-state reader, not
+process-death or owner-phone acceptance. No schema or wire contract changes.
