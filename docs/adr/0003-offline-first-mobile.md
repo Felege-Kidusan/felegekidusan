@@ -575,3 +575,35 @@ mobile readiness or own/commit a transaction. The future preparation caller must
 verify transactional schema/engines and bind current authority, class scope,
 write year, roster, calendar and strict workflow facts in one consistent read
 transaction. Those endpoint/publication/readiness obligations remain unfinished.
+
+## Consistent preparation storage boundary (opt-in prerequisite)
+
+`AttendancePreparationReadBoundary.read` owns a new READ ONLY REPEATABLE READ
+consistent snapshot. It rejects autocommit-off and active outer transactions
+before BEGIN, without committing or rolling back caller-owned work. Isolation
+is set for the next transaction only; session defaults/reporting mode are not
+changed. An uncertain BEGIN after configuration discards the connection rather
+than leaking pending transaction characteristics. Commit must succeed before a
+value is returned; reader/storage failures require confirmed rollback, otherwise
+the connection is discarded.
+
+Every declared dependency is touched to hold its metadata lock until completion,
+then checked as a real InnoDB base table. SHOW CREATE inspects the actual resolved
+object as well as information_schema: views, absent/nontransactional tables and
+both InnoDB/MyISAM temporary shadows are refused. Real two-connection synthetic
+fixtures show unbounded split reads, coherent reads despite concurrent commits,
+read-only write refusal, preservation of caller-owned transactions, and a real
+concurrent ALTER lock timeout followed by success after completion. BEGIN,
+COMMIT and failed-rollback return/exception boundaries are supplemental doubles,
+not claimed network-failure experiments. Fixtures create only fresh randomized
+owned synthetic objects and clean up only successfully created objects.
+
+This is not a SQL sandbox, authorization, completeness validator, endpoint,
+lease or mobile readiness. Trusted callbacks must declare EVERY dependency, use
+strict readers, and not manage transactions/DDL. The next endpoint still needs
+current authority/class/write-year validation and strict roster/calendar/
+workflow/origin facts in this boundary, then atomic mobile publication/fencing.
+The owner's confirmed rule is closed years read-only, without a new correction
+override; older queued work keeps its original year for audited server decision,
+never restamping into the active year. Phase1 and all eight workstreams remain
+incomplete. No legacy caller, schema, deployment flag or production is changed.
