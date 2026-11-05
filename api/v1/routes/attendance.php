@@ -11,12 +11,13 @@
 // Context discovery must never be cached, including authentication denials.
 $action = $ROUTE['id'] ?? '';
 if ($action === 'write-context') header('Cache-Control: no-store');
+if ($action === 'preparation') header('Cache-Control: no-store');
 $auth = apiRequireAuth();
 $receiptVersionRequested = $method === 'POST'
     && in_array($action, ['', 'submit'], true)
     && array_key_exists('HTTP_X_ATTENDANCE_RECEIPT_VERSION', $_SERVER);
 // New diagnostics/receipt preconditions have no old-client authority exception.
-if (in_array($action, ['operation-status', 'capabilities', 'write-context'], true) || $receiptVersionRequested) {
+if (in_array($action, ['operation-status', 'capabilities', 'write-context'], true) || $action === 'preparation' || $receiptVersionRequested) {
     $auth = apiRevalidateAuthorizationScope($auth, true);
 }
 
@@ -51,6 +52,35 @@ if ($receiptVersionRequested) {
     err('Durable attendance receipts are not supported. Preserve unresolved work.', 412,
         ['code' => 'ATTENDANCE_RECEIPT_CONTRACT_UNSUPPORTED',
          'capabilities' => $receiptCapabilities]);
+}
+// Complete preparation has no client-nominated scope or legacy year memo.
+if ($action === 'preparation') {
+    if ($method !== 'GET') {
+        header('Allow: GET');
+        err('Use GET for attendance preparation.', 405);
+    }
+    if (!empty($ROUTE['sub'])) err('Unknown preparation endpoint.', 404);
+    $query = $_GET;
+    unset($query['_route'], $query['path']);
+    if ($query !== []) err('Preparation scope is selected by the server.', 422);
+    require_once dirname(__DIR__, 3) . '/admin/backend/services/AttendancePreparationService.php';
+    require_once dirname(__DIR__, 3) . '/admin/backend/services/AttendancePreparationGrant.php';
+    try {
+        $identity = \App\Services\AttendancePreparationGrant::serverIdentity((string)SITE_URL);
+        $facts = \App\Services\AttendancePreparationService::read(
+            $conn, $auth, apiRolesAttendance(), apiIsClassRestricted($auth)
+        );
+        $preparation = \App\Services\AttendancePreparationGrant::issue($facts, $identity, API_TOKEN_SECRET);
+    } catch (\App\Services\AttendancePreparationDenied $denial) {
+        err('Preparation authority changed. Preserve older work and sign in again.', 401,
+            ['code'=>$denial->reason]);
+    } catch (Throwable $error) {
+        error_log('Attendance preparation unavailable.');
+        err('Complete attendance preparation is unavailable. Preserve the previous dataset.', 503,
+            ['code'=>'ATTENDANCE_PREPARATION_UNAVAILABLE']);
+    }
+    // No304/ping/login timestamp may renew an older prepared publication.
+    ok($preparation);
 }
 $year = getCurrentAcademicYear();
 $yearId = $year ? (int)$year['id'] : 0;
