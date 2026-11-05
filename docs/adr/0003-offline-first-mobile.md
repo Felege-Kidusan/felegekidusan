@@ -553,3 +553,25 @@ or activate a route. Their future preparation caller must bind current authority
 class access, write year, strict calendar and workflow facts inside one consistent
 read transaction. Server snapshot publication and atomic mobile calendar/context/
 readiness binding remain unfinished. No schema, lease or policy activation.
+
+## Strict calendar preparation read (opt-in primitive)
+
+`SchoolCalendarService.preparationCalendar` reuses the established calendar
+business-rule evaluator, but verifies every required read column and rejects
+SQL/schema failures, mismatched captured write year, duplicate class schedules,
+invalid working-day tokens and incomplete/unsupported class/day coverage. It
+accepts an explicit unique server-authorized class list and a bounded existing
+mobile-calendar span; it does not select or broaden permission scope.
+
+The strict read resets connection/snapshot-unbound caches before and afterward.
+Only after actual schema probes succeed are readiness caches seeded for that
+read. The method scopes and restores mysqli reporting mode and strict-read state
+in `finally`; makeup read errors cannot become partial range-cache success.
+Legacy callers keep existing missing-schema/deployment behavior and calendar
+precedence. Constants, calendar IDs/assets/colors and policies are unchanged.
+
+This primitive does not authenticate, grant a lease, activate a route, publish
+mobile readiness or own/commit a transaction. The future preparation caller must
+verify transactional schema/engines and bind current authority, class scope,
+write year, roster, calendar and strict workflow facts in one consistent read
+transaction. Those endpoint/publication/readiness obligations remain unfinished.
