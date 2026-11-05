@@ -357,17 +357,18 @@ class F8DropPendingReconciliation(unittest.TestCase):
         self.assertIn('needs_attention', body)
         self.assertNotIn('sync_error IS NULL', body)
 
-    def test_resave_replacement_still_replaces_rejected(self):
-        # All four public saves delegate to one serialized transaction that
-        # replaces the active owner/scope's natural-key generation (including
-        # a prior rejection) before inserting one fresh operation id.
+    def test_resave_replacement_remains_owner_scope_fenced(self):
+        # All four saves delegate to the serialized owner/scope-fenced method.
+        # Attendance additionally preserves attempted/held or different-year
+        # generations; this source check does not claim those are replaced.
         for name in ('saveAttendanceLocal', 'saveGradesLocal',
                      'saveMezmurLocal', 'saveHrLocal'):
             body = self.db[self.db.find(f'Future<LegacyOperationRef> {name}('):
                            self.db.find(f'Future<LegacyOperationRef> {name}(') + 2200]
             self.assertIn('_replaceLegacyOperation(', body, name)
-        replacement = self.db[self.db.find('_replaceLegacyOperation({'):
-                              self.db.find('_replaceLegacyOperation({') + 3200]
+        start = self.db.index('  Future<LegacyOperationRef> _replaceLegacyOperation({')
+        end = self.db.index('  Future<LegacyOperationRef> saveAttendanceLocal(', start)
+        replacement = self.db[start:end]
         self.assertIn('final opId = newClientOpId();', replacement)
         self.assertIn("where: '$naturalKeyWhere AND synced = 0 '", replacement)
         self.assertIn('owner_user_id = ?', replacement)
