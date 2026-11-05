@@ -469,3 +469,30 @@ production deployment is activated. Tests execute the real migration and
 LocalDb with synthetic SQLite data, including actual minimal-v37 open/upgrade,
 rollback, committed-state reading, different-year preservation and immutable
 claims. These do not establish deployed-schema or installed-phone acceptance.
+
+
+## Server write-context discovery (development; no mobile activation)
+
+The additive [API discovery contract](../API.md#attendance-write-context-discovery-development)
+separates the server write year from `roster_year_id`. The read requires current
+server scope even for legacy builds, the attendance role and current class
+assignment; owner/version cannot be supplied by a client. It returns minimal
+point-in-time owner/version/class/year/date dimensions and explicit false flags
+for offline work and settlement. It creates neither a lease nor a complete
+prepared snapshot. It performs no roster query, write or operation claim.
+
+The discovery response is NOT yet an original operation context. A future
+producer must bind a complete consistent authorized snapshot to its owner,
+version, class, date and write year BEFORE editing; store the captured original
+year atomically with the marks; and retain that original on retry, rollover,
+roster refresh, navigation and authorization changes. Re-fetching discovery must
+never relabel earlier saved work. Unknown legacy years remain unknown. Current
+authority/calendar/workflow must be checked again at upload; historical scope
+reconciliation requires server rules and durable exact receipts, not client
+substitution of today's year. Rolling 30-day offline authorization, complete
+preparation, revocation and account/logout rules are not implemented by this read.
+
+Synthetic route tests execute the real adapter with boundary doubles. Separate
+isolated HTTP tests exercise actual authorization/class checks, including real
+assignment-version invalidation and a previous-roster-year fallback. These are
+not hosted deployment, phone, server-race or offline acceptance evidence.

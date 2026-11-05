@@ -5,15 +5,18 @@
  * POST /attendance                   — save (transaction + class assignment)
  * GET  /attendance/daily-stats
  * GET  /attendance/summary
+ * GET  /attendance/write-context — read-only write dimensions, not permission
  */
 
-$auth = apiRequireAuth();
+// Context discovery must never be cached, including authentication denials.
 $action = $ROUTE['id'] ?? '';
+if ($action === 'write-context') header('Cache-Control: no-store');
+$auth = apiRequireAuth();
 $receiptVersionRequested = $method === 'POST'
     && in_array($action, ['', 'submit'], true)
     && array_key_exists('HTTP_X_ATTENDANCE_RECEIPT_VERSION', $_SERVER);
 // New diagnostics/receipt preconditions have no old-client authority exception.
-if (in_array($action, ['operation-status', 'capabilities'], true) || $receiptVersionRequested) {
+if (in_array($action, ['operation-status', 'capabilities', 'write-context'], true) || $receiptVersionRequested) {
     $auth = apiRevalidateAuthorizationScope($auth, true);
 }
 
@@ -51,6 +54,52 @@ if ($receiptVersionRequested) {
 }
 $year = getCurrentAcademicYear();
 $yearId = $year ? (int)$year['id'] : 0;
+
+// Point-in-time server dimensions only. NOT a prepared dataset, lease,
+// calendar/workflow permission, durable receipt or offline-work activation.
+if ($action === 'write-context') {
+    if ($method !== 'GET') {
+        header('Allow: GET');
+        err('Use GET for attendance write context.', 405);
+    }
+    if (!empty($ROUTE['sub'])) err('Unknown write-context endpoint.', 404);
+    // Do not accept an owner/year nominated by the client or default a date.
+    $query = $_GET;
+    unset($query['_route'], $query['path']); // Reserved API routing keys.
+    if (count($query) !== 2 || array_diff(array_keys($query), ['class_id', 'date']) !== []) {
+        err('Explicit class_id and date only are required.', 422);
+    }
+    $rawClassId = $query['class_id'] ?? null;
+    $date = $query['date'] ?? null;
+    if (!is_string($rawClassId) || !preg_match('/^[1-9][0-9]{0,15}$/D', $rawClassId)
+        || (int)$rawClassId > 9007199254740991
+        || !is_string($date) || !preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/D', $date)
+        || !checkdate((int)substr($date, 5, 2), (int)substr($date, 8, 2), (int)substr($date, 0, 4))) {
+        err('Invalid class_id or exact Gregorian date.', 422);
+    }
+    $classId = (int)$rawClassId;
+    if ($yearId <= 0 || $yearId > 9007199254740991) {
+        err('Attendance write year is unavailable.', 503, ['code' => 'ATTENDANCE_WRITE_YEAR_UNAVAILABLE']);
+    }
+    // Same resolver and class scope as draft/submit, NOT resolveRosterYear.
+    apiRequireClassAccess($conn, $auth, $classId, $yearId);
+    $stmt = $conn->prepare('SELECT id FROM classes WHERE id = ?');
+    $stmt->bind_param('i', $classId);
+    $stmt->execute();
+    $class = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$class) err('Class not found', 404);
+    ok([
+        'context_version' => 1,
+        'owner_user_id' => (int)$auth['uid'],
+        'authorization_version' => (int)$auth['av'],
+        'class_id' => $classId,
+        'academic_year_id' => $yearId,
+        'date' => $date,
+        'authorizes_offline_work' => false,
+        'authorizes_settlement' => false,
+    ]);
+}
 
 /**
  * Resolve and validate an explicit sheet against the current server roster.

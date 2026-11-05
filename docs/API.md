@@ -1,6 +1,6 @@
 # API reference (overview)
 
-**Status:** maintained API overview. Original route review: `46fbaa7` (2026-10-22/23); router, token constants and specification inventory rechecked at `7e28157` (2026-10-28). This maps entry points, authentication and conventions, not every field or action-level permission. [OpenAPI 3.1](api/openapi.yaml) exists: 117 listed operations with deliberately summarized bodies. Read the named route/service for field-level behavior; specification presence does not establish complete contract conformance or live deployment.
+**Status:** maintained API overview. Original route review: `46fbaa7` (2026-10-22/23); router, token constants and specification inventory rechecked at `7e28157` (2026-10-28). This maps entry points, authentication and conventions, not every field or action-level permission. [OpenAPI 3.1](api/openapi.yaml) exists: 118 listed operations with deliberately summarized bodies. Read the named route/service for field-level behavior; specification presence does not establish complete contract conformance or live deployment.
 
 ## Source-reviewed browser ledger references
 
@@ -65,7 +65,7 @@ The 17 resources below are mapped in `api/v1/index.php`. `attendance_warnings.ph
 |---|---|
 | `auth` | `login`, `logout`, `refresh-token`, `verify` |
 | `members` | GET list and detail, PUT, `attendance`, `attendance-risk`, `department-status` (GET/POST); field shaping by role. There is no POST: members are never registered through the API (the route file's header comment still lists one) |
-| `attendance` | `submit`, `summary`, `daily-stats`; warnings via `attendance_warnings.php` |
+| `attendance` | `submit`, `summary`, `daily-stats`, `write-context` (read-only dimensions, not offline authority); warnings via `attendance_warnings.php` |
 | `classes` | GET |
 | `dashboard` | `stats`, `recent` |
 | `teachers` | GET |
@@ -108,3 +108,48 @@ The 46 files, grouped by domain:
 - A machine-readable contract for `/api/v1` now exists: [`api/openapi.yaml`](api/openapi.yaml) (OpenAPI 3.1, added 2026-10-23). It covers paths, methods, authentication and envelopes; most bodies are summarised. There is still no OpenAPI for `admin/api_*`, and no contract tests between the two layers for shared rules.
 - The deprecation plan for `backend/api/*` shims is undocumented. Unknown: whether any external caller uses them besides `frontend/`.
 - The per-action authorization inside each `admin/api_*.php` file is not tabulated (see [ROLES_AND_PERMISSIONS.md](ROLES_AND_PERMISSIONS.md)).
+
+
+## Attendance write-context discovery (development)
+
+`GET /api/v1/attendance/write-context?class_id=1&date=2026-11-05` returns a
+point-in-time description, not a prepared dataset or permission to write. It
+requires current server authorization (including old client builds), attendance
+role and class access, an existing class and a positive server-resolved write
+year. `class_id` must be an exact positive decimal query string within the
+portable integer limit; `date` must be explicit exact Gregorian YYYY-MM-DD.
+Missing/malformed/extra scope inputs are 422; reserved `_route` / `path` routing
+keys are not scope inputs. Other methods are 405 (`Allow: GET`); extra subpaths
+are 404; missing write year is 503 `ATTENDANCE_WRITE_YEAR_UNAVAILABLE`.
+Authentication/scope denial retains the existing 401/403/409/503 contracts.
+
+Success uses the existing envelope, with these `data` fields:
+
+```json
+{
+  "context_version": 1,
+  "owner_user_id": 3,
+  "authorization_version": 7,
+  "class_id": 1,
+  "academic_year_id": 6,
+  "date": "2026-11-05",
+  "authorizes_offline_work": false,
+  "authorizes_settlement": false
+}
+```
+
+IDs above are synthetic. Owner/version come from current validated server
+authority, not query parameters. Year comes from the SAME `getCurrentAcademicYear`
+resolver used by legacy draft/submit stamping (including its legacy `is_current`
+fallback), never the displayed roster's fallback year. No roster or student data
+is returned. API responses are `no-store`; no business mutation, operation claim,
+receipt or authorization lease is created.
+
+A successful description does **not** check calendar/day-off/backdate/future-date,
+packet lock, complete roster, snapshot consistency or upload acceptance. A valid
+date may describe a day on which writes will be refused. Authorization/year can
+change immediately after the read. Never use this endpoint alone to unlock
+offline work, overwrite saved operation provenance, backfill unknown work or
+settle an outbox item. Existing GET/save/submit contracts and all mobile producers
+are unchanged. Full prepared-context binding and exact receipts remain separate
+work; see [offline-first ADR](adr/0003-offline-first-mobile.md).
