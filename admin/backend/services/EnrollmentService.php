@@ -464,6 +464,97 @@ class EnrollmentService
         return false;
     }
 
+    /**
+     * Strict opt-in preparation read. The caller owns authorization and a
+     * consistent read transaction; this is not a lease or readiness grant.
+     * Preserve the legacy rollover policy without treating SQL failure as zero.
+     * The preferred write year remains separate from the resolved roster year.
+     * @return array{year_id:int,preferred_year_id:int,fallback:bool}
+     */
+    public static function resolvePreparationRosterYear(\mysqli $conn, int $classId, int $preferredYearId): array
+    {
+        self::requirePreparationIds($classId, $preferredYearId);
+        $rows = self::preparationRows($conn,
+            "SELECT COUNT(*) AS c FROM class_enrollments
+             WHERE class_id = ? AND status = 'active'
+               AND (academic_year_id = ? OR academic_year_id IS NULL OR academic_year_id = 0)",
+            'ii', [$classId, $preferredYearId]);
+        $out = ['year_id' => $preferredYearId, 'preferred_year_id' => $preferredYearId, 'fallback' => false];
+        if ((int)$rows[0]['c'] > 0) return $out;
+        $rows = self::preparationRows($conn,
+            "SELECT academic_year_id, COUNT(*) AS cnt FROM class_enrollments
+             WHERE class_id = ? AND status = 'active'
+             GROUP BY academic_year_id ORDER BY cnt DESC, academic_year_id DESC LIMIT 1",
+            'i', [$classId]);
+        if ($rows === []) return $out; // Successful empty query, not an error.
+        $resolved = (int)$rows[0]['academic_year_id'];
+        if ($resolved <= 0 || $resolved > 9007199254740991) {
+            throw new \RuntimeException('Preparation roster year is unavailable.');
+        }
+        $out['year_id'] = $resolved;
+        $out['fallback'] = $resolved !== $preferredYearId;
+        return $out;
+    }
+
+    /**
+     * Only attendance UI/QR identity fields, no broader member/HR data.
+     * $rosterYearId is server-resolved, NEVER the original attendance write year.
+     * Existing enrollment and dated Education eligibility rules are unchanged.
+     * @return list<array{member_id:int,student_name:string,father_name:string,member_code:string}>
+     */
+    public static function fetchPreparationRoster(\mysqli $conn, int $classId, int $rosterYearId, string $date): array
+    {
+        self::requirePreparationIds($classId, $rosterYearId);
+        $exclusion = DepartmentStatusService::exclusionSql($conn, 'edu', 'm.id', $date, true);
+        $rows = self::preparationRows($conn,
+            "SELECT m.id AS member_id, m.student_name, m.father_name, m.member_code
+             FROM class_enrollments ce LEFT JOIN members m ON ce.member_id = m.id
+             WHERE ce.class_id = ? AND ce.status = 'active'
+               AND (ce.academic_year_id = ? OR ce.academic_year_id IS NULL OR ce.academic_year_id = 0)"
+                . $exclusion . ' ORDER BY m.student_name, m.id',
+            'ii', [$classId, $rosterYearId]);
+        $seen = [];
+        foreach ($rows as &$row) {
+            $id = (int)$row['member_id'];
+            if ($id <= 0 || $id > 9007199254740991 || isset($seen[$id])) {
+                throw new \RuntimeException('Preparation roster contains an invalid or duplicate identity.');
+            }
+            $seen[$id] = true;
+            $row = ['member_id' => $id,
+                'student_name' => (string)$row['student_name'],
+                'father_name' => (string)$row['father_name'],
+                'member_code' => (string)$row['member_code']];
+        }
+        unset($row);
+        return $rows;
+    }
+
+    private static function requirePreparationIds(int $classId, int $yearId): void
+    {
+        if ($classId <= 0 || $yearId <= 0 || $classId > 9007199254740991 || $yearId > 9007199254740991) {
+            throw new \InvalidArgumentException('Explicit valid class and server-resolved year are required.');
+        }
+    }
+
+    /** Fail closed in both mysqli reporting modes; never expose SQL errors. */
+    private static function preparationRows(\mysqli $conn, string $sql, string $types, array $params): array
+    {
+        $stmt = null;
+        try {
+            $stmt = $conn->prepare($sql);
+            if (!$stmt || !$stmt->bind_param($types, ...$params) || !$stmt->execute()) {
+                throw new \RuntimeException('Preparation query failed.');
+            }
+            $result = $stmt->get_result();
+            if (!$result) throw new \RuntimeException('Preparation result unavailable.');
+            return $result->fetch_all(MYSQLI_ASSOC);
+        } catch (\Throwable $error) {
+            throw new \RuntimeException('Roster preparation is unavailable.', 0, $error);
+        } finally {
+            if ($stmt instanceof \mysqli_stmt) $stmt->close();
+        }
+    }
+
     public static function countActive(\mysqli $conn, int $classId, ?int $yearId, bool $includeUnscoped = true): int
     {
         if ($classId <= 0) {
