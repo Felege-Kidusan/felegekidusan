@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fkss_app/screens/attendance/attendance_screen.dart';
 import 'package:fkss_app/services/api_service.dart';
 import 'package:fkss_app/services/local_db.dart';
+import 'package:fkss_app/services/session_models.dart';
 import 'package:fkss_app/services/sync_service.dart';
 import 'package:fkss_app/services/attendance_calendar_cache.dart';
 import 'package:fkss_app/services/legacy_outbox_models.dart';
@@ -89,6 +90,9 @@ class FakeDb implements LocalDb {
   int lockCleanupCalls = 0;
   LegacyOperationRef? undone;
   int localEdits = 0;
+  Object? snapshotFailure;
+  Completer<void>? delayedSnapshot;
+  final cacheSessions = <LegacyWriteSession>[];
   bool refuseSave = false;
   Object? saveFailure;
   Completer<void>? delayedSave;
@@ -130,6 +134,19 @@ class FakeDb implements LocalDb {
     // rather than hiding the caller behind a no-op mock.
     saved.remove('$id:$date');
   }
+  @override
+  Future<void> cacheAttendanceSnapshot(
+      int id, String date, List<Map<String, dynamic>> students,
+      {required LegacyWriteSession expectedSession,
+      String? submissionStatus, bool locked = false}) async {
+    cacheSessions.add(expectedSession);
+    final captured = students.map((s) => Map<String, dynamic>.from(s)).toList();
+    if (delayedSnapshot != null) await delayedSnapshot!.future;
+    if (snapshotFailure != null) throw snapshotFailure!;
+    await cacheAttendanceResponse(id, date, captured,
+        submissionStatus: submissionStatus, locked: locked);
+  }
+
   @override
   Future<void> cacheStudents(int id, List<dynamic> rows) async {}
   @override
@@ -633,5 +650,77 @@ void main() {
     expect(db.saves, 0);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('online refresh publishes with its original captured session', (tester) async {
+    api.code = 'o';
+    await open(tester);
+    final capture = db.cacheSessions.single;
+    expect(capture.ownerUserId, 7);
+    expect(capture.authorizationVersion, 2);
+    expect(capture.runtimeGeneration, 1);
+    expect(db.sheets['3:${api.date}'], isNotNull);
+  });
+
+  testWidgets('cache storage failure explains retention without erasing pending work', (tester) async {
+    api.code = 'o';
+    db.saved['3:${api.date}'] = [{'member_id': 30, 'status': 'late', 'notes': 'Unsent', 'packet_kind': 'draft', 'sync_state': 'pending'}];
+    final before = db.saved['3:${api.date}'];
+    db.snapshotFailure = StateError('synthetic disk full');
+    await open(tester);
+    expect(find.textContaining('Pending work was not cleared'), findsOneWidget);
+    expect(db.saved['3:${api.date}'], same(before));
+    expect(db.lockCleanupCalls, 0);
+    expect(find.text('Saved'), findsNothing);
+  });
+
+  testWidgets('durable cache-session refusal blocks editing without clearing work', (tester) async {
+    api.code = 'o';
+    db.snapshotFailure = const StaleAttendanceSyncSession();
+    await open(tester);
+    expect(submitEnabled(tester), false);
+    expect(find.textContaining('Your session changed'), findsOneWidget);
+    await tester.tap(find.text('P'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(db.saves, 0);
+    expect(db.lockCleanupCalls, 0);
+  });
+
+  testWidgets('late cache refusal from an older generation cannot update the current view', (tester) async {
+    api.code = 'o';
+    db.delayedSnapshot = Completer<void>();
+    db.snapshotFailure = const StaleAttendanceSyncSession();
+    await open(tester);
+    api.generation++;
+    db.delayedSnapshot!.complete();
+    await tester.pumpAndSettle();
+    expect(db.cacheSessions.single.runtimeGeneration, 1);
+    expect(find.textContaining('Your session changed'), findsNothing);
+    expect(db.lockCleanupCalls, 0);
+  });
+
+  for (final fails in [false, true]) {
+    testWidgets('delayed cache ${fails ? "failure" : "completion"} cannot erase a newer mark', (tester) async {
+      api.code = 'o';
+      db.delayedSnapshot = Completer<void>();
+      if (fails) db.snapshotFailure = StateError('synthetic disk full');
+      await open(tester);
+      await tester.tap(find.text('P'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(db.saved['3:${api.date}']!.single['status'], 'present');
+      db.delayedSnapshot!.complete();
+      await tester.pumpAndSettle();
+      expect(db.saved['3:${api.date}']!.single['status'], 'present');
+      expect(db.lockCleanupCalls, 0);
+      if (fails) expect(find.textContaining('Pending work was not cleared'), findsOneWidget);
+      // Existing UI hides the progress strip while an error is displayed.
+      // A fresh manual save reads current UI records, proving the late cache
+      // callback did not silently replace them with its older absent mark.
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(db.saved['3:${api.date}']!.single['status'], 'present');
+      expect(find.text('1 / 1 present'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
 
 }

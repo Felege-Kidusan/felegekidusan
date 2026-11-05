@@ -512,3 +512,21 @@ commit or offline-readiness grant. Server consistency and atomic owner/context/
 calendar/sheet binding remain required before new offline activation. Synthetic
 real-SQLite tests cover rollback and an independent committed-state reader, not
 process-death or owner-phone acceptance. No schema or wire contract changes.
+
+## Atomic attendance read-cache pair and durable session fence
+
+Online attendance refresh now calls `LocalDb.cacheAttendanceSnapshot` instead
+of independently committing its roster and class/day sheet. The new method
+captures JSON and roster scalars before its first await, then checks the
+captured owner, authorization version, runtime generation and active durable
+session inside the same SQLite transaction that replaces both existing caches.
+A failed roster or sheet write rolls both back. Other classes/dates and pending
+attendance are not deleted. Old standalone cache APIs remain for compatibility.
+
+The screen reports cache-storage refusal without clearing edits or pending work.
+A durable-session refusal blocks further editing through the existing access
+gate; a superseded callback cannot update a newer view. This is not a new server
+snapshot, lease, original-year producer, receipt or offline-readiness grant.
+Legacy UI publication timing and other consumers' independent cache writes do
+not establish complete authorized preparation. Server-consistent datasets and
+atomic calendar/context/readiness publication remain separate work.

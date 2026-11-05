@@ -427,16 +427,22 @@ class P1EProtectedCaches(unittest.TestCase):
             'Future<List<Map<String, dynamic>>> getCachedClasses(')
         self.assertIn("orderBy: 'class_name'", reader)
 
-    def test_shared_student_cache_untouched(self):
+    def test_shared_student_cache_shape_and_all_consumers_preserved(self):
         # cacheStudents keeps its per-class delete+rewrite shape.
         writer = method_body(self.ldb, 'Future<void> cacheStudents(')
         self.assertIn("delete('cached_students', where: 'class_id = ?'",
                       writer)
-        # All three established writers are still there.
-        for f, why in ((ATTEND, 'attendance screen'),
-                       (GRADES, 'teacher grades'),
-                       (WARM, 'warm store')):
+        # All three established consumers still publish the shared roster.
+        # Attendance now uses the atomic roster+sheet/session-fenced publisher;
+        # grades and warm-store retain the compatible standalone writer.
+        for f, why in ((GRADES, 'teacher grades'), (WARM, 'warm store')):
             self.assertIn('cacheStudents', read(f), why)
+        self.assertIn('cacheAttendanceSnapshot', read(ATTEND))
+        pair = method_body(self.ldb, 'Future<void> cacheAttendanceSnapshot(')
+        self.assertIn('db.transaction((txn)', pair)
+        self.assertIn('_requireAttendanceSyncSession(txn, expectedSession)', pair)
+        self.assertIn("batch.insert('cached_students', row)", pair)
+        self.assertIn("batch.insert('cached_attendance'", pair)
 
     def test_edu_surface_does_not_use_shared_caches(self):
         for token in ('cached_classes', 'cached_students', 'CatalogService',
