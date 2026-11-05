@@ -46,13 +46,12 @@ class DepartmentOfflinePolicy {
   static const Set<OfflineDepartment> offlineEnabledToday = {
     OfflineDepartment.educationAttendance,
     OfflineDepartment.mezmurAttendance,
-  };
-
-  /// Grades is the next department; not enabled until its preparation
-  /// dataset/store/fetcher land.
-  static const Set<OfflineDepartment> plannedNext = {
     OfflineDepartment.grades,
   };
+
+  /// Next departments after Grades (members/HR/Finance/Materials); none
+  /// currently planned as offline until inventory lands.
+  static const Set<OfflineDepartment> plannedNext = {};
 
   static const Set<OfflineDepartment> onlineOnly = {
     OfflineDepartment.education,

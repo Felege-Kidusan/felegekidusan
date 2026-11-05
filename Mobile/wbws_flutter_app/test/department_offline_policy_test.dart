@@ -2,15 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fkss_app/services/department_offline_policy.dart';
 
 void main() {
-  test('exactly two attendance scopes are offline today', () {
-    expect(DepartmentOfflinePolicy.offlineEnabledToday, hasLength(2));
+  test('exactly two attendance scopes are offline today plus grades', () {
+    expect(DepartmentOfflinePolicy.offlineEnabledToday, hasLength(3));
     expect(DepartmentOfflinePolicy.isOfflineEnabled(OfflineDepartment.educationAttendance), isTrue);
     expect(DepartmentOfflinePolicy.isOfflineEnabled(OfflineDepartment.mezmurAttendance), isTrue);
+    expect(DepartmentOfflinePolicy.isOfflineEnabled(OfflineDepartment.grades), isTrue);
   });
 
-  test('grades is planned, not enabled', () {
-    expect(DepartmentOfflinePolicy.isPlanned(OfflineDepartment.grades), isTrue);
-    expect(DepartmentOfflinePolicy.isOfflineEnabled(OfflineDepartment.grades), isFalse);
+  test('grades is enabled, no longer planned', () {
+    expect(DepartmentOfflinePolicy.isPlanned(OfflineDepartment.grades), isFalse);
+    expect(DepartmentOfflinePolicy.isOfflineEnabled(OfflineDepartment.grades), isTrue);
   });
 
   test('other departments are online-only and not offline-enabled', () {
