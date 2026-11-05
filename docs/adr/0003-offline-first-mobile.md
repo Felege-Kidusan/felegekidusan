@@ -641,3 +641,40 @@ logout revocation acknowledgment, lost-device management, old unbound cohort
 transition and real deployed/device acceptance remain unfinished. Family/session
 identifiers are not hardware identity or encryption, and no offline grant,
 preparation endpoint, readiness, mobile producer or schema is activated here.
+
+## Strict normalized multi-date roster preparation (opt-in)
+
+`EnrollmentService.fetchPreparationRosterDates` takes explicit server-resolved
+class/roster-year/date scope and returns member names/father/code once plus exact
+ordered member-ID membership for every requested date, including complete empty
+dates. Roster fallback remains distinct from original attendance write year.
+Eligible duplicate/orphan/invalid identities and incomplete member coverage fail;
+there is no silent deduplication or member/global-status policy change.
+
+Department eligibility uses the SAME existing next-day predicate through one
+private builder behind the unchanged public legacy signature. The strict batch
+compiler probes enabled eligibility columns once per call without a static cache
+or feature override. Feature OFF stays OFF. SQL date literals and identity lists
+are validated; class/year scope is bound. Query construction is capped at the
+existing106-date calendar budget, not a new school permission/window policy.
+The strict query helper supports checked zero-parameter identity reads and still
+requires matching parameter counts and checked binds for parameterized reads.
+
+Real synthetic TEMP SQL compares all106 dates with the unchanged actual strict
+single-date reader:212 prepared statements with eligibility ON/106 OFF versus
+3/2 for the normalized batch, including one/zero eligibility probes. These are
+forwarded real prepared-SQL statement counts, not a claim about network latency,
+large-school performance or phones. One/four/full-span cases have the same
+bounded count. Tests cover independent next-day/reactivation boundary expectations,
+DB name/id ordering, minimal fields, fallback/unscoped years, complete empty,
+invalid/oversized scope, duplicate/orphan identities, missing member/eligibility
+columns, failure recovery and both mysqli modes. Instrumentation forwards actual
+SQL unchanged; no fabricated results or SQL-error doubles in this fixture.
+
+No route/grant/readiness/producer or transaction ownership is added. The eventual
+endpoint still must authorize ALL requested server-defined scope and bind current
+authority, write year, calendar, workflow/lesson/origin facts in the consistent
+storage boundary, then atomic mobile publication/fencing. A normalized roster is
+not a complete authorized preparation or offline lease. Closed years remain
+read-only; original unknown/older work is preserved, never restamped. Phase1 and
+all eight workstreams remain incomplete.

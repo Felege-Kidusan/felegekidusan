@@ -529,6 +529,64 @@ class EnrollmentService
         return $rows;
     }
 
+    /**
+     * Normalized strict multi-date roster, SAME year/eligibility/name ordering
+     * as fetchPreparationRoster, without per-date SQL/probe round trips.
+     * Caller owns authorization, explicit server scope and coherent snapshot.
+     * @return array{members:array,dates:array}
+     */
+    public static function fetchPreparationRosterDates(\mysqli $conn, int $classId, int $rosterYearId, array $dates): array
+    {
+        self::requirePreparationIds($classId, $rosterYearId);
+        require_once __DIR__ . '/SchoolCalendarService.php';
+        if (count($dates) > SchoolCalendarService::BACKDATE_DAYS + SchoolCalendarService::MOBILE_FUTURE_DAYS + 1) {
+            throw new \InvalidArgumentException('Preparation batch exceeds the supported calendar budget.');
+        }
+        $exclusions = DepartmentStatusService::preparationExclusions($conn, 'edu', 'm.id', $dates);
+        $parts = []; $params = []; $types = '';
+        foreach ($exclusions as $date => $exclusion) {
+            $literal = $conn->real_escape_string($date); // Already exact valid Gregorian date.
+            $parts[] = "SELECT '{$literal}' AS on_date, m.id AS member_id
+                FROM class_enrollments ce LEFT JOIN members m ON ce.member_id=m.id
+                WHERE ce.class_id=? AND ce.status='active'
+                  AND (ce.academic_year_id=? OR ce.academic_year_id IS NULL OR ce.academic_year_id=0)" . $exclusion;
+            array_push($params, $classId, $rosterYearId); $types .= 'ii';
+        }
+        $rows = self::preparationRows($conn,
+            'SELECT eligible.on_date, eligible.member_id FROM (' . implode(' UNION ALL ', $parts) . ') eligible
+             LEFT JOIN members ordered_member ON eligible.member_id=ordered_member.id
+             ORDER BY eligible.on_date, ordered_member.student_name, eligible.member_id', $types, $params);
+        $byDate = array_fill_keys($dates, []); $seen = []; $ids = [];
+        foreach ($rows as $row) {
+            $date = $row['on_date']; $id = (int)$row['member_id'];
+            if (!is_string($date) || !array_key_exists($date, $byDate)
+                || $id <= 0 || $id > 9007199254740991 || isset($seen[$date][$id])) {
+                throw new \RuntimeException('Preparation roster date/identity coverage is invalid or duplicated.');
+            }
+            $seen[$date][$id] = true; $ids[$id] = true; $byDate[$date][] = $id;
+        }
+        $members = []; $memberSeen = [];
+        if ($ids !== []) {
+            // Only validated positive integer identities, never client SQL.
+            $idSql = implode(',', array_keys($ids));
+            $identities = self::preparationRows($conn,
+                'SELECT id AS member_id, student_name, father_name, member_code FROM members WHERE id IN (' . $idSql . ') ORDER BY id', '', []);
+            foreach ($identities as $row) {
+                $id = (int)$row['member_id'];
+                if (!isset($ids[$id]) || isset($memberSeen[$id])) {
+                    throw new \RuntimeException('Preparation member identities are incomplete or duplicated.');
+                }
+                $memberSeen[$id] = true;
+                $members[] = ['member_id'=>$id, 'student_name'=>(string)$row['student_name'],
+                    'father_name'=>(string)$row['father_name'], 'member_code'=>(string)$row['member_code']];
+            }
+            if (count($memberSeen) !== count($ids)) throw new \RuntimeException('Preparation member coverage is incomplete.');
+        }
+        $dateRows = [];
+        foreach ($dates as $date) $dateRows[] = ['date'=>$date, 'member_ids'=>$byDate[$date]];
+        return ['members'=>$members, 'dates'=>$dateRows];
+    }
+
     private static function requirePreparationIds(int $classId, int $yearId): void
     {
         if ($classId <= 0 || $yearId <= 0 || $classId > 9007199254740991 || $yearId > 9007199254740991) {
@@ -539,10 +597,13 @@ class EnrollmentService
     /** Fail closed in both mysqli reporting modes; never expose SQL errors. */
     private static function preparationRows(\mysqli $conn, string $sql, string $types, array $params): array
     {
+        if (strlen($types) !== count($params)) {
+            throw new \InvalidArgumentException('Preparation parameter binding is incomplete.');
+        }
         $stmt = null;
         try {
             $stmt = $conn->prepare($sql);
-            if (!$stmt || !$stmt->bind_param($types, ...$params) || !$stmt->execute()) {
+            if (!$stmt || ($types !== '' && !$stmt->bind_param($types, ...$params)) || !$stmt->execute()) {
                 throw new \RuntimeException('Preparation query failed.');
             }
             $result = $stmt->get_result();
