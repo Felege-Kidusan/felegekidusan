@@ -711,3 +711,71 @@ The eventual endpoint must authorize inside one coherent boundary, apply active
 write-year/calendar and closed-year read-only policy, retain protected old work,
 and never treat these independent facts as capture permission. Phase1/all8 remain
 incomplete until full endpoint and atomic mobile publication/fencing are tested.
+
+### Complete server-owned preparation snapshot and opaque provenance (v1)
+
+GET `/attendance/preparation` accepts no client scope dimensions. It requires
+signed family-bound access and current attendance role; every success re-reads
+real users.authorization_version/account/role, issuing-session liveness, unique
+active write year with supported current bounds, exact existing class ACL,
+strict normalized rosters, full bounded calendar, workflow/lesson locks and all
+original-origin facts inside one owned verified InnoDB read-only repeatable-read
+boundary. No compatibility AV fallback, request-static year memo or closed
+is_current fallback may certify this snapshot. Restricted class scope preserves
+the existing active-assignment predicate (including existing class-active
+behavior); privileged scope remains active classes. No client owner/year/class,
+Host or Origin selects scope or identity. True empty authorized scope is complete;
+unsupported/failed facts cannot produce a partial success. Saved off-roster marks
+remain present and block new capture rather than being silently discarded.
+
+Configured SITE_URL must provide a supported canonical HTTPS identity, not its
+localhost fallback. A completed payload has one random preparation ID, original
+server authorization timestamp and at-most30-day deadline also bounded by the
+original active-year end. Authentication/refresh/ping/304 cannot renew it. Scope
+is a coherent point-in-time snapshot, not a promise that no authority can change
+after that point; its timestamp starts before the read, never after a slow read.
+Known snapshot authority denial stays typed even if cleanup separately fails;
+the boundary still discards an uncertain owned connection. Every denial/error is
+no-store, old work is not modified, and a new success does not rebind old work.
+
+The response carries exact base64url UTF8 dataset bytes and a domain-separated
+server HMAC root binding their SHA256 to server/owner/role/AV/stable family,
+preparation ID and original lease. Each day has a separately domain-separated
+opaque context token binding its original write year separately from roster
+fallback, class/date, roster/base/workflow digests, calendar code and bounded
+opening/closing timestamps. Same signing secret cannot interchange an access,
+root or day token. Future coverage is not early capture; days beyond the original
+lease have no capture eligibility. Calendar/known workflow/lesson/origin/roster
+checks apply together. Staff's existing supported workflow override never defeats
+foreign/unknown/closed original-year restrictions. Complete empty remains valid
+data without inventing a nonempty attendance save. No receipt or settlement is
+authorized by preparation. New prepared tokens are not submitted through legacy
+writes; durable receipt negotiation remains negative until that implementation.
+
+Opaque HMAC is server-verifiable provenance, NOT a client public verification
+key or encryption. Client trust requires authenticated HTTPS, expected configured
+server identity, strict full parsing and Keystore-protected local integrity of
+the exact payload/grant publication. No server secret goes to the client. The
+server inspect helper checks cryptographic provenance only; it is NOT current
+authorization/expiry/upload permission. Later uploads must enforce current
+scope/session/workflow and exact immutable intent/receipt semantics; old expired
+provenance remains useful for audited resolution, not automatic write/purge.
+
+Guarded native integration creates ONLY a fresh randomized owned schema on the
+isolated synthetic service, registers ownership only after successful CREATE,
+uses actual persistent InnoDB tables/metadata and drops only that owned schema.
+Synthetic root credentials are fixture-only, never school config or application
+privilege acceptance. The real boundary/readers/core auth/attendance route and
+HMAC run; only response delivery is adapted, not HTTP transport. A real atomic
+second-connection commit changes authority, assignments, year, roster identity,
+calendar and workflow during the read; the snapshot remains one old version and
+the next call denies stale authority. Real missing columns, nontransactional
+storage, temporary shadows and existing outer transactions fail. Metrics are tiny
+synthetic SQL/byte/timing observations, not production/device performance. Source
+and CI do not establish installed schema/binary equality or deployment readiness.
+
+This completes only the server preparation path after its checked merge. Mobile
+atomic protected publication, runtime/owner/session fencing and actual positive
+readiness remain Phase1 obligations; Phase1 and all8 workstreams are NOT complete.
+No deployment, mobile activation, durable upload, encryption, owner signing or
+phone acceptance is claimed.
