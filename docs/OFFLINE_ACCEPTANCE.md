@@ -45,7 +45,7 @@ Request: reconstruct and audit the prior offline campaign, preserve verified saf
 
 ## Department and release gates
 - **Two attendance scopes in SSMS** — Education Department attendance (by **class**) and Mezmur Department attendance (by **section**, `member_department_periods` when `attendance_v2` is on) — each require actual end-to-end coverage; one role does not prove the other, but both are served by the single atomic `GET /attendance/preparation` endpoint (predicate `classRestricted` + `attendance_v2`).
-- **Department offline inventory** — Education attendance and Mezmur attendance are offline-enabled today (`DepartmentOfflinePolicy.offlineEnabledToday`). Grades is `plannedNext` — the next offline department to implement. Education (curriculum), members, HR, Finance and Materials remain **online-only** until separate supported-scope and dependency inventories land. Offline enrollment requires an owner decision.
+- **Department offline inventory** — Education attendance, Mezmur attendance, and **Grades** are offline-enabled today (`DepartmentOfflinePolicy.offlineEnabledToday = {educationAttendance, mezmurAttendance, grades}`) with truthful banners + refresh action and exact atomic `*_sync_receipt` drains (v40 attendance, v42 grades). Education (curriculum), members, HR, Finance and Materials remain **online-only** until separate supported-scope and dependency inventories land. Offline enrollment requires an owner decision.
 - Encryption investigation is separate from the integrity migration; no encryption claim without measured migration/recovery and key-lifecycle tests.
 - Passing CI is not deployment, independent review, school approval or phone acceptance.
 
