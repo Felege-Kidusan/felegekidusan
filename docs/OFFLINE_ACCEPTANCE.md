@@ -44,8 +44,8 @@ Request: reconstruct and audit the prior offline campaign, preserve verified saf
 30. Synthetic automated tests and supported real phones cover rosters of 8, 153 and 500+ members, 7/14/30-day disconnection, low storage, process death, weak networks and multi-device conflict. Memory/latency/storage budgets require measured device evidence; no invented pass thresholds.
 
 ## Department and release gates
-- Teacher, Mezmur and general attendance each require actual end-to-end coverage; one endpoint does not prove all three.
-- Grades, Education, members, HR, Finance and Materials require separate supported-scope and dependency inventories. Offline enrollment requires an owner decision.
+- **Two attendance scopes in SSMS** — Education Department attendance (by **class**) and Mezmur Department attendance (by **section**, `member_department_periods` when `attendance_v2` is on) — each require actual end-to-end coverage; one role does not prove the other, but both are served by the single atomic `GET /attendance/preparation` endpoint (predicate `classRestricted` + `attendance_v2`).
+- **Department offline inventory** — Education attendance and Mezmur attendance are offline-enabled today (`DepartmentOfflinePolicy.offlineEnabledToday`). Grades is `plannedNext` — the next offline department to implement. Education (curriculum), members, HR, Finance and Materials remain **online-only** until separate supported-scope and dependency inventories land. Offline enrollment requires an owner decision.
 - Encryption investigation is separate from the integrity migration; no encryption claim without measured migration/recovery and key-lifecycle tests.
 - Passing CI is not deployment, independent review, school approval or phone acceptance.
 
