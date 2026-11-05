@@ -11,6 +11,8 @@ import '../../services/connectivity_service.dart';
 import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
 import '../../services/session_models.dart';
+import '../../services/attendance_preparation_adapter.dart';
+import '../../services/attendance_preparation_readiness.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
@@ -87,6 +89,26 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   int? _sheetGeneration;
   int? _sheetAuthorizationVersion;
   StreamSubscription<SyncStatus>? _syncSub;
+  // Preparation-based offline readiness (inactive UI hook, truthful banners).
+  AttendancePreparationResolution? _prepResolution;
+  final _prepAdapter = AttendancePreparationAdapter();
+  String? get _prepBanner {
+    final r = _prepResolution;
+    if (r == null) return null;
+    switch (r.reason) {
+      case AttendanceReadinessReason.ready:
+        return null; // No banner when ready; offline is honest.
+      case AttendanceReadinessReason.missing:
+        return 'No offline preparation yet — connect and refresh to download your classes and roster.';
+      case AttendanceReadinessReason.staleSession:
+        return 'Your sign-in changed — refresh your preparation before taking attendance offline.';
+      case AttendanceReadinessReason.expired:
+        return 'Your offline preparation expired — connect and refresh to renew it.';
+      case AttendanceReadinessReason.clockSkew:
+        return 'Your phone clock looks wrong — fix the date/time, then refresh.';
+    }
+  }
+
   Map<String, dynamic>? get _effectiveDateStatus {
     final today = AttendanceCalendar.addisToday(DateTime.now());
     final date = AttendanceCalendar.parseDate(_selectedDate);
@@ -185,6 +207,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     _syncSaveGate();
     _loadClasses();
     _updatePendingCount();
+    _loadPreparationStatus();
 
     // Listen for sync updates
     _syncSub = _sync.syncStream.listen((status) {
@@ -235,6 +258,16 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         _pendingCount = count;
         _rejectedCount = rejected;
       });
+    }
+  }
+
+  Future<void> _loadPreparationStatus() async {
+    try {
+      final res = await _prepAdapter.resolve();
+      if (!mounted) return;
+      setState(() => _prepResolution = res);
+    } catch (_) {
+      // Preparation status is advisory; never blocks the roster.
     }
   }
 
@@ -1016,6 +1049,12 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
           // this phone; Review explains and offers Discard.
           if (_rejectedCount > 0)
             SyncAttentionBanner(rejectedCount: _rejectedCount),
+
+          // Offline preparation readiness (truthful, never blocks roster).
+          if (_prepBanner != null)
+            StatusBanner.warning(_prepBanner!),
+          if (_prepResolution?.isReady == true && _prepResolution?.dataset?.classes.isEmpty == true)
+            StatusBanner.info('Your preparation has no classes — you are ready, but there is nothing to mark.'),
 
           // Class + Date selector
           Padding(
