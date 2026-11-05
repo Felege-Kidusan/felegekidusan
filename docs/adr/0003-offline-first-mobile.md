@@ -678,3 +678,36 @@ storage boundary, then atomic mobile publication/fencing. A normalized roster is
 not a complete authorized preparation or offline lease. Closed years remain
 read-only; original unknown/older work is preserved, never restamped. Phase1 and
 all eight workstreams remain incomplete.
+
+### Strict workflow and original-origin facts (opt-in, no activation)
+
+`AttendancePreparationWorkflow` reads explicit bounded class/date facts without
+legacy failure-to-empty behavior. It exposes minimal saved marks/notes and their
+actual nullable original academic year, all attendance-packet origins, latest-id
+packet workflow and feature-enabled submitted lesson locks/origins. Unknown/zero
+years remain unknown; different original years remain distinct. Neither date nor
+current write/roster year repairs an old origin. All origins must be known and
+match the separately supplied write year for `origin_matches_write_year`; an
+empty day is an explicit complete empty, not a guessed older context.
+
+Known workflow normalization/open rules reuse `SubmissionService`; unknown latest
+statuses are explicitly unsupported and never gain permission through its legacy
+normalization-to-incomplete fallback. Latest-id workflow does not hide foreign or
+unknown older packet origins. The helper makes no staff/closed-year override.
+Feature OFF does not read optional lesson tables; ON requires checked record
+schema and session data, rejects unsupported session statuses, ignores cancelled
+sessions and marks submitted sessions as derived. Its dependency list includes
+every table read, to be declared by the full endpoint's storage boundary.
+
+Actual guarded TEMP SQL covers both feature/reporting modes, successful empty,
+106-date bounded reads, latest/earlier packets, shared known-status parity with
+real unchanged legacy helpers, unknown/mixed/foreign origins, duplicate/invalid
+rows, real missing columns and recovery. It also observes actual unchanged
+legacy helper behavior: unknown status can normalize open, and the staff helper
+alone does not check foreign original year. These are helper observations, not
+HTTP acceptance or a claim that existing routes are fixed. No production data,
+route, grant, migration, durable receipt, mobile publication or readiness change.
+The eventual endpoint must authorize inside one coherent boundary, apply active
+write-year/calendar and closed-year read-only policy, retain protected old work,
+and never treat these independent facts as capture permission. Phase1/all8 remain
+incomplete until full endpoint and atomic mobile publication/fencing are tested.
