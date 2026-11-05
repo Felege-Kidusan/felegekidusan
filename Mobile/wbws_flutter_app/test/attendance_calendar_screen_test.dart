@@ -148,6 +148,7 @@ class FakeDb implements LocalDb {
   Future<LegacyOperationRef> saveAttendanceLocal(
       int id, String name, String date, List<Map<String, dynamic>> records,
       {required LegacyWriteSession expectedSession,
+      int? originalAcademicYearId,
       String packetKind = 'draft', DateTime? notBefore}) async {
     capturedSessions.add(expectedSession);
     if (delayedSave != null) await delayedSave!.future;
@@ -159,6 +160,7 @@ class FakeDb implements LocalDb {
         .toList();
     return LegacyOperationRef(
         kind: LegacyOperationKind.attendance,
+        originalAcademicYearId: originalAcademicYearId,
         naturalKey: {'class_id': id, 'date': date},
         clientOpId: 'op-$saves',
         packetKind: packetKind == 'submitted'

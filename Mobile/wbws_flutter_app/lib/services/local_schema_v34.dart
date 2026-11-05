@@ -2,7 +2,7 @@
 ///
 /// This file intentionally has no Flutter dependency. The runtime SQLite
 /// migration harness reads these declarations as its schema source of truth.
-const localDatabaseSchemaVersion = 37;
+const localDatabaseSchemaVersion = 38;
 
 final class LocalColumnSpec {
   final String table;

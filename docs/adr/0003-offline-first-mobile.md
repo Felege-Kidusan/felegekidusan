@@ -427,3 +427,45 @@ ordering, draft/submit, Unicode/delimiters, bounds and a full 2000-record / 500
 non-BMP-scalar notes case. Malformed/missing context and records fail closed.
 Synthetic unit and backend tests are not deployed-schema, phone, cold-restart,
 receipt-lifecycle or production acceptance evidence.
+
+## Original attendance year storage (local schema 38; producer not activated)
+
+`pending_attendance.original_academic_year_id` is nullable INTEGER metadata on
+existing operation rows, not a second outbox. The repeat-safe migration runs
+on create and upgrade, never backfills a year or rewrites/deletes old work.
+Unexpected existing column shape or SQL failure propagates; it cannot trigger
+a database replacement or authorize a reset. Old unknown provenance stays NULL.
+As with other forward schema changes, do not downgrade an installed database
+or restore an older copy to make an older app open it.
+
+`saveAttendanceLocal` accepts an optional explicit `originalAcademicYearId`.
+A supplied value must be an actual positive integer within the manifest's
+portable exact-ID bound. Metadata and marks commit in the existing replacement
+transaction under the original owner/session fence. Never-attempted generations
+may coalesce only with the SAME original year, including NULL-to-NULL. Different
+known years, or known/unknown provenance, retain the complete older generation.
+A mixed-provenance sibling set is never partially deleted. Existing protections
+for attempted, held and in-flight work remain unchanged.
+
+The immutable operation reference exposes the original year; a claimed packet
+exposes it only if every captured row agrees on a valid integer. Empty, missing,
+invalid or mixed provenance is unknown, never selected from the first row or
+coerced from a string. This projection does not change legacy claim/upload
+eligibility and is not authorization or receipt evidence. Undo/retry retain the
+stored provenance; later edits cannot change an already captured snapshot.
+
+IMPORTANT: this package does not supply a year from the current UI, login,
+calendar, cache or HTTP response. GET attendance's existing `roster_year_id`
+can be a PREVIOUS-year roster fallback; it is not proven original WRITE scope.
+No existing producer passes the new optional argument. Therefore existing user
+workflows continue to store unknown provenance, not a manufactured strict-ready
+operation. Trusted server-attested write-scope capture and complete durable
+prepared snapshots, including protection against relabeling pre-refresh edits,
+remain a separate integration step. Keep unknown legacy work recoverable.
+
+No wire body/header, server schema/API, manifest construction, strict receipt
+support, positive settlement, account/logout permission, cleanup override or
+production deployment is activated. Tests execute the real migration and
+LocalDb with synthetic SQLite data, including actual minimal-v37 open/upgrade,
+rollback, committed-state reading, different-year preservation and immutable
+claims. These do not establish deployed-schema or installed-phone acceptance.
