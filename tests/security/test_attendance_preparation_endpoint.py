@@ -79,7 +79,8 @@ def test_scope_matches_existing_api_not_client_nomination():
     assert "['code'=>'ATTENDANCE_PREPARATION_UNAVAILABLE']" in block
     assert 'ok($preparation);' in block and '304' not in block.replace('No304', '')
     prefix = route.split('$auth = apiRequireAuth();', 1)[0]
-    assert "['write-context', 'preparation']" in prefix and 'no-store' in prefix
+    assert "if ($action === 'write-context') header('Cache-Control: no-store');" in prefix
+    assert "if ($action === 'preparation') header('Cache-Control: no-store');" in prefix
 
 
 def test_grant_integrity_and_permission_are_separate():

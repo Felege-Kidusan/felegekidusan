@@ -10,13 +10,14 @@
 
 // Context discovery must never be cached, including authentication denials.
 $action = $ROUTE['id'] ?? '';
-if (in_array($action, ['write-context', 'preparation'], true)) header('Cache-Control: no-store');
+if ($action === 'write-context') header('Cache-Control: no-store');
+if ($action === 'preparation') header('Cache-Control: no-store');
 $auth = apiRequireAuth();
 $receiptVersionRequested = $method === 'POST'
     && in_array($action, ['', 'submit'], true)
     && array_key_exists('HTTP_X_ATTENDANCE_RECEIPT_VERSION', $_SERVER);
 // New diagnostics/receipt preconditions have no old-client authority exception.
-if (in_array($action, ['operation-status', 'capabilities', 'write-context', 'preparation'], true) || $receiptVersionRequested) {
+if (in_array($action, ['operation-status', 'capabilities', 'write-context'], true) || $action === 'preparation' || $receiptVersionRequested) {
     $auth = apiRevalidateAuthorizationScope($auth, true);
 }
 
