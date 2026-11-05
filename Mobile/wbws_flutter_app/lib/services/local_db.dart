@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'attendance_delta.dart';
 import 'attendance_original_year.dart';
+import 'attendance_sync_receipt.dart';
 import 'interrupted_database_migration.dart';
 import 'amharic_text.dart' as amharic;
 import 'search_index_policy.dart';
@@ -125,6 +126,8 @@ class LocalDb {
         await _createSyncAttemptLedger(db);
         await migrateAttendanceOriginalYear(db);
         await db.execute(attendancePreparationSnapshotSql);
+        await db.execute(attendanceSyncReceiptSql);
+        await db.execute(attendanceSyncReceiptIndexSql);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -601,6 +604,10 @@ class LocalDb {
           }
           if (oldVersion < 39) {
             await db.execute(attendancePreparationSnapshotSql);
+          }
+          if (oldVersion < 40) {
+            await db.execute(attendanceSyncReceiptSql);
+            await db.execute(attendanceSyncReceiptIndexSql);
           }
         },
       onOpen: (db) async {
