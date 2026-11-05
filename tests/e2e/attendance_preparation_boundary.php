@@ -70,8 +70,17 @@ try {
     // No boundary: READ COMMITTED admits the mixed-state failure demonstrated
     // above, using the same real connections, not a fabricated missing method.
     $legacyFirst = readValue($conn, $a);
+    $writer->begin_transaction();
+    $writer->query('UPDATE `' . $a . '` SET n=3');
     $writer->query('UPDATE `' . $b . '` SET n=3');
-    verifyBoundary([$legacyFirst, readValue($conn, $b)] === [2, 3], 'Actual unbounded split-read baseline');
+    $writer->commit();
+    $unbounded = [$legacyFirst, readValue($conn, $b)];
+    $writerCommit = [readValue($writer, $a), readValue($writer, $b)];
+    verifyBoundary($unbounded === [2, 3], 'Actual unbounded split-read baseline');
+    verifyBoundary($writerCommit === [3, 3], 'Atomic writer changed BOTH tables: mixed reads were not a committed state');
+    // Restore the independent transaction/refusal fixture AFTER observing the
+    // split. Before that observation, committed states were only [2,2]/[3,3].
+    $writer->query('UPDATE `' . $a . '` SET n=2');
     $conn->begin_transaction();
     verifyBoundary(readValue($conn, $b) === 3, 'Outer read begins');
     $writer->query('UPDATE `' . $b . '` SET n=4');
@@ -128,6 +137,7 @@ try {
     verifyBoundary((new mysqli_driver())->report_mode === $mode, 'Reporting mode untouched after refusals');
     echo json_encode(['result'=>'PASS', 'checks'=>$checks, 'mysqli_strict'=>$strict,
         'real_connections'=>2, 'real_metadata'=>true, 'real_concurrency'=>true,
+        'bounded_snapshot'=>$snapshot, 'unbounded_split'=>$unbounded, 'baseline_writer_commit'=>$writerCommit,
         'boundary_doubles'=>['begin false/exception', 'commit false/exception', 'rollback false/exception']], JSON_THROW_ON_ERROR) . "\n";
 } finally {
     $conn->fault = '';

@@ -17,9 +17,11 @@ def test_real_preparation_boundary(reporting):
     assert run.returncode == 0, run.stdout + run.stderr
     assert not run.stderr, run.stderr
     data = json.loads(run.stdout)
-    assert data['result'] == 'PASS' and data['checks'] == 50
+    assert data['result'] == 'PASS' and data['checks'] == 51
     assert data['mysqli_strict'] == (reporting == 'strict')
     assert data['real_connections'] == 2 and data['real_metadata'] and data['real_concurrency']
+    assert data['bounded_snapshot'] == [1, 1, 1]
+    assert data['unbounded_split'] == [2, 3] and data['baseline_writer_commit'] == [3, 3]
     assert data['boundary_doubles'] == ['begin false/exception', 'commit false/exception', 'rollback false/exception']
 
 
