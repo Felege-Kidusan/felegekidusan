@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'attendance_preparation_dataset.dart';
@@ -80,6 +81,40 @@ final class AttendancePreparationSnapshot {
       dataset: dataset,
     );
   }
+
+  /// Test-only synthetic snapshot without DB.
+  @visibleForTesting
+  static AttendancePreparationSnapshot forTest({
+    required String preparationId,
+    required int ownerUserId,
+    required int authorizationVersion,
+    required String serverIdentity,
+    required int issuedAt,
+    required int deadline,
+    required String payloadSha256,
+    required String payloadJson,
+    required int writeYearId,
+    required int generation,
+  }) {
+    final dataset = AttendancePreparationDataset.decode(payloadJson);
+    final now = DateTime.now().toUtc().toIso8601String();
+    return AttendancePreparationSnapshot._(
+      preparationId: preparationId,
+      ownerUserId: ownerUserId,
+      authorizationVersion: authorizationVersion,
+      serverIdentity: serverIdentity,
+      issuedAt: issuedAt,
+      deadline: deadline,
+      payloadSha256: payloadSha256,
+      payloadJson: payloadJson,
+      writeYearId: writeYearId,
+      generation: generation,
+      createdAt: now,
+      updatedAt: now,
+      dataset: dataset,
+    );
+  }
+
 }
 
 /// Fencing-aware atomic publisher for preparation snapshots.
