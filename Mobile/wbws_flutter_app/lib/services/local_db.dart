@@ -124,6 +124,7 @@ class LocalDb {
         await db.execute(localSyncStateV35Sql);
         await _createSyncAttemptLedger(db);
         await migrateAttendanceOriginalYear(db);
+        await db.execute(attendancePreparationSnapshotSql);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -597,6 +598,9 @@ class LocalDb {
           }
           if (oldVersion < 38) {
             await migrateAttendanceOriginalYear(db);
+          }
+          if (oldVersion < 39) {
+            await db.execute(attendancePreparationSnapshotSql);
           }
         },
       onOpen: (db) async {

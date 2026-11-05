@@ -173,7 +173,7 @@ void main() {
     expect(columnNames, contains('execution_source'));
 
     final userVersion = await rawDb.rawQuery('PRAGMA user_version');
-    expect(userVersion.single.values.single, 38);
+    expect(userVersion.single.values.single, 39);
 
     final attendanceRef = await db.saveAttendanceLocal(
       42,

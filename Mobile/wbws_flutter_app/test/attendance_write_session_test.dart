@@ -177,7 +177,7 @@ void main() {
       expect(operation.clientOpId, packet['client_op_id']);
       expect(
         (await raw.rawQuery('PRAGMA user_version')).single.values.single,
-        38,
+        39,
       );
     },
   );

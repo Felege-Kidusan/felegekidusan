@@ -46,7 +46,7 @@ void main() {
     Database? upgraded;
     try {
       upgraded = await LocalDb().database;
-      expect(await upgraded.getVersion(), 38);
+      expect(await upgraded.getVersion(), 39);
       final after = await upgraded.query('pending_attendance');
       expect(after.single['original_academic_year_id'], isNull);
       expect(
