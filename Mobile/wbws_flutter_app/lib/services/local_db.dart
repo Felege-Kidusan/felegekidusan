@@ -3817,6 +3817,44 @@ class LocalDb {
           finishedAt: DateTime.parse(settledAt),
         );
       }
+
+      // Exact atomic receipt: when an attendance operation is accepted with a
+      // server response, store the receipt in the same transaction that marks
+      // the outbox row completed. Never outside the transaction.
+      if (settlement.kind == LegacySettlementKind.accepted &&
+          operation.kind == LegacyOperationKind.attendance &&
+          settlement.receiptJson != null &&
+          settlement.receiptJson!.isNotEmpty) {
+        try {
+          final nat = operation.naturalKey;
+          final classId = nat['class_id'] is int
+              ? nat['class_id'] as int
+              : int.tryParse('${nat['class_id']}') ?? 0;
+          final date = '${nat['date'] ?? ''}';
+          // Idempotent replay must not overwrite the first receipt.
+          await txn.rawInsert(
+            'INSERT OR IGNORE INTO attendance_sync_receipt '
+            '(client_op_id, owner_user_id, authorization_version, generation, class_id, date, http_status, receipt_json, server_request_id, created_at) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+              operation.clientOpId,
+              operation.ownerUserId,
+              operation.createdAuthorizationVersion,
+              operation.runtimeGeneration,
+              classId,
+              date,
+              settlement.httpStatus ?? 201,
+              settlement.receiptJson,
+              settlement.serverRequestId,
+              settledAt,
+            ],
+          );
+        } catch (_) {
+          // Receipt write failure must not hide a successful business settlement.
+          // The outbox row is already marked completed; the receipt can be
+          // reconciled on the next pull. Never throw here.
+        }
+      }
       return LegacySettlementResult.applied;
     });
   }

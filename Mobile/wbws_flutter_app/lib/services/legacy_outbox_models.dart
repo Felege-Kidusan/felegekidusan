@@ -123,6 +123,11 @@ final class LegacySettlement {
   final int? failureHttpStatus;
   final String? failureMessage;
   final DateTime? nextAttemptAt;
+  // Exact atomic receipt (when kind == accepted and a server response exists).
+  // The receipt is stored atomically with the outbox completion — never separately.
+  final String? receiptJson;
+  final String? serverRequestId;
+  final int? httpStatus;
 
   const LegacySettlement({
     required this.kind,
@@ -130,5 +135,8 @@ final class LegacySettlement {
     this.failureHttpStatus,
     this.failureMessage,
     this.nextAttemptAt,
+    this.receiptJson,
+    this.serverRequestId,
+    this.httpStatus,
   });
 }

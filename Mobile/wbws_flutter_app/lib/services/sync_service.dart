@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'api_service.dart';
@@ -715,11 +716,26 @@ class SyncService {
       OutboxDecision.supersededSession || OutboxDecision.supersededLocal =>
         throw StateError('Superseded work must not be settled.'),
     };
+    final isAccepted = decision == OutboxDecision.accepted;
+    // Exact atomic receipt: capture server's exact response for attendance.
+    String? receiptJson;
+    if (isAccepted && claim.operation.kind == LegacyOperationKind.attendance) {
+      try {
+        final data = response.data;
+        receiptJson = data != null ? data.toString() : null;
+        // Prefer JSON encoding when data is a Map/List for faithful receipt.
+        if (data is Map || data is List) {
+          receiptJson = _encodeReceipt(data);
+        }
+      } catch (_) {
+        receiptJson = null;
+      }
+    }
     return LegacySettlement(
       kind: kind,
       failureCode: response.errorCode,
       failureHttpStatus: response.statusCode == 0 ? null : response.statusCode,
-      failureMessage: decision == OutboxDecision.accepted ? null : message,
+      failureMessage: isAccepted ? null : message,
       nextAttemptAt: decision == OutboxDecision.retryable
           ? nextOutboxAttemptAt(
               attemptCount: claim.attemptCount,
@@ -727,7 +743,18 @@ class SyncService {
               randomUnit: _random.nextDouble(),
             )
           : null,
+      receiptJson: receiptJson,
+      serverRequestId: response.serverRequestId,
+      httpStatus: response.statusCode == 0 ? null : response.statusCode,
     );
+  }
+
+  String _encodeReceipt(dynamic data) {
+    try {
+      return jsonEncode(data);
+    } catch (_) {
+      return '$data';
+    }
   }
 
   SyncResult _pausedResult({int synced = 0, int failed = 0}) => SyncResult(
