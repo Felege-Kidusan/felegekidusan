@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:sqflite/sqflite.dart';
 
 import 'attendance_delta.dart';
+import 'attendance_original_year.dart';
 import 'interrupted_database_migration.dart';
 import 'amharic_text.dart' as amharic;
 import 'search_index_policy.dart';
@@ -122,6 +123,7 @@ class LocalDb {
         await _migrateToV34(db);
         await db.execute(localSyncStateV35Sql);
         await _createSyncAttemptLedger(db);
+        await migrateAttendanceOriginalYear(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -592,6 +594,9 @@ class LocalDb {
                 );
               }
             }
+          }
+          if (oldVersion < 38) {
+            await migrateAttendanceOriginalYear(db);
           }
         },
       onOpen: (db) async {
@@ -3653,6 +3658,8 @@ class LocalDb {
       return LegacyClaimSnapshot(
         operation: LegacyOperationRef(
           kind: kind,
+          originalAcademicYearId: kind == LegacyOperationKind.attendance
+              ? coherentAttendanceOriginalYear(claimedRows) : null,
           naturalKey: naturalKey,
           clientOpId: clientOpId,
           packetKind: packetKind,
@@ -3909,6 +3916,7 @@ class LocalDb {
     DateTime? notBefore,
     required List<Map<String, Object?>> rows,
     LegacyWriteSession? expectedSession,
+    int? originalAcademicYearId,
   }) {
     final memberIds = rows
         .map((row) => _asIntLocal(row['member_id']))
@@ -3941,14 +3949,22 @@ class LocalDb {
         }
         binding = await requireActiveOwnerBinding(txn);
         runtimeGeneration = await _activeRuntimeGeneration(txn);
+        // sqflite's delete builder disallows null whereArgs. Keep unknown
+        // provenance explicit, not coerced to a sentinel year.
+        final attendanceYearWhere = originalAcademicYearId == null
+            ? "AND original_academic_year_id IS NULL "
+            : "AND original_academic_year_id IS ? ";
         final replaceable = kind == LegacyOperationKind.attendance
             ? " AND sync_state = 'pending' AND attempt_count = 0 "
                 "AND last_attempt_at IS NULL "
+                "$attendanceYearWhere"
                 "AND client_op_id IS NOT NULL AND TRIM(client_op_id) <> '' "
                 "AND NOT EXISTS (SELECT 1 FROM pending_attendance sibling "
                 "WHERE sibling.client_op_id = pending_attendance.client_op_id "
                 "AND (sibling.synced IS NOT 0 OR sibling.sync_state IS NOT 'pending' "
-                "OR sibling.attempt_count IS NOT 0 OR sibling.last_attempt_at IS NOT NULL)) "
+                "OR sibling.attempt_count IS NOT 0 OR sibling.last_attempt_at IS NOT NULL "
+                "OR sibling.original_academic_year_id IS NOT "
+                "pending_attendance.original_academic_year_id)) "
                 "AND NOT EXISTS (SELECT 1 FROM sync_attempts attempts "
                 "WHERE attempts.client_op_id = pending_attendance.client_op_id)"
             : '';
@@ -3961,12 +3977,16 @@ class LocalDb {
             ...naturalKeyArgs,
             binding['owner_user_id'],
             binding['created_authorization_version'],
+            if (kind == LegacyOperationKind.attendance && originalAcademicYearId != null)
+              originalAcademicYearId,
           ],
         );
         final batch = txn.batch();
         for (final row in rows) {
           batch.insert(table, {
             ...row,
+            if (kind == LegacyOperationKind.attendance)
+              attendanceOriginalYearColumn: originalAcademicYearId,
             'packet_kind': normalizedKind,
             'client_op_id': opId,
             'synced': 0,
@@ -3986,6 +4006,7 @@ class LocalDb {
       });
       return LegacyOperationRef(
         kind: kind,
+        originalAcademicYearId: originalAcademicYearId,
         naturalKey: naturalKey,
         clientOpId: opId,
         packetKind: normalizedKind == 'submitted'
@@ -4006,7 +4027,12 @@ class LocalDb {
   Future<LegacyOperationRef> saveAttendanceLocal(int classId, String className, String date,
       List<Map<String, dynamic>> records,
       {required LegacyWriteSession expectedSession,
+      int? originalAcademicYearId,
       String packetKind = 'draft', DateTime? notBefore}) async {
+    if (originalAcademicYearId != null &&
+        !isValidOriginalAttendanceYear(originalAcademicYearId)) {
+      throw ArgumentError('Invalid original attendance academic year.');
+    }
     const validStatuses = {'present', 'absent', 'late', 'excused'};
     if (records.isEmpty) {
       throw ArgumentError('Attendance records are required.');
@@ -4023,6 +4049,7 @@ class LocalDb {
 
     return _replaceLegacyOperation(
       kind: LegacyOperationKind.attendance,
+      originalAcademicYearId: originalAcademicYearId,
       table: 'pending_attendance',
       naturalKeyWhere: 'class_id = ? AND date = ?',
       naturalKeyArgs: [classId, date],

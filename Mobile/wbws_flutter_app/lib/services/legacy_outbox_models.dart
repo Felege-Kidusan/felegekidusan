@@ -62,6 +62,10 @@ final class StaleLegacyWriteSession implements Exception {
 /// Immutable, PII-light handle for one complete saved packet generation.
 final class LegacyOperationRef {
   final LegacyOperationKind kind;
+  /// Original WRITE year, only when explicitly captured and coherent.
+  /// Null means unknown; never infer from current session or roster fallback.
+  /// Not authorization and not a durable acceptance receipt.
+  final int? originalAcademicYearId;
   final Map<String, Object?> naturalKey;
   final String clientOpId;
   final LegacyPacketKind packetKind;
@@ -71,6 +75,7 @@ final class LegacyOperationRef {
 
   LegacyOperationRef({
     required this.kind,
+    this.originalAcademicYearId,
     required Map<String, Object?> naturalKey,
     required this.clientOpId,
     required this.packetKind,
