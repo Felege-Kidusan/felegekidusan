@@ -607,3 +607,37 @@ The owner's confirmed rule is closed years read-only, without a new correction
 override; older queued work keeps its original year for audited server decision,
 never restamping into the active year. Phase1 and all eight workstreams remain
 incomplete. No legacy caller, schema, deployment flag or production is changed.
+
+## Signed access session/family binding for future preparation
+
+New login and refresh responses bind the signed access payload to both the
+persistent refresh family (`fid`, stable across rotation) and its issuing refresh
+session (`rsid`). Binding is extracted only from this server's valid signed,
+owner-matching tracked refresh token. Existing six-argument token helper calls
+and unbound-token compatibility remain distinct; unbound tokens do not establish
+a family/device preparation grant.
+
+Every bound access request checks its issuing session regardless of client build
+header or chosen legacy URL. The existing migration010 primary key provides a
+point lookup; a real EXPLAIN of the exact production SQL verifies PRIMARY/one-row
+access instead of scanning accumulated family rotation history. Owner, family,
+issuing session, revocation and expiry must match. A consumed refresh session is
+not revoked: legitimate rotation must not falsely invalidate still-unexpired
+access. Family revocation marks all sessions, including consumed ancestors.
+Partial/malformed signed binding cannot fall back to unbound compatibility.
+Query/schema failure is explicit503, not authorization or false revoked state.
+
+Guarded synthetic TEMP SQL executes actual login/refresh/logout route branches,
+refresh rotation/replay/revocation and access authentication in both mysqli modes.
+Transport body, rate limit, audit utility and response adapters are explicitly
+doubled; this is not HTTP/phone proof. No token values are printed. Real logout
+happy path and replay revoke bound access before its natural expiry, independent
+families survive, and build-header changes cannot bypass binding.
+
+This prerequisite does NOT complete preparation or lost-device workstream6.
+Pre-write authentication alone does not serialize mutation against revocation;
+new mutators still need strict checks/locks in their mutation transaction. Failed
+logout revocation acknowledgment, lost-device management, old unbound cohort
+transition and real deployed/device acceptance remain unfinished. Family/session
+identifiers are not hardware identity or encryption, and no offline grant,
+preparation endpoint, readiness, mobile producer or schema is activated here.
