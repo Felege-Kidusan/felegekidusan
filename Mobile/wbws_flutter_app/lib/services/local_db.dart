@@ -126,6 +126,7 @@ class LocalDb {
         await _createSyncAttemptLedger(db);
         await migrateAttendanceOriginalYear(db);
         await db.execute(attendancePreparationSnapshotSql);
+        await db.execute(gradesPreparationSnapshotSql);
         await db.execute(attendanceSyncReceiptSql);
         await db.execute(attendanceSyncReceiptIndexSql);
       },
@@ -608,6 +609,9 @@ class LocalDb {
           if (oldVersion < 40) {
             await db.execute(attendanceSyncReceiptSql);
             await db.execute(attendanceSyncReceiptIndexSql);
+          }
+          if (oldVersion < 41) {
+            await db.execute(gradesPreparationSnapshotSql);
           }
         },
       onOpen: (db) async {
@@ -7627,6 +7631,7 @@ class LocalDb {
     try { await db.delete('cached_hr_sheet'); } catch (_) {}
     try { await db.delete('cached_hr_sections'); } catch (_) {}
     await db.delete('attendance_preparation_snapshot');
+    await db.delete('grades_preparation_snapshot');
     try { await db.delete('attendance_sync_receipt'); } catch (_) {}
     // NOTE: the hymn library (cached_hymns, cached_mezmur_categories,
     // hymn_sync_meta, pending_hymn_ops) is deliberately NOT cleared —
@@ -7677,6 +7682,7 @@ class LocalDb {
         'pending_mezmur',
         'pending_hr',
         'attendance_preparation_snapshot',
+        'grades_preparation_snapshot',
         'attendance_sync_receipt',
         'cached_hr_sheet',
         'cached_hr_sections',

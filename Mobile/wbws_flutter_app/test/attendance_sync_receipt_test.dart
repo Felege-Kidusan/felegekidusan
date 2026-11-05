@@ -17,11 +17,11 @@ void main() {
     await dir.delete(recursive: true);
   });
 
-  test('v40 creates attendance_sync_receipt with correct schema', () async {
+  test('v41 creates attendance_sync_receipt with correct schema', () async {
     final db = LocalDb();
     final raw = await db.database;
     final ver = await raw.rawQuery('PRAGMA user_version');
-    expect(ver.single.values.single, 40);
+    expect(ver.single.values.single, 41);
     final info = await raw.rawQuery("PRAGMA table_info('attendance_sync_receipt')");
     final cols = info.map((r) => r['name'] as String).toSet();
     expect(cols, contains('client_op_id'));
