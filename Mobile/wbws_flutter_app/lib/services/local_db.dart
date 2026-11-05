@@ -3257,22 +3257,29 @@ class LocalDb {
   // ============================================================
 
   Future<void> cacheStudents(int classId, List<dynamic> students) async {
+    // Capture before the first await: later caller mutations are not a refresh.
+    // This is a read cache only, not authorized preparation or offline readiness.
+    final updatedAt = DateTime.now().toIso8601String();
+    final rows = students.map((s) => <String, Object?>{
+      'member_id': s['member_id'] ?? s['id'],
+      'class_id': classId,
+      'student_name': s['student_name'] ?? '',
+      'father_name': s['father_name'] ?? '',
+      'member_code': s['member_code'] ?? '',
+      'gender': s['gender'] ?? '',
+      'updated_at': updatedAt,
+    }).toList(growable: false);
     final db = await database;
-    await db
-        .delete('cached_students', where: 'class_id = ?', whereArgs: [classId]);
-    final batch = db.batch();
-    for (final s in students) {
-      batch.insert('cached_students', {
-        'member_id': s['member_id'] ?? s['id'],
-        'class_id': classId,
-        'student_name': s['student_name'] ?? '',
-        'father_name': s['father_name'] ?? '',
-        'member_code': s['member_code'] ?? '',
-        'gender': s['gender'] ?? '',
-        'updated_at': DateTime.now().toIso8601String(),
-      });
-    }
-    await batch.commit(noResult: true);
+    await db.transaction((txn) async {
+      await txn.delete('cached_students', where: 'class_id = ?',
+          whereArgs: [classId]);
+      final batch = txn.batch();
+      for (final row in rows) {
+        batch.insert('cached_students', row);
+      }
+      // Failure propagates and rolls back the delete as well as every insert.
+      await batch.commit(noResult: true);
+    });
   }
 
   Future<List<Map<String, dynamic>>> getCachedStudents(int classId) async {
