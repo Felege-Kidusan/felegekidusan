@@ -717,9 +717,9 @@ class SyncService {
         throw StateError('Superseded work must not be settled.'),
     };
     final isAccepted = decision == OutboxDecision.accepted;
-    // Exact atomic receipt: capture server's exact response for attendance.
+    // Exact atomic receipt: capture server's exact response for attendance + grades (v42).
     String? receiptJson;
-    if (isAccepted && claim.operation.kind == LegacyOperationKind.attendance) {
+    if (isAccepted && (claim.operation.kind == LegacyOperationKind.attendance || claim.operation.kind == LegacyOperationKind.grades)) {
       try {
         final data = response.data;
         receiptJson = data != null ? data.toString() : null;

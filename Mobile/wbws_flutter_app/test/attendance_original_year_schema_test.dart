@@ -23,7 +23,7 @@ void main() {
       expect(column['type'], 'INTEGER');
       expect(column['notnull'], 0);
       expect(column['dflt_value'], isNull);
-      expect(await db.getVersion(), 41);
+      expect(await db.getVersion(), 42);
     } finally {
       await db.close();
       await dir.delete(recursive: true);

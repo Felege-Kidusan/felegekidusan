@@ -129,6 +129,8 @@ class LocalDb {
         await db.execute(gradesPreparationSnapshotSql);
         await db.execute(attendanceSyncReceiptSql);
         await db.execute(attendanceSyncReceiptIndexSql);
+        await db.execute(gradesSyncReceiptSql);
+        await db.execute(gradesSyncReceiptIndexSql);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -612,6 +614,10 @@ class LocalDb {
           }
           if (oldVersion < 41) {
             await db.execute(gradesPreparationSnapshotSql);
+          }
+          if (oldVersion < 42) {
+            await db.execute(gradesSyncReceiptSql);
+            await db.execute(gradesSyncReceiptIndexSql);
           }
         },
       onOpen: (db) async {
@@ -3857,6 +3863,36 @@ class LocalDb {
           // Receipt write failure must not hide a successful business settlement.
           // The outbox row is already marked completed; the receipt can be
           // reconciled on the next pull. Never throw here.
+        }
+      }
+      // Exact atomic receipt for grades (v42): same pattern, assessment-scoped.
+      if (settlement.kind == LegacySettlementKind.accepted &&
+          operation.kind == LegacyOperationKind.grades &&
+          settlement.receiptJson != null &&
+          settlement.receiptJson!.isNotEmpty) {
+        try {
+          final nat = operation.naturalKey;
+          final assessmentId = nat['assessment_id'] is int
+              ? nat['assessment_id'] as int
+              : int.tryParse('${nat['assessment_id']}') ?? 0;
+          await txn.rawInsert(
+            'INSERT OR IGNORE INTO grades_sync_receipt '
+            '(client_op_id, owner_user_id, authorization_version, generation, assessment_id, http_status, receipt_json, server_request_id, created_at) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+              operation.clientOpId,
+              operation.ownerUserId,
+              operation.createdAuthorizationVersion,
+              operation.runtimeGeneration,
+              assessmentId,
+              settlement.httpStatus ?? 201,
+              settlement.receiptJson,
+              settlement.serverRequestId,
+              settledAt,
+            ],
+          );
+        } catch (_) {
+          // Never hide business success.
         }
       }
       return LegacySettlementResult.applied;
@@ -7633,6 +7669,7 @@ class LocalDb {
     await db.delete('attendance_preparation_snapshot');
     await db.delete('grades_preparation_snapshot');
     try { await db.delete('attendance_sync_receipt'); } catch (_) {}
+    try { await db.delete('grades_sync_receipt'); } catch (_) {}
     // NOTE: the hymn library (cached_hymns, cached_mezmur_categories,
     // hymn_sync_meta, pending_hymn_ops) is deliberately NOT cleared —
     // it is shared department content, not member data, and queued
@@ -7684,6 +7721,7 @@ class LocalDb {
         'attendance_preparation_snapshot',
         'grades_preparation_snapshot',
         'attendance_sync_receipt',
+        'grades_sync_receipt',
         'cached_hr_sheet',
         'cached_hr_sections',
         // Intentionally kept on logout: cached_hymns,

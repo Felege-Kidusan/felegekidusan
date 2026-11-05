@@ -21,7 +21,7 @@ void main() {
     final db = LocalDb();
     final raw = await db.database;
     final ver = await raw.rawQuery('PRAGMA user_version');
-    expect(ver.single.values.single, 41);
+    expect(ver.single.values.single, 42);
     final info = await raw.rawQuery("PRAGMA table_info('attendance_sync_receipt')");
     final cols = info.map((r) => r['name'] as String).toSet();
     expect(cols, contains('client_op_id'));
