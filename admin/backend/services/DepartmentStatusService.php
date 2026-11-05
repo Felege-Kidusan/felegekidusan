@@ -426,6 +426,29 @@ final class DepartmentStatusService
      */
     public static function exclusionSql(\mysqli $conn, string $dept, string $memberIdExpr, ?string $onDate = null, bool $strictPreparation = false): string
     {
+        return self::buildExclusionSql($conn, $dept, $memberIdExpr, $onDate, $strictPreparation, true);
+    }
+
+    /** Strict batch compiler; local schema proof only, no static cache/grant. */
+    public static function preparationExclusions(\mysqli $conn, string $dept, string $memberIdExpr, array $dates): array
+    {
+        if (!$dates || !array_is_list($dates)) {
+            throw new \InvalidArgumentException('Explicit preparation dates are required.');
+        }
+        $out = []; $probe = true;
+        foreach ($dates as $date) {
+            if (!is_string($date) || isset($out[$date])) {
+                throw new \InvalidArgumentException('Unique explicit preparation dates are required.');
+            }
+            $out[$date] = self::buildExclusionSql($conn, $dept, $memberIdExpr, $date, true, $probe);
+            $probe = false;
+        }
+        return $out;
+    }
+
+    /** One existing eligibility predicate for legacy/single-date/batch paths. */
+    private static function buildExclusionSql(\mysqli $conn, string $dept, string $memberIdExpr, ?string $onDate, bool $strictPreparation, bool $probeColumns): string
+    {
         if ($strictPreparation) {
             if (!self::isDepartment($dept) || $onDate === null
                 || !preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/D', $onDate)
@@ -439,7 +462,7 @@ final class DepartmentStatusService
         if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/', $memberIdExpr)) {
             throw new \InvalidArgumentException('Unsafe member id expression.');
         }
-        if ($strictPreparation) {
+        if ($strictPreparation && $probeColumns) {
             // Do not trust a permissive cached availability result. Probe every
             // eligibility column and surface failure in either mysqli mode.
             $stmt = null;
