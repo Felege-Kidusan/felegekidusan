@@ -10,6 +10,7 @@ import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
+import '../../services/session_models.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
@@ -504,15 +505,34 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         _returnNote = PacketLock.returnNote(res.data);
       });
       _syncSaveGate();
-      await _db.cacheStudents(classId, students);
-      if (!current()) return;
-      await _db.cacheAttendanceResponse(
-        classId,
-        date,
-        students,
-        submissionStatus: locked && packet.isEmpty ? 'submitted' : packet,
-        locked: locked,
-      );
+      try {
+        await _db.cacheAttendanceSnapshot(
+          classId,
+          date,
+          students,
+          expectedSession: LegacyWriteSession(
+            ownerUserId: owner,
+            authorizationVersion: authorizationVersion,
+            runtimeGeneration: generation,
+          ),
+          submissionStatus: locked && packet.isEmpty ? 'submitted' : packet,
+          locked: locked,
+        );
+      } on StaleAttendanceSyncSession {
+        if (!current()) return;
+        setState(() {
+          _accessDenied = true;
+          _rosterReady = false;
+          _loadFailed = true;
+          _error = 'Your session changed. Refresh before continuing. Saved work was kept.';
+        });
+        _syncSaveGate();
+      } catch (_) {
+        if (!current()) return;
+        // Cache failure is not permission to discard pending or in-memory edits.
+        setState(() => _error =
+            'Could not confirm the local attendance cache update. Pending work was not cleared.');
+      }
     } else if (_students.isEmpty && (cachedAtt == null || cachedAtt.isEmpty)) {
       setState(() {
         _error = res.message ?? 'Could not load students. Check your connection and try again.';

@@ -4479,6 +4479,47 @@ class LocalDb {
     });
   }
 
+  /// Publish the two legacy attendance read caches together under the captured
+  /// durable session. This is NOT complete server preparation or a lease.
+  Future<void> cacheAttendanceSnapshot(
+      int classId, String date, List<Map<String, dynamic>> students,
+      {required LegacyWriteSession expectedSession,
+      String? submissionStatus, bool locked = false}) async {
+    // Capture both representations before awaiting any database work.
+    final updatedAt = DateTime.now().toIso8601String();
+    final responseJson = jsonEncode({
+      'students': students,
+      'submission_status': submissionStatus ?? '',
+      'locked': locked,
+    });
+    final rows = students.map((s) => <String, Object?>{
+      'member_id': s['member_id'] ?? s['id'],
+      'class_id': classId,
+      'student_name': s['student_name'] ?? '',
+      'father_name': s['father_name'] ?? '',
+      'member_code': s['member_code'] ?? '',
+      'gender': s['gender'] ?? '',
+      'updated_at': updatedAt,
+    }).toList(growable: false);
+    final db = await database;
+    await db.transaction((txn) async {
+      await _requireAttendanceSyncSession(txn, expectedSession);
+      await txn.delete('cached_students', where: 'class_id = ?',
+          whereArgs: [classId]);
+      final batch = txn.batch();
+      for (final row in rows) {
+        batch.insert('cached_students', row);
+      }
+      batch.insert('cached_attendance', {
+        'class_id': classId,
+        'date': date,
+        'response_json': responseJson,
+        'updated_at': updatedAt,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await batch.commit(noResult: true);
+    });
+  }
+
   Future<void> cacheAttendanceResponse(int classId, String date, List<Map<String, dynamic>> students,
       {String? submissionStatus, bool locked = false}) async {
     final db = await database;
