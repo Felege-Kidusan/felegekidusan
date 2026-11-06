@@ -11,6 +11,12 @@ import '../../services/connectivity_service.dart';
 import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
 import '../../services/session_models.dart';
+import '../../services/api_service.dart';
+import '../../services/attendance_preparation_adapter.dart';
+import '../../services/attendance_preparation_envelope.dart';
+import '../../services/attendance_preparation_fetcher.dart';
+import '../../services/attendance_preparation_readiness.dart';
+import '../../services/attendance_preparation_store.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
@@ -87,6 +93,26 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   int? _sheetGeneration;
   int? _sheetAuthorizationVersion;
   StreamSubscription<SyncStatus>? _syncSub;
+  // Preparation-based offline readiness (inactive UI hook, truthful banners).
+  AttendancePreparationResolution? _prepResolution;
+  final _prepAdapter = AttendancePreparationAdapter();
+  String? get _prepBanner {
+    final r = _prepResolution;
+    if (r == null) return null;
+    switch (r.reason) {
+      case AttendanceReadinessReason.ready:
+        return null; // No banner when ready; offline is honest.
+      case AttendanceReadinessReason.missing:
+        return 'No offline preparation yet — connect and refresh to download your classes and roster.';
+      case AttendanceReadinessReason.staleSession:
+        return 'Your sign-in changed — refresh your preparation before taking attendance offline.';
+      case AttendanceReadinessReason.expired:
+        return 'Your offline preparation expired — connect and refresh to renew it.';
+      case AttendanceReadinessReason.clockSkew:
+        return 'Your phone clock looks wrong — fix the date/time, then refresh.';
+    }
+  }
+
   Map<String, dynamic>? get _effectiveDateStatus {
     final today = AttendanceCalendar.addisToday(DateTime.now());
     final date = AttendanceCalendar.parseDate(_selectedDate);
@@ -179,12 +205,16 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
       if (!mounted || _isOffline == !hasLink) return;
       setState(() => _isOffline = !hasLink);
-      if (hasLink) unawaited(_loadAttendance());
+      if (hasLink) {
+        unawaited(_loadAttendance());
+        unawaited(_loadPreparationStatus());
+      }
     });
     _dirty.addListener(_syncSaveGate);
     _syncSaveGate();
     _loadClasses();
     _updatePendingCount();
+    _loadPreparationStatus();
 
     // Listen for sync updates
     _syncSub = _sync.syncStream.listen((status) {
@@ -217,7 +247,10 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) unawaited(_loadAttendance());
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_loadAttendance());
+      unawaited(_loadPreparationStatus());
+    }
   }
 
   void refresh() {
@@ -235,6 +268,83 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         _pendingCount = count;
         _rejectedCount = rejected;
       });
+    }
+  }
+
+  bool _refreshingPrep = false;
+
+  Future<void> _loadPreparationStatus() async {
+    try {
+      final res = await _prepAdapter.resolve();
+      if (!mounted) return;
+      setState(() => _prepResolution = res);
+      // Silent auto-download: non-technical teachers never tap Refresh.
+      // If missing/expired/stale and we are online, fetch in background.
+      if (!res.isReady && ConnectivityService().hasLink) {
+        // Fire-and-forget, no blocking, no banner.
+        unawaited(_refreshPreparation(silent: true));
+      }
+    } catch (_) {
+      // Preparation status is advisory; never blocks the roster.
+    }
+  }
+
+  Future<void> _refreshPreparation({bool silent = false}) async {
+    if (_refreshingPrep) return;
+    setState(() => _refreshingPrep = true);
+    try {
+      final sessionRec = await _db.getLocalSession();
+      final session = LegacyWriteSession(
+        ownerUserId: sessionRec.ownerUserId ?? _api.userId,
+        authorizationVersion: sessionRec.authorizationVersion ?? _api.authorizationVersion,
+        runtimeGeneration: sessionRec.generation,
+      );
+      final fid = _api.familyId;
+      if (fid == null || fid.isEmpty) {
+        throw AttendancePreparationFetchException('AUTH_FAMILY_MISSING', 'Sign in again — refresh family is unavailable.');
+      }
+      final expectedScope = AttendancePreparationScope(
+        ownerUserId: session.ownerUserId,
+        authorizationVersion: session.authorizationVersion,
+        role: _api.userRole,
+        familyId: fid,
+        serverIdentity: AppConfig.apiBaseUrl,
+      );
+      final fetcher = AttendancePreparationFetcher(store: AttendancePreparationStore(db: _db));
+      await fetcher.fetchAndPublish(
+        session: session,
+        get: (path) => _api.get(path),
+        expectedScope: expectedScope,
+      );
+      await _loadPreparationStatus();
+      if (mounted && !silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Preparation refreshed'), backgroundColor: AppTheme.success),
+        );
+      }
+      debugPrint('Preparation refresh succeeded (silent=$silent) classes=${(await _prepAdapter.resolve()).dataset?.classes.length}');
+    } on AttendancePreparationFetchException catch (e) {
+      // Silent mode: log only, no scary banner for teachers. Admin can see
+      // logs in `flutter logs` or Settings → Diagnostics.
+      debugPrint('Preparation refresh failed: ${e.code}: ${e.message} (silent=$silent)');
+      if (mounted && !silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${e.code}: ${e.message}'),
+            backgroundColor: AppTheme.warning,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Preparation refresh failed (unexpected): $e (silent=$silent)');
+      if (mounted && !silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Refresh failed: $e'), backgroundColor: AppTheme.warning, duration: const Duration(seconds: 5)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingPrep = false);
     }
   }
 
@@ -1016,6 +1126,13 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
           // this phone; Review explains and offers Discard.
           if (_rejectedCount > 0)
             SyncAttentionBanner(rejectedCount: _rejectedCount),
+
+          // Silent offline: background auto-download, no scary banner for teachers.
+          // Preparation status is still resolved for diagnostics (Settings → Diagnostics)
+          // but never blocks the roster with a big orange warning.
+          if (_prepResolution?.isReady == true && _prepResolution?.dataset?.classes.isEmpty == true)
+            StatusBanner.info('No classes assigned for offline — contact Education.'),
+          // No manual Refresh button: handled automatically after login/resume.
 
           // Class + Date selector
           Padding(

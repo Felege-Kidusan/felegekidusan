@@ -6,10 +6,16 @@ import '../../services/api_service.dart';
 import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
+import '../../services/grades_preparation_adapter.dart';
+import '../../services/grades_preparation_envelope.dart';
+import '../../services/grades_preparation_fetcher.dart';
+import '../../services/grades_preparation_readiness.dart';
+import '../../services/grades_preparation_store.dart';
 import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
+import '../../utils/config.dart';
 import '../../utils/packet.dart';
 import '../../utils/roster.dart';
 import '../../utils/scrolling.dart';
@@ -69,6 +75,20 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
   int _pendingGrades = 0;
   int _rejectedCount = 0;
   StreamSubscription<bool>? _netSub;
+  GradesPreparationResolution? _prepResolution;
+  final _prepAdapter = GradesPreparationAdapter();
+  bool _refreshingPrep = false;
+  String? get _prepBanner {
+    final r = _prepResolution;
+    if (r == null) return null;
+    switch (r.reason) {
+      case GradesReadinessReason.ready: return null;
+      case GradesReadinessReason.missing: return 'No offline preparation yet — connect and refresh to download your classes, subjects and roster.';
+      case GradesReadinessReason.staleSession: return 'Your sign-in changed — refresh your preparation before entering grades offline.';
+      case GradesReadinessReason.expired: return 'Your offline preparation expired — connect and refresh to renew it.';
+      case GradesReadinessReason.clockSkew: return 'Your phone clock looks wrong — fix the date/time, then refresh.';
+    }
+  }
 
   @override
   void initState() {
@@ -78,6 +98,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       if (!mounted || _isOffline == !hasLink) return;
       setState(() => _isOffline = !hasLink);
     });
+    _loadPreparationStatus();
     _loadClasses();
     _updatePendingCount();
     _sync.syncStream.listen((s) {
@@ -136,6 +157,36 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       _selectedClassId = id;
       _selectedClassName = classes[0]['class_name'];
       _loadSubjects();
+    }
+  }
+
+  Future<void> _loadPreparationStatus() async {
+    try {
+      final res = await _prepAdapter.resolve();
+      if (!mounted) return;
+      setState(() => _prepResolution = res);
+    } catch (_) {}
+  }
+
+  Future<void> _refreshPreparation() async {
+    if (_refreshingPrep) return;
+    setState(() => _refreshingPrep = true);
+    try {
+      final rec = await _db.getLocalSession();
+      final session = LegacyWriteSession(ownerUserId: rec.ownerUserId ?? _api.userId, authorizationVersion: rec.authorizationVersion ?? _api.authorizationVersion, runtimeGeneration: rec.generation);
+      final fid = _api.familyId;
+      if (fid == null || fid.isEmpty) throw const GradesPreparationFetchException('AUTH_FAMILY_MISSING', 'Sign in again — refresh family is unavailable.');
+      final expectedScope = GradesPreparationScope(ownerUserId: session.ownerUserId, authorizationVersion: session.authorizationVersion, role: _api.userRole, familyId: fid, serverIdentity: AppConfig.apiBaseUrl);
+      final fetcher = GradesPreparationFetcher(store: GradesPreparationStore(db: _db));
+      await fetcher.fetchAndPublish(session: session, get: (p) => _api.get(p), expectedScope: expectedScope);
+      await _loadPreparationStatus();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparation refreshed'), backgroundColor: AppTheme.success));
+    } on GradesPreparationFetchException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message), backgroundColor: AppTheme.warning));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Refresh failed: $e'), backgroundColor: AppTheme.warning));
+    } finally {
+      if (mounted) setState(() => _refreshingPrep = false);
     }
   }
 
@@ -295,6 +346,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
                 child: const Icon(Icons.sync, size: 22),
               ),
             ),
+          TextButton(onPressed: _refreshingPrep ? null : _refreshPreparation, child: Text(_refreshingPrep ? 'Refreshing…' : 'Refresh preparation', style: const TextStyle(fontSize: 12, color: Colors.white))),
           IconButton(icon: const Icon(Icons.refresh, size: 20), onPressed: refresh),
         ],
       ),
@@ -311,6 +363,13 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
                         padding: const EdgeInsets.all(16),
                         children: [
                           if (_isOffline) _offlineBanner(),
+                          if (_prepBanner != null)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(color: AppTheme.warning.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
+                              child: Row(children: [Icon(Icons.info_outline, size: 16, color: AppTheme.warning), const SizedBox(width: 8), Expanded(child: Text(_prepBanner!, style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500)))]),
+                            ),
                           if (_rejectedCount > 0)
                             SyncAttentionBanner(rejectedCount: _rejectedCount),
                           _buildClassSelector(),
@@ -436,7 +495,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         );
       }).toList()),
-      if (_termViewLocked)
+      if (_termViewLocked && _selectedTermId != null)
         Container(
           margin: const EdgeInsets.only(top: 10),
           padding: const EdgeInsets.all(10),
