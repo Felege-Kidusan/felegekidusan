@@ -279,9 +279,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
       if (!mounted) return;
       setState(() => _prepResolution = res);
       // Silent auto-download: non-technical teachers never tap Refresh.
-      // If missing/expired/stale and we are online, fetch in background.
       if (!res.isReady && ConnectivityService().hasLink) {
-        // Fire-and-forget, no blocking, no banner.
         unawaited(_refreshPreparation(silent: true));
       }
     } catch (_) {
@@ -324,8 +322,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
       }
       debugPrint('Preparation refresh succeeded (silent=$silent) classes=${(await _prepAdapter.resolve()).dataset?.classes.length}');
     } on AttendancePreparationFetchException catch (e) {
-      // Silent mode: log only, no scary banner for teachers. Admin can see
-      // logs in `flutter logs` or Settings → Diagnostics.
+      // Silent for teachers, loud for admin diagnostics when not silent.
       debugPrint('Preparation refresh failed: ${e.code}: ${e.message} (silent=$silent)');
       if (mounted && !silent) {
         ScaffoldMessenger.of(context).showSnackBar(
