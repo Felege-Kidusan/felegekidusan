@@ -236,7 +236,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
       setState(() {
         _packetStatus = '${cached?['submission_status']}';
       });
-      await _db.dropPendingMezmur(_selectedDate, section);
+      // Keep local operations: a cached lock is not their acceptance receipt.
     }
 
     // 2. Local pending packet overrides (draft marks on this phone)
@@ -272,9 +272,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
       final packet = '${data['submission_status'] ?? ''}';
       final locked =
           PacketLock.isLocked(packet, flagged: data['locked'] == true);
-      if (locked) {
-        await _db.dropPendingMezmur(_selectedDate, section);
-      }
+      // A server sheet lock also does not acknowledge this phone's exact intent.
       _applySheet(
           data,
           locked ? {} : pendingMap,
@@ -636,10 +634,28 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   Future<void> _manualSync() async {
     final result = await _sync.syncAll(force: true);
     if (!mounted) return;
+    // Inventory-scoped truth: never success-green while work remains.
+    final fb = SyncFeedback.describe(
+      synced: result.synced,
+      failed: result.failed,
+      status: _sync.lastStatus,
+      online: ConnectivityService().hasLink,
+      drainsPaused: !_sync.drainsAllowed,
+    );
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(result.message),
-      backgroundColor:
-          result.failed > 0 ? AppTheme.warning : AppTheme.success,
+      content: Text(fb.message),
+      backgroundColor: fb.kind == SyncFeedbackKind.success
+          ? AppTheme.success
+          : fb.kind == SyncFeedbackKind.attention
+              ? AppTheme.warning
+              : AppTheme.info,
+      action: fb.kind == SyncFeedbackKind.attention
+          ? SnackBarAction(
+              label: 'Review',
+              textColor: Colors.white,
+              onPressed: () => Navigator.of(context).pushNamed('/sync-center'),
+            )
+          : null,
     ));
     await _updatePendingCount();
   }
@@ -871,36 +887,9 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
                 ),
       body: Column(
         children: [
-          if (_isOffline)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: AppTheme.warning.withOpacity(0.15),
-              child: Row(
-                children: [
-                  Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Waiting for network — kept on this phone until you are back online',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.warning,
-                          fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  if (_pendingCount > 0)
-                    GestureDetector(
-                      onTap: _manualSync,
-                      child: Text('Sync now',
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: AppTheme.primary,
-                              fontWeight: FontWeight.w600)),
-                    ),
-                ],
-              ),
-            ),
+          // Global AppStatusStrip is the single offline source — per-screen
+          // duplicate removed (space saver). One-tap sync lives in the
+          // AppBar badge; details in Sync Center.
 
           // F8: packets the school's workflow refused — kept on
           // this phone; Review explains and offers Discard.

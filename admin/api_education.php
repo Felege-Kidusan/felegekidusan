@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)($_REQUEST['action'] ?? '') : '';
-requirePostActions($action, ['enroll', 'assign_teacher', 'record_grade', 'record_attendance', 'batch_attendance', 'promote', 'unenroll_student', 'save_class', 'delete_class', 'save_academic_year', 'set_current_year', 'delete_year', 'save_term', 'set_current_term', 'reopen_term', 'close_term_reopen', 'delete_term', 'bulk_enroll', 'transfer_student', 'sync_member_types', 'toggle_class', 'save_assessment_type', 'toggle_assessment_type', 'delete_assessment_type']);
+requirePostActions($action, ['enroll', 'assign_teacher', 'record_grade', 'record_attendance', 'batch_attendance', 'promote', 'unenroll_student', 'save_class', 'delete_class', 'save_academic_year', 'set_current_year', 'delete_year', 'save_term', 'set_current_term', 'reopen_term', 'close_term_reopen', 'delete_term', 'bulk_enroll', 'transfer_student', 'sync_member_types', 'toggle_class', 'save_assessment_type', 'toggle_assessment_type', 'delete_assessment_type', 'copy_assessments']);
 $__featureActions = [
     'grades' => ['record_grade'],
     'attendance' => ['record_attendance', 'batch_attendance'],
@@ -91,7 +91,7 @@ if (in_array($action, $__termActions, true)
 $__manageActions = [
     'enroll', 'unenroll_student', 'promote', 'bulk_enroll', 'transfer_student',
     'assign_teacher', 'save_class', 'delete_class', 'toggle_class',
-    'sync_member_types', 'impact_delete_class',
+    'sync_member_types', 'impact_delete_class', 'copy_assessments',
 ];
 if (in_array($action, $__manageActions, true)) {
     if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
@@ -1362,61 +1362,18 @@ switch ($action) {
         break;
 
     case 'set_current_year':
-        // STEP 4 — SAFE, ATOMIC active-year switch. Never leaves zero or two
-        // active years. Requires typed confirmation; reopening a CLOSED (past)
-        // year requires the stronger "REOPEN" confirmation.
-        $yid = (int)($_POST['year_id'] ?? 0);
-        if (!$yid) { echo json_encode(['status'=>'error','message'=>'Year ID required']); exit; }
-
-        if (!function_exists('ay_switch_active')) {
-            // Fallback: legacy transactional flip (resolver unavailable).
-            $conn->begin_transaction();
-            try {
-                $conn->query("UPDATE academic_years SET is_current=0");
-                $stmt = $conn->prepare("UPDATE academic_years SET is_current=1 WHERE id = ?");
-                if (!$stmt) { throw new Exception($conn->error); }
-                $stmt->bind_param("i", $yid);
-                $stmt->execute();
-                $stmt->close();
-                $conn->commit();
-                echo json_encode(['status'=>'success','message'=>'Current year updated']);
-            } catch (Exception $e) {
-                $conn->rollback();
-                error_log("set_current_year failed: " . $e->getMessage());
-                echo json_encode(['status'=>'error','message'=>'Could not change the current year. No changes were made.']);
-            }
-            break;
-        }
-
-        $target = ay_year_by_id($conn, $yid);
-        if (!$target) { echo json_encode(['status'=>'error','message'=>'That academic year does not exist.']); break; }
-        $tstatus = $target['status'] ?? ((int)($target['is_current'] ?? 0) === 1 ? 'active' : 'upcoming');
-
-        if ($tstatus === 'active') {
-            echo json_encode(['status'=>'success','message'=>'That year is already the active year.']);
-            break;
-        }
-
-        $reopen  = ($tstatus === 'closed');
-        $confirm = strtoupper(trim((string)($_POST['confirm'] ?? '')));
-        $need    = $reopen ? 'REOPEN' : 'SWITCH';
-        if ($confirm !== $need) {
-            echo json_encode([
-                'status'             => 'error',
-                'code'               => $reopen ? 'confirm_reopen' : 'confirm_switch',
-                'needs_confirmation' => true,
-                'reopen'             => $reopen,
-                'target_name'        => $target['year_name'] ?? '',
-                'message'            => $reopen
-                    ? 'This year is CLOSED. Reopening a past year makes it active again and NEW records will be stamped to it. This is unusual — only do it to correct a mistake. Type REOPEN to confirm.'
-                    : 'Switching the active year will CLOSE the current year. New records will then belong to the newly selected year. Type SWITCH to confirm.'
-            ]);
-            break;
-        }
-
-        $res = ay_switch_active($conn, $yid, $reopen);
-        echo json_encode($res);
-        break;
+        // Role, POST and CSRF are enforced above. Readiness, confirmation and
+        // the lifecycle change share one owned transaction in the service.
+        $rawYearId = $_POST['year_id'] ?? null;
+        $yid = (is_string($rawYearId) || is_int($rawYearId)) ? (int)$rawYearId : 0;
+        if ($yid <= 0) { echo json_encode(['status'=>'error','message'=>'Year ID required']); break; }
+        $confirm = is_string($_POST['confirm'] ?? null) ? strtoupper(trim($_POST['confirm'])) : '';
+        $ack = is_string($_POST['issues_fingerprint'] ?? null) ? $_POST['issues_fingerprint'] : '';
+        require_once __DIR__ . '/backend/services/AcademicYearActivation.php';
+        echo json_encode(\App\Services\AcademicYearActivation::run($conn, $yid, $confirm, $ack));
+        // The service may have discarded an uncertain connection; request exit
+        // closes any healthy connection without attempting a second close.
+        exit;
 
     case 'delete_year':
         // STEP 6 — deletion protection. Only an EMPTY 'upcoming' year may be
@@ -1451,6 +1408,126 @@ switch ($action) {
             $conn->rollback();
             error_log('delete_year failed: '.$e->getMessage());
             echo json_encode(['status'=>'error','message'=>'Could not delete the year. No changes were made.']);
+        }
+        break;
+
+    case 'copy_assessments':
+        // R5 — Copy assessment templates (definitions) from one year to another.
+        // Only copies the assessment *structure* (name, type, weight, max_score,
+        // order) — never copies student grades. Idempotent via UNIQUE guard.
+        // School Admin + Super Admin + Edu Dept may run it.
+        $sourceId = (int)($_POST['source_year_id'] ?? 0);
+        $targetId = (int)($_POST['target_year_id'] ?? 0);
+        $confirm  = strtoupper(trim((string)($_POST['confirm'] ?? '')));
+        if (!$sourceId || !$targetId) { echo json_encode(['status'=>'error','message'=>'Please choose both the source year and the target year.']); break; }
+        if ($sourceId === $targetId) { echo json_encode(['status'=>'error','message'=>'Source and target year must be different.']); break; }
+        if ($confirm !== 'COPY') { echo json_encode(['status'=>'error','code'=>'confirm_copy','message'=>'Type COPY to confirm you want to copy assessment templates from the prior year.']); break; }
+        // Both years must exist
+        $src = function_exists('ay_year_by_id') ? ay_year_by_id($conn, $sourceId) : null;
+        $tgt = function_exists('ay_year_by_id') ? ay_year_by_id($conn, $targetId) : null;
+        if (!$src || !$tgt) { echo json_encode(['status'=>'error','message'=>'One of the selected years does not exist.']); break; }
+        if (($tgt['status'] ?? '') === 'closed') { echo json_encode(['status'=>'error','message'=>'The target year is closed and read-only. Choose an active or upcoming year.']); break; }
+        // Refuse while time-travelling — copy should be done from the current year view
+        if (function_exists('ay_is_readonly') && ay_is_readonly($conn)) {
+            echo json_encode(['status'=>'error','message'=>'You are viewing a past year (read-only). Return to the current year before copying assessments.']); break;
+        }
+        // Must have assessments in source
+        $cntSrc = 0;
+        try { $r=$conn->query("SELECT COUNT(*) c FROM assessments WHERE academic_year_id=".(int)$sourceId); if($r) $cntSrc=(int)$r->fetch_assoc()['c']; } catch (Throwable $e) {}
+        if ($cntSrc === 0) { echo json_encode(['status'=>'error','message'=>'The source year has no assessments to copy.']); break; }
+        $copied = 0; $skipped = 0;
+        $transactionStarted = false; $commitAttempted = false;
+        try {
+            if (!$conn->begin_transaction()) throw new RuntimeException('Could not start assessment copy.');
+            $transactionStarted = true;
+            // Refuse before writes unless rollback and row locks are meaningful.
+            require_once __DIR__ . '/backend/services/AttendancePreparationReadBoundary.php';
+            try {
+                foreach (['academic_terms', 'academic_years', 'assessments'] as $table) {
+                    \App\Services\AttendancePreparationReadBoundary::requireTransactionalTable($conn, $table);
+                }
+            } catch (Throwable $storageError) {
+                throw new DomainException('Assessment copy requires real InnoDB tables and readable storage metadata. Ask an administrator to check the database before retrying.', 0, $storageError);
+            }
+            // Serialize copies involving the same years, in deterministic order.
+            // This also rechecks that both years still exist after validation.
+            $lock = $conn->prepare("SELECT id, status FROM academic_years WHERE id IN (?,?) ORDER BY id FOR UPDATE");
+            if (!$lock || !$lock->bind_param('ii', $sourceId, $targetId) || !$lock->execute()) throw new RuntimeException('Could not lock assessment years.');
+            $locked = $lock->get_result();
+            if (!$locked || $locked->num_rows !== 2) throw new RuntimeException('Assessment years changed.');
+            while ($year = $locked->fetch_assoc()) {
+                if ((int)$year['id'] === $targetId && $year['status'] === 'closed') throw new DomainException('The target year is closed and read-only. Choose an active or upcoming year.');
+            }
+            $locked->free(); $lock->close();
+
+            // A missing or ambiguous matching semester must never silently
+            // become NULL. Only a genuinely NULL source term remains NULL.
+            $termMap = [0 => null]; $byNumber = [];
+            $terms = $conn->prepare("SELECT id, term_number FROM academic_terms WHERE academic_year_id=? ORDER BY id FOR UPDATE");
+            if (!$terms || !$terms->bind_param('i', $targetId) || !$terms->execute()) throw new RuntimeException('Could not read target semesters.');
+            $targetTerms = $terms->get_result();
+            if (!$targetTerms) throw new RuntimeException('Could not read target semesters.');
+            while ($row = $targetTerms->fetch_assoc()) {
+                $number = (int)$row['term_number'];
+                if (array_key_exists($number, $byNumber)) throw new DomainException('The target year has duplicate semester numbers. Correct them before copying assessments.');
+                $byNumber[$number] = (int)$row['id'];
+            }
+            $targetTerms->free(); $terms->close();
+            $terms = $conn->prepare("SELECT id, term_number FROM academic_terms WHERE academic_year_id=? ORDER BY id FOR UPDATE");
+            if (!$terms || !$terms->bind_param('i', $sourceId) || !$terms->execute()) throw new RuntimeException('Could not read source semesters.');
+            $sourceTerms = $terms->get_result();
+            if (!$sourceTerms) throw new RuntimeException('Could not read source semesters.');
+            while ($row = $sourceTerms->fetch_assoc()) $termMap[(int)$row['id']] = $byNumber[(int)$row['term_number']] ?? null;
+            $sourceTerms->free(); $terms->close();
+            // Fetch source assessments
+            $sel = $conn->prepare("SELECT class_id, subject_id, term_id, assessment_name, assessment_type, weight_percentage, max_score, description, assessment_order FROM assessments WHERE academic_year_id=?");
+            if (!$sel) throw new Exception($conn->error);
+            if (!$sel->bind_param('i', $sourceId) || !$sel->execute()) throw new RuntimeException('Could not read assessments.');
+            $res = $sel->get_result();
+            if (!$res) throw new RuntimeException('Could not read assessments.');
+            $ins = $conn->prepare("INSERT INTO assessments (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, weight_percentage, max_score, description, assessment_order, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW())");
+            if (!$ins) throw new Exception($conn->error);
+            $createdBy = (int)($_SESSION['admin_id'] ?? 0);
+            while ($a = $res->fetch_assoc()) {
+                $cid = (int)$a['class_id']; $sid=(int)$a['subject_id'];
+                $oldTermId = $a['term_id'] !== null ? (int)$a['term_id'] : 0;
+                if ($oldTermId !== 0 && (!array_key_exists($oldTermId, $termMap) || $termMap[$oldTermId] === null)) {
+                    throw new DomainException('Each source assessment semester must have a matching semester number in the target year.');
+                }
+                $newTermId = $termMap[$oldTermId];
+                $newTermOrZero = $newTermId ?? 0;
+                // Idempotency: skip if an assessment with same (class, subject, year, term, name, type) already exists
+                $dup = $conn->prepare("SELECT id FROM assessments WHERE class_id=? AND subject_id=? AND academic_year_id=? AND IFNULL(term_id,0)=IFNULL(?,0) AND assessment_name=? AND assessment_type=? LIMIT 1");
+                if (!$dup || !$dup->bind_param('iiiiss', $cid, $sid, $targetId, $newTermOrZero, $a['assessment_name'], $a['assessment_type']) || !$dup->execute()) throw new RuntimeException('Could not verify existing assessment.');
+                $dupResult = $dup->get_result();
+                if (!$dupResult) throw new RuntimeException('Could not verify existing assessment.');
+                $exists = $dupResult->fetch_assoc();
+                $dupResult->free();
+                $dup->close();
+                if ($exists) { $skipped++; continue; }
+                // For INSERT we need real NULL, not 0, so bind $newTermId directly (mysqli treats null as NULL)
+                if (!$ins->bind_param('iiiisssssii', $cid, $sid, $targetId, $newTermId, $a['assessment_name'], $a['assessment_type'], $a['weight_percentage'], $a['max_score'], $a['description'], $a['assessment_order'], $createdBy) || !$ins->execute()) throw new RuntimeException('Assessment copy failed.');
+                if ($ins->affected_rows > 0) $copied++; else $skipped++;
+            }
+            $sel->close(); $ins->close();
+            $commitAttempted = true;
+            if (!$conn->commit()) throw new RuntimeException('Assessment copy commit was not confirmed.');
+            $transactionStarted = false;
+            // Log
+            try { $lg=$conn->prepare("INSERT INTO activity_logs (user_id, username, action, details, created_at) VALUES (?,?, 'Copy Assessments', ?, NOW())"); if($lg){ $u=$_SESSION['admin_username']??'admin'; $det="Copy assessments source=$sourceId target=$targetId copied=$copied skipped=$skipped"; $lg->bind_param("iss", $createdBy, $u, $det); $lg->execute(); $lg->close(); } } catch (Throwable $e) {}
+            echo json_encode(['status'=>'success','message'=>"$copied assessment template(s) copied to the target year" . ($skipped ? ", $skipped already existed and were skipped" : "") . ".",'copied'=>$copied,'skipped'=>$skipped]);
+        } catch (Throwable $e) {
+            $rolledBack = !$transactionStarted;
+            if ($transactionStarted) { try { $rolledBack = $conn->rollback(); } catch (Throwable $rollbackError) { $rolledBack = false; } }
+            error_log('copy_assessments failed: '.$e->getMessage());
+            if ($commitAttempted || !$rolledBack) {
+                $message = 'The copy outcome could not be confirmed. Do not retry until an administrator checks the target assessments.';
+            } elseif ($e instanceof DomainException) {
+                $message = $e->getMessage();
+            } else {
+                $message = 'Copy failed and nothing was changed. The error was logged.';
+            }
+            echo json_encode(['status'=>'error','message'=>$message]);
         }
         break;
 
