@@ -1358,22 +1358,29 @@ async function setCurrentYear(id){
     if(!dc)return;
     const fd=new FormData();fd.append('action','set_current_year');fd.append('year_id',id);fd.append('confirm',phrase);fd.append('csrf_token',CSRF);
     try{
-        const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
-        if(d.code==='confirm_activate_empty' || d.code==='confirm_activate_invalid'){
+        const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});let d=await r.json();
+        // A changed target returns a fresh challenge. Display every current issue
+        // and require a new explicit acknowledgement; cancellation never writes.
+        while(d.code==='confirm_activate_empty' || d.code==='confirm_activate_invalid'){
             const isEmpty = d.code==='confirm_activate_empty';
             const phrase = isEmpty ? 'ACTIVATE EMPTY' : 'ACTIVATE ANYWAY';
-            const dc2=await dcAsk({tier:'high',title:(isEmpty ? 'Activate EMPTY year "'+nm+'"?' : 'Activate year "'+nm+'" with warnings?'),object:nm,summary:d.message||'',intent:(isEmpty ? 'I want to activate an empty year anyway' : 'I want to activate despite warnings'),consequences:(isEmpty ? ['The new active year will be EMPTY — mobile teachers will see no classes and no students.','Attendance preparation will fail until you enrol students.','Use Year Rollover instead to copy students safely.'] : ['Some dates/semesters/weights are missing or wrong — mobile preparation may fail.','Attendance calendar may have no class days, reports may misplace.','You can fix the year after activating but teachers will be affected.']),keeps:(isEmpty ? ['No records are deleted.','You can still run Year Rollover afterward.'] : ['No records are deleted.','Fix the dates/semesters soon after.']),phrase:phrase,confirmLabel:(isEmpty ? 'Activate empty year anyway' : 'Activate anyway')});
+            const issues=Array.isArray(d.details)?d.details.filter(x=>typeof x==='string'):[];
+            if(typeof d.issues_fingerprint!=='string' || !issues.length){toast('Cannot verify year readiness. Refresh and try again.','e');return;}
+            const dc2=await dcAsk({tier:'high',title:(isEmpty ? 'Activate EMPTY year "'+nm+'"?' : 'Activate year "'+nm+'" with warnings?'),object:nm,
+                summary:d.message||'Review every issue before activating.',
+                intent:(isEmpty ? 'I want to activate an empty year anyway' : 'I want to activate despite all listed issues'),
+                consequences:issues,keeps:['No records are deleted.','You can fix the year settings after activation.'],
+                phrase:phrase,confirmLabel:(isEmpty ? 'Activate empty year anyway' : 'Activate anyway')});
             if(!dc2)return;
-            const fd2=new FormData();fd2.append('action','set_current_year');fd2.append('year_id',id);fd2.append('confirm',phrase);fd2.append('csrf_token',CSRF);
-            const r2=await fetch('/admin/api_education.php',{method:'POST',body:fd2,credentials:'same-origin'});const d2=await r2.json();
-            (d2.warnings||[]).forEach(w=>toast(w,'e'));
-            toast(d2.message||(d2.status==='success'?'Active year changed':'Failed'),d2.status==='success'?'s':'e');
-            if(d2.status==='success'){loadYears(); if(window._ayToastUpdate) window._ayToastUpdate();}
-            return;
+            const fd2=new FormData();fd2.append('action','set_current_year');fd2.append('year_id',id);fd2.append('confirm',phrase);
+            fd2.append('issues_fingerprint',d.issues_fingerprint);fd2.append('csrf_token',CSRF);
+            const r2=await fetch('/admin/api_education.php',{method:'POST',body:fd2,credentials:'same-origin'});d=await r2.json();
         }
+        (d.warnings||[]).forEach(w=>toast(w,'e'));
         toast(d.message||(d.status==='success'?'Active year changed':'Failed'),d.status==='success'?'s':'e');
         if(d.status==='success'){loadYears(); if(window._ayToastUpdate) window._ayToastUpdate();}
-    }catch(e){toast('Error','e');}
+    }catch(e){toast('The year switch outcome is unknown. Refresh and check the active year before retrying.','e');}
+
 }
 async function deleteYear(id){
     const y=window._yearData?.[id];const nm=y?y.year_name:'';
