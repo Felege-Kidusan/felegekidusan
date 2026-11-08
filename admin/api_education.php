@@ -1539,6 +1539,15 @@ switch ($action) {
         try {
             if (!$conn->begin_transaction()) throw new RuntimeException('Could not start assessment copy.');
             $transactionStarted = true;
+            // Refuse before writes unless rollback and row locks are meaningful.
+            require_once __DIR__ . '/backend/services/AttendancePreparationReadBoundary.php';
+            try {
+                foreach (['academic_terms', 'academic_years', 'assessments'] as $table) {
+                    \App\Services\AttendancePreparationReadBoundary::requireTransactionalTable($conn, $table);
+                }
+            } catch (Throwable $storageError) {
+                throw new DomainException('Assessment copy requires real InnoDB tables and readable storage metadata. Ask an administrator to check the database before retrying.', 0, $storageError);
+            }
             // Serialize copies involving the same years, in deterministic order.
             // This also rechecks that both years still exist after validation.
             $lock = $conn->prepare("SELECT id, status FROM academic_years WHERE id IN (?,?) ORDER BY id FOR UPDATE");
