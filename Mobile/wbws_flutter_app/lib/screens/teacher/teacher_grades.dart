@@ -6,10 +6,17 @@ import '../../services/api_service.dart';
 import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
+import '../../services/grades_preparation_adapter.dart';
+import '../../services/grades_preparation_dataset.dart';
+import '../../services/grades_preparation_envelope.dart';
+import '../../services/grades_preparation_fetcher.dart';
+import '../../services/grades_preparation_readiness.dart';
+import '../../services/grades_preparation_store.dart';
 import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
+import '../../utils/config.dart';
 import '../../utils/packet.dart';
 import '../../utils/roster.dart';
 import '../../utils/scrolling.dart';
@@ -69,6 +76,20 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
   int _pendingGrades = 0;
   int _rejectedCount = 0;
   StreamSubscription<bool>? _netSub;
+  GradesPreparationResolution? _prepResolution;
+  final _prepAdapter = GradesPreparationAdapter();
+  bool _refreshingPrep = false;
+  String? get _prepBanner {
+    final r = _prepResolution;
+    if (r == null) return null;
+    switch (r.reason) {
+      case GradesReadinessReason.ready: return null;
+      case GradesReadinessReason.missing: return 'No offline preparation yet — connect and refresh to download your classes, subjects and roster.';
+      case GradesReadinessReason.staleSession: return 'Your sign-in changed — refresh your preparation before entering grades offline.';
+      case GradesReadinessReason.expired: return 'Your offline preparation expired — connect and refresh to renew it.';
+      case GradesReadinessReason.clockSkew: return 'Your phone clock looks wrong — fix the date/time, then refresh.';
+    }
+  }
 
   @override
   void initState() {
@@ -78,6 +99,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       if (!mounted || _isOffline == !hasLink) return;
       setState(() => _isOffline = !hasLink);
     });
+    _loadPreparationStatus();
     _loadClasses();
     _updatePendingCount();
     _sync.syncStream.listen((s) {
@@ -116,6 +138,33 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
 
   Future<void> _loadClasses() async {
     setState(() { _error = null; });
+    // Offline-first: preparation snapshot already has classes+roster+subjects+assessments.
+    // Use it instantly if ready; CatalogService/network only revalidates.
+    try {
+      final prep = await _prepAdapter.resolve();
+      if (mounted && prep.isReady && prep.dataset != null && prep.dataset!.classes.isNotEmpty) {
+        _prepResolution = prep;
+        final prepClasses = prep.dataset!.classes.map((cl) => {
+          'id': cl.classId,
+          'class_name': cl.className,
+          'class_name_en': cl.classNameEn,
+          'section': cl.section,
+          'write_year_id': cl.writeYearId,
+          'roster_year_id': cl.rosterYearId,
+        }).toList();
+        setState(() { _classes = prepClasses; _loadingClasses = false; _isOffline = !ConnectivityService().hasLink; });
+        AppNav().markGradesLoaded();
+        if (prepClasses.length == 1) {
+          final id = prepClasses[0]['id'] as int;
+          _selectedClassId = id;
+          _selectedClassName = prepClasses[0]['class_name'] as String;
+          _loadSubjects();
+        }
+        // Best-effort network refresh in background (counts, new assignments)
+        CatalogService().classes().then((net) { if (mounted && net.isNotEmpty) setState(() => _classes = net); });
+        return;
+      }
+    } catch (_) {}
     final warm = CatalogService().cached;
     if (warm.isNotEmpty && mounted) {
       setState(() { _classes = warm; _loadingClasses = false; _isOffline = !ConnectivityService().hasLink; });
@@ -139,6 +188,36 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     }
   }
 
+  Future<void> _loadPreparationStatus() async {
+    try {
+      final res = await _prepAdapter.resolve();
+      if (!mounted) return;
+      setState(() => _prepResolution = res);
+    } catch (_) {}
+  }
+
+  Future<void> _refreshPreparation() async {
+    if (_refreshingPrep) return;
+    setState(() => _refreshingPrep = true);
+    try {
+      final rec = await _db.getLocalSession();
+      final session = LegacyWriteSession(ownerUserId: rec.ownerUserId ?? _api.userId, authorizationVersion: rec.authorizationVersion ?? _api.authorizationVersion, runtimeGeneration: rec.generation);
+      final fid = _api.familyId;
+      if (fid == null || fid.isEmpty) throw const GradesPreparationFetchException('AUTH_FAMILY_MISSING', 'Sign in again — refresh family is unavailable.');
+      final expectedScope = GradesPreparationScope(ownerUserId: session.ownerUserId, authorizationVersion: session.authorizationVersion, role: _api.userRole, familyId: fid, serverIdentity: AppConfig.apiBaseUrl);
+      final fetcher = GradesPreparationFetcher(store: GradesPreparationStore(db: _db));
+      await fetcher.fetchAndPublish(session: session, get: (p) => _api.get(p), expectedScope: expectedScope);
+      await _loadPreparationStatus();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparation refreshed'), backgroundColor: AppTheme.success));
+    } on GradesPreparationFetchException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message), backgroundColor: AppTheme.warning));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Refresh failed: $e'), backgroundColor: AppTheme.warning));
+    } finally {
+      if (mounted) setState(() => _refreshingPrep = false);
+    }
+  }
+
   Future<void> _loadSubjects() async {
     if (_selectedClassId == null) return;
     final cached = await _db.getCachedSubjects(_selectedClassId!);
@@ -158,6 +237,52 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       }
     });
 
+    // Try preparation first — offline-first subjects+terms, no network needed (fixes WBSS-U01 offline fear on class switch).
+    try {
+      final GradesPreparationResolution prep = _prepResolution?.isReady == true ? _prepResolution! : await _prepAdapter.resolve();
+      _prepResolution = prep;
+      if (prep.isReady && prep.dataset != null) {
+        final ds = prep.dataset!;
+        GradeClass? cl; for (final x in ds.classes) if (x.classId == _selectedClassId) { cl = x; break; }
+        if (cl != null) {
+          final clNonNull = cl;
+          final prepSubjects = clNonNull.subjects.map((s) => {
+            'id': s.id, 'subject_name': s.subjectName, 'subject_name_en': s.subjectNameEn, 'subject_code': s.subjectCode,
+          }).toList();
+          final prepAssess = clNonNull.assessments.map((a) => {
+            'id': a.id, 'subject_id': a.subjectId, 'assessment_name': a.assessmentName,
+            'assessment_type': a.assessmentType, 'weight_percentage': a.weightPercentage, 'max_score': a.maxScore,
+            'assessment_order': a.assessmentOrder, 'is_published': a.isPublished,
+            // offline counts default — real counts from network when online
+            'total_students': clNonNull.memberIds.length, 'grades_entered': 0,
+          }).toList();
+          final prepTerms = ds.terms.map((t) => {
+            'id': t.id, 'term_name': t.termName, 'term_number': t.termNumber, 'is_current': t.isCurrent, 'is_reopened': t.isReopened,
+          }).toList();
+          await _db.cacheSubjects(_selectedClassId!, prepSubjects);
+          if (mounted) {
+            setState(() {
+              _subjects = prepSubjects;
+              _bootAssessments = prepAssess;
+              if (prepTerms.isNotEmpty) {
+                _terms = prepTerms;
+                _currentTerm = prepTerms.firstWhere((x) => x['is_current'] == true, orElse: () => prepTerms.first).cast<String, dynamic>();
+              }
+              if (_selectedTermId != null && !_terms.any((t) => (t['id'] is int ? t['id'] : int.tryParse('${t['id']}')) == _selectedTermId)) _selectedTermId = null;
+              _didBootstrap = true; _loadingSubjects = false; _isOffline = !ConnectivityService().hasLink; _subjectsNotice = null;
+            });
+          }
+          // background network best-effort for live counts (don't await)
+          if (ConnectivityService().hasLink) _api.getGradeBootstrap(_selectedClassId!).then((nr) async {
+            if (mounted && nr.success && nr.data != null) {
+              await _db.cacheSubjects(_selectedClassId!, nr.data['subjects'] ?? []);
+              if (mounted) setState(() { _subjects = nr.data['subjects'] ?? _subjects; _bootAssessments = nr.data['assessments'] ?? _bootAssessments; });
+            }
+          });
+          return;
+        }
+      }
+    } catch (_) {}
     final res = await _api.getGradeBootstrap(_selectedClassId!);
     if (!mounted) return;
 
@@ -189,7 +314,13 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       if (_subjects.isNotEmpty) {
         _isOffline = !ConnectivityService().hasLink;
       } else if (!res.success) {
-        _error = res.message ?? 'Could not load subjects. Pull to refresh.';
+        // Calm offline: don't scare with WBSS-U01 + countdown when we know it's just no network.
+        _isOffline = res.isNetworkError || !ConnectivityService().hasLink;
+        if (_isOffline && _classes.isNotEmpty) {
+          _error = null; // show EmptyState + offline banner, not AppErrorCard
+        } else {
+          _error = res.message ?? 'Could not load subjects. Pull to refresh.';
+        }
       }
     });
   }
@@ -244,6 +375,46 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       return;
     }
 
+    // Offline-first assessments from preparation (term-filtered, no network).
+    try {
+      final GradesPreparationResolution prep = _prepResolution?.isReady == true ? _prepResolution! : await _prepAdapter.resolve();
+      _prepResolution = prep;
+      if (prep.isReady && prep.dataset != null) {
+        final ds = prep.dataset!;
+        GradeClass? cl; for (final x in ds.classes) if (x.classId == _selectedClassId) { cl = x; break; }
+        if (cl != null) {
+          final clNonNull = cl;
+          bool termMatchPrep(dynamic a) {
+            final atid = a is Map ? (a['term_id'] is int ? a['term_id'] as int : int.tryParse('${a['term_id'] ?? ''}')) : null;
+            // Preparation assessments don't carry term_id; they are write_year scoped.
+            // Use them as current-semester working set when viewing current.
+            if (_selectedTermId == null) return true;
+            return atid == _selectedTermId;
+          }
+          // Prefer boot prep assessments (already term-filtered for this class) else filter class assessments by subject.
+          var src = _bootAssessments.isNotEmpty ? _bootAssessments.where((a) => (a['subject_id'] is int ? a['subject_id'] : int.tryParse('${a['subject_id']}')) == sid).toList()
+                : clNonNull.assessments.where((a) => a.subjectId == sid).map((a) => {
+                    'id': a.id, 'subject_id': a.subjectId, 'assessment_name': a.assessmentName,
+                    'assessment_type': a.assessmentType, 'weight_percentage': a.weightPercentage, 'max_score': a.maxScore,
+                    'assessment_order': a.assessmentOrder, 'is_published': a.isPublished,
+                    'total_students': clNonNull.memberIds.length, 'grades_entered': 0,
+                  }).toList();
+          if (src.isNotEmpty) {
+            if (mounted) setState(() { _assessments = src; _loadingAssessments = false; _isOffline = !ConnectivityService().hasLink; });
+            if (_selectedTermId == null) await _db.cacheAssessments(_selectedClassId!, sid, src);
+            // background network for live counts
+            if (ConnectivityService().hasLink) _api.getAssessments(_selectedClassId!, sid, termId: _selectedTermId).then((nr) async {
+              if (mounted && nr.success && nr.data != null) {
+                final na = nr.data['assessments'] ?? [];
+                if (mounted) setState(() { _assessments = na; _terms = nr.data['terms'] ?? _terms; });
+                if (_selectedTermId == null) await _db.cacheAssessments(_selectedClassId!, sid, na);
+              }
+            });
+            return;
+          }
+        }
+      }
+    } catch (_) {}
     if (cached.isEmpty) {
       setState(() => _loadingAssessments = true);
     }
@@ -284,8 +455,30 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
               onPressed: () async {
                 final r = await _sync.syncAll(force: true);
                 if (mounted) {
+                  // Inventory-scoped truth: never success-green while work remains.
+                  final fb = SyncFeedback.describe(
+                    synced: r.synced,
+                    failed: r.failed,
+                    status: _sync.lastStatus,
+                    online: ConnectivityService().hasLink,
+                    drainsPaused: !_sync.drainsAllowed,
+                  );
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(r.message), backgroundColor: r.failed > 0 ? AppTheme.warning : AppTheme.success));
+                    SnackBar(
+                      content: Text(fb.message),
+                      backgroundColor: fb.kind == SyncFeedbackKind.success
+                          ? AppTheme.success
+                          : fb.kind == SyncFeedbackKind.attention
+                              ? AppTheme.warning
+                              : AppTheme.info,
+                      action: fb.kind == SyncFeedbackKind.attention
+                          ? SnackBarAction(
+                              label: 'Review',
+                              textColor: Colors.white,
+                              onPressed: () => Navigator.of(context).pushNamed('/sync-center'),
+                            )
+                          : null,
+                    ));
                   _updatePendingCount();
                 }
               },
@@ -295,13 +488,14 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
                 child: const Icon(Icons.sync, size: 22),
               ),
             ),
+          TextButton(onPressed: _refreshingPrep ? null : _refreshPreparation, child: Text(_refreshingPrep ? 'Refreshing…' : 'Refresh preparation', style: const TextStyle(fontSize: 12, color: Colors.white))),
           IconButton(icon: const Icon(Icons.refresh, size: 20), onPressed: refresh),
         ],
       ),
       body: _loadingClasses
           ? const DashboardSkeleton()
           : _error != null
-              ? Padding(padding: const EdgeInsets.all(16), child: AppErrorCard(error: AppError.fromMessage(_error), onRetry: refresh, autoRetry: true))
+              ? Padding(padding: const EdgeInsets.all(16), child: AppErrorCard(error: AppError.fromMessage(_error, isNetwork: (_error ?? '').toLowerCase().contains('waiting for network') || (_error ?? '').toLowerCase().contains('no internet')), onRetry: refresh, autoRetry: !_isOffline))
               : _classes.isEmpty
                   ? const EmptyState(icon: Icons.grading_rounded, title: 'No classes assigned',
                       subtitle: 'You need to be assigned to classes to enter grades.')
@@ -310,7 +504,15 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
                       child: ListView(
                         padding: const EdgeInsets.all(16),
                         children: [
-                          if (_isOffline) _offlineBanner(),
+                          // Offline-first: global OfflineBanner in AppShell already shows compact offline status.
+                          // Per-screen duplicate removed to save space — only show prep/rejected specifics here.
+                          if (_prepBanner != null)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(color: AppTheme.warning.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
+                              child: Row(children: [Icon(Icons.info_outline, size: 16, color: AppTheme.warning), const SizedBox(width: 8), Expanded(child: Text(_prepBanner!, style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500)))]),
+                            ),
                           if (_rejectedCount > 0)
                             SyncAttentionBanner(rejectedCount: _rejectedCount),
                           _buildClassSelector(),
@@ -327,20 +529,8 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
   }
 
   Widget _offlineBanner() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.warning.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(children: [
-        Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
-        const SizedBox(width: 8),
-        Expanded(child: Text('Waiting for network — grades stay on this phone until you are back online.',
-            style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
-      ]),
-    );
+    // Kept for API compat but no longer used — global OfflineBanner is the single source of truth.
+    return const SizedBox.shrink();
   }
 
   Widget _buildClassSelector() {
@@ -436,7 +626,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         );
       }).toList()),
-      if (_termViewLocked)
+      if (_termViewLocked && _selectedTermId != null)
         Container(
           margin: const EdgeInsets.only(top: 10),
           padding: const EdgeInsets.all(10),
@@ -793,9 +983,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       final locked = PacketLock.isLocked(packet, flagged: res.data['locked'] == true);
       final termInfo = (res.data['assessment'] is Map) ? res.data['assessment'] as Map : null;
       final termLockedNow = termInfo?['term_locked'] == true;
-      if (locked) {
-        await _db.dropPendingGrades(widget.assessmentId);
-      }
+      // Preserve pending grades: this packet lock does not settle their intent.
       setState(() {
         _isOffline = !ConnectivityService().hasLink;
         _loading = false;
@@ -836,7 +1024,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     if (cacheLocked) {
       _packetStatus = '${meta?['submission_status'] ?? widget.initialStatus}';
       if (_packetStatus.isEmpty) _packetStatus = 'submitted';
-      await _db.dropPendingGrades(widget.assessmentId);
+      // Cached locks cannot acknowledge or delete this phone's pending work.
     }
     final pending = cacheLocked ? <int, Map<String, dynamic>>{} : await _pendingByMember();
     final sheet = meta == null ? null : List<Map<String, dynamic>>.from(meta['students'] as List);
@@ -1282,7 +1470,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
         Expanded(child: _loading
           ? const StudentListSkeleton()
           : _error != null
-              ? Padding(padding: const EdgeInsets.all(16), child: AppErrorCard(error: AppError.fromMessage(_error), onRetry: _loadStudents, autoRetry: true))
+              ? Padding(padding: const EdgeInsets.all(16), child: AppErrorCard(error: AppError.fromMessage(_error, isNetwork: _isOffline), onRetry: _loadStudents, autoRetry: true))
               : _students.isEmpty
                   ? EmptyState(
                       icon: Icons.people_outline,
@@ -1295,15 +1483,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                       ),
                     )
                   : Column(children: [
-                      if (_isOffline)
-                        Container(width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          color: AppTheme.warning.withOpacity(0.15),
-                          child: Row(children: [
-                            Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text('Waiting for network — scores stay on this phone until you are back online',
-                                style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
-                          ])),
+                      // Global AppStatusStrip is the single offline source — per-screen
+                      // generic duplicate removed (space saver, stops double-banner).
                       if (_rejectedCount > 0)
                         SyncAttentionBanner(rejectedCount: _rejectedCount),
                       if (_rosterNote != null)

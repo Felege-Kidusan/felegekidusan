@@ -10,6 +10,13 @@ import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
+import '../../services/session_models.dart';
+import '../../services/api_service.dart';
+import '../../services/attendance_preparation_adapter.dart';
+import '../../services/attendance_preparation_envelope.dart';
+import '../../services/attendance_preparation_fetcher.dart';
+import '../../services/attendance_preparation_readiness.dart';
+import '../../services/attendance_preparation_store.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
@@ -79,6 +86,8 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   Map<String, dynamic>? _dateStatus;
   AttendanceCalendar? _calendar;
   bool _calendarFromCache = false;
+  /// Episode key of the last saved-calendar toast; null = fresh data shown.
+  String? _calendarToastKey;
   final _calendarCache = AttendanceCalendarCache();
   int _loadEpoch = 0;
   bool _accessDenied = false;
@@ -86,6 +95,26 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   int? _sheetGeneration;
   int? _sheetAuthorizationVersion;
   StreamSubscription<SyncStatus>? _syncSub;
+  // Preparation-based offline readiness (inactive UI hook, truthful banners).
+  AttendancePreparationResolution? _prepResolution;
+  final _prepAdapter = AttendancePreparationAdapter();
+  String? get _prepBanner {
+    final r = _prepResolution;
+    if (r == null) return null;
+    switch (r.reason) {
+      case AttendanceReadinessReason.ready:
+        return null; // No banner when ready; offline is honest.
+      case AttendanceReadinessReason.missing:
+        return 'No offline preparation yet — connect and refresh to download your classes and roster.';
+      case AttendanceReadinessReason.staleSession:
+        return 'Your sign-in changed — refresh your preparation before taking attendance offline.';
+      case AttendanceReadinessReason.expired:
+        return 'Your offline preparation expired — connect and refresh to renew it.';
+      case AttendanceReadinessReason.clockSkew:
+        return 'Your phone clock looks wrong — fix the date/time, then refresh.';
+    }
+  }
+
   Map<String, dynamic>? get _effectiveDateStatus {
     final today = AttendanceCalendar.addisToday(DateTime.now());
     final date = AttendanceCalendar.parseDate(_selectedDate);
@@ -101,6 +130,11 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   bool get _sheetSessionCurrent => _sheetOwner == _api.userId &&
       _sheetGeneration == (_api.sessionGenerationProvider?.call() ?? 0) &&
       _sheetAuthorizationVersion == _api.authorizationVersion;
+  LegacyWriteSession get _sheetWriteSession => LegacyWriteSession(
+        ownerUserId: _sheetOwner!,
+        authorizationVersion: _sheetAuthorizationVersion!,
+        runtimeGeneration: _sheetGeneration!,
+      );
   bool get _canEdit => !_accessDenied && _sheetSessionCurrent &&
       _dayAllowed && !_locked && !_loadingStudents && _rosterReady;
   String get _dayMessage {
@@ -117,6 +151,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   }
   /// Education's reason when this sheet was returned for correction.
   String? _returnNote;
+  bool _noticesExpanded = false;
   int _pendingCount = 0;
   int _rejectedCount = 0;
   /// WhatsApp-state visibility: true the moment anything changes after a
@@ -173,12 +208,18 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
       if (!mounted || _isOffline == !hasLink) return;
       setState(() => _isOffline = !hasLink);
-      if (hasLink) unawaited(_loadAttendance());
+      if (hasLink) {
+        unawaited(_loadAttendance());
+        unawaited(_loadPreparationStatus());
+      } else {
+        _maybeShowCalendarToast();
+      }
     });
     _dirty.addListener(_syncSaveGate);
     _syncSaveGate();
     _loadClasses();
     _updatePendingCount();
+    _loadPreparationStatus();
 
     // Listen for sync updates
     _syncSub = _sync.syncStream.listen((status) {
@@ -211,7 +252,10 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) unawaited(_loadAttendance());
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_loadAttendance());
+      unawaited(_loadPreparationStatus());
+    }
   }
 
   void refresh() {
@@ -229,6 +273,80 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         _pendingCount = count;
         _rejectedCount = rejected;
       });
+    }
+  }
+
+  bool _refreshingPrep = false;
+
+  Future<void> _loadPreparationStatus() async {
+    try {
+      final res = await _prepAdapter.resolve();
+      if (!mounted) return;
+      setState(() => _prepResolution = res);
+      // Silent auto-download: non-technical teachers never tap Refresh.
+      if (!res.isReady && ConnectivityService().hasLink) {
+        unawaited(_refreshPreparation(silent: true));
+      }
+    } catch (_) {
+      // Preparation status is advisory; never blocks the roster.
+    }
+  }
+
+  Future<void> _refreshPreparation({bool silent = false}) async {
+    if (_refreshingPrep) return;
+    setState(() => _refreshingPrep = true);
+    try {
+      final sessionRec = await _db.getLocalSession();
+      final session = LegacyWriteSession(
+        ownerUserId: sessionRec.ownerUserId ?? _api.userId,
+        authorizationVersion: sessionRec.authorizationVersion ?? _api.authorizationVersion,
+        runtimeGeneration: sessionRec.generation,
+      );
+      final fid = _api.familyId;
+      if (fid == null || fid.isEmpty) {
+        throw AttendancePreparationFetchException('AUTH_FAMILY_MISSING', 'Sign in again — refresh family is unavailable.');
+      }
+      final expectedScope = AttendancePreparationScope(
+        ownerUserId: session.ownerUserId,
+        authorizationVersion: session.authorizationVersion,
+        role: _api.userRole,
+        familyId: fid,
+        serverIdentity: AppConfig.apiBaseUrl,
+      );
+      final fetcher = AttendancePreparationFetcher(store: AttendancePreparationStore(db: _db));
+      await fetcher.fetchAndPublish(
+        session: session,
+        get: (path) => _api.get(path),
+        expectedScope: expectedScope,
+      );
+      await _loadPreparationStatus();
+      if (mounted && !silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Preparation refreshed'), backgroundColor: AppTheme.success),
+        );
+      }
+      debugPrint('Preparation refresh succeeded (silent=$silent) classes=${(await _prepAdapter.resolve()).dataset?.classes.length}');
+    } on AttendancePreparationFetchException catch (e) {
+      // Silent for teachers, loud for admin diagnostics when not silent.
+      debugPrint('Preparation refresh failed: ${e.code}: ${e.message} (silent=$silent)');
+      if (mounted && !silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${e.code}: ${e.message}'),
+            backgroundColor: AppTheme.warning,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Preparation refresh failed (unexpected): $e (silent=$silent)');
+      if (mounted && !silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Refresh failed: $e'), backgroundColor: AppTheme.warning, duration: const Duration(seconds: 5)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingPrep = false);
     }
   }
 
@@ -485,7 +603,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         setState(() => _packetStatus = packet.isEmpty ? 'submitted' : packet);
         _autoSave.cancel();
         _syncSaveGate();
-        await _db.dropPendingAttendance(classId, date);
+        // A workflow lock is not an acceptance receipt for local work.
       }
       if (!current()) return;
       setState(() {
@@ -499,15 +617,34 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         _returnNote = PacketLock.returnNote(res.data);
       });
       _syncSaveGate();
-      await _db.cacheStudents(classId, students);
-      if (!current()) return;
-      await _db.cacheAttendanceResponse(
-        classId,
-        date,
-        students,
-        submissionStatus: locked && packet.isEmpty ? 'submitted' : packet,
-        locked: locked,
-      );
+      try {
+        await _db.cacheAttendanceSnapshot(
+          classId,
+          date,
+          students,
+          expectedSession: LegacyWriteSession(
+            ownerUserId: owner,
+            authorizationVersion: authorizationVersion,
+            runtimeGeneration: generation,
+          ),
+          submissionStatus: locked && packet.isEmpty ? 'submitted' : packet,
+          locked: locked,
+        );
+      } on StaleAttendanceSyncSession {
+        if (!current()) return;
+        setState(() {
+          _accessDenied = true;
+          _rosterReady = false;
+          _loadFailed = true;
+          _error = 'Your session changed. Refresh before continuing. Saved work was kept.';
+        });
+        _syncSaveGate();
+      } catch (_) {
+        if (!current()) return;
+        // Cache failure is not permission to discard pending or in-memory edits.
+        setState(() => _error =
+            'Could not confirm the local attendance cache update. Pending work was not cleared.');
+      }
     } else if (_students.isEmpty && (cachedAtt == null || cachedAtt.isEmpty)) {
       setState(() {
         _error = res.message ?? 'Could not load students. Check your connection and try again.';
@@ -524,6 +661,26 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     }
   }
 
+  /// Smart saved-calendar notice: a transient toast shown ONCE per fallback
+  /// episode (not a permanent banner, not on every rebuild). Fires when the
+  /// screen actually falls back to cache (refresh failed/offline) or when the
+  /// connection drops mid-screen while serving cache. Re-arms only after
+  /// fresh data lands, so repeat refreshes while offline stay silent.
+  void _maybeShowCalendarToast() {
+    if (!mounted) return;
+    if (!(_calendarFromCache && _calendar != null)) return;
+    final key = '$_selectedClassId|$_selectedDate';
+    if (_calendarToastKey == key) return;
+    _calendarToastKey = key;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Saved class-day calendar · will refresh when online'),
+        backgroundColor: AppTheme.info,
+        duration: Duration(seconds: 4),
+      ),
+    );
+  }
+
   Future<void> _refreshCalendar(String scope, bool Function() current) async {
     final etag = _calendar?.payload['etag'];
     final res = await _api.getAttendanceCalendar(etag: etag is String ? etag : null);
@@ -538,14 +695,21 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
       return;
     }
     if (res.notModified) {
-      setState(() => _calendarFromCache = false);
+      setState(() {
+        _calendarFromCache = false;
+        _calendarToastKey = null;
+      });
       return;
     }
-    if (!res.success) return;
+    if (!res.success) {
+      if (current()) _maybeShowCalendarToast();
+      return;
+    }
     final calendar = AttendanceCalendar.parse(res.data);
     setState(() {
       _calendar = calendar;
       _calendarFromCache = false;
+      _calendarToastKey = null;
     });
     _syncSaveGate();
     try {
@@ -571,6 +735,10 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
   /// the SyncService outbox's job and is never awaited from a button tap —
   /// no spinner, no "Sending…" text, buttons stay live (last write wins:
   /// saving again simply replaces the queued packet).
+  String _saveFailureMessage(Object error) => error is StaleLegacyWriteSession
+      ? error.toString()
+      : 'Phone storage refused the save. Free up space and try again.';
+
   Future<void> _saveAttendance() async {
     if (!_dayAllowed) {
       final detail = _dayMessage;
@@ -594,13 +762,14 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         _selectedClassName ?? '',
         _selectedDate,
         records,
+        expectedSession: _sheetWriteSession,
         packetKind: 'draft',
       );
-    } catch (_) {
+    } catch (error) {
       if (mounted && epoch == _loadEpoch) {
         setState(() {
           _error =
-              'Phone storage refused the save. Free up space and try again.';
+              _saveFailureMessage(error);
           _successMsg = null;
         });
       }
@@ -650,15 +819,16 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
         _selectedClassName ?? '',
         _selectedDate,
         records,
+        expectedSession: _sheetWriteSession,
         packetKind: 'submitted',
         notBefore: DateTime.now().add(const Duration(seconds: 5)),
       );
-    } catch (_) {
+    } catch (error) {
       _submitting = false;
       if (mounted && epoch == _loadEpoch) {
         setState(() {
           _error =
-              'Phone storage refused the save. Free up space and try again.';
+              _saveFailureMessage(error);
           _successMsg = null;
         });
       }
@@ -743,8 +913,12 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     try {
       await _db.saveAttendanceLocal(
           classId, _selectedClassName ?? '', _selectedDate, records,
+          expectedSession: _sheetWriteSession,
           packetKind: 'draft');
-    } catch (_) {
+    } catch (error) {
+      if (error is StaleLegacyWriteSession && mounted && epoch == _loadEpoch) {
+        setState(() => _error = _saveFailureMessage(error));
+      }
       return false; // caller must not discard an unsaved sheet
     }
     if (!mounted || epoch != _loadEpoch || !_sheetSessionCurrent) return false;
@@ -762,7 +936,7 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     _autoSave.cancel();
     while (_durableRevision < _editRevision && _canEdit) {
       if (!await _autoSaveNow()) {
-        if (mounted) {
+        if (mounted && _error == null) {
           setState(() => _error = 'Phone storage refused the save. Free up space and try again.');
         }
         return false;
@@ -873,15 +1047,89 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
     }
   }
 
+  /// Advisory (non-blocking) notices. The blocking `_dayMessage` banner stays
+  /// always-visible at the call site; here we show the first advisory and
+  /// fold any overflow behind a toggle so 3+ orange banners never stack.
+  /// Redesign safety: every notice stays reachable, none removed.
+  List<Widget> _advisoryNotices() {
+    final extra = <Widget>[];
+    if (_rosterNote != null && _error == null) {
+      extra.add(StatusBanner.warning(_rosterNote!));
+    }
+    if (_returnNote != null && _returnNote!.isNotEmpty && !_locked) {
+      extra.add(StatusBanner.warning(
+          'Returned by Education — you can edit and resubmit. $_returnNote'));
+    }
+    if (_locked && _students.isNotEmpty && _error == null) {
+      extra.add(StatusBanner.warning(PacketLock.viewOnlyHint(_packetStatus)));
+    }
+    if (extra.length <= 1) return extra;
+    final hidden = extra.length - 1;
+    if (_noticesExpanded) {
+      return [
+        ...extra,
+        _noticesToggle(0, true),
+      ];
+    }
+    return [
+      extra.first,
+      _noticesToggle(hidden, false),
+    ];
+  }
+
+  Widget _noticesToggle(int hidden, bool expanded) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: InkWell(
+        onTap: () => setState(() => _noticesExpanded = !expanded),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              expanded ? 'Show less' : '$hidden more notice${hidden == 1 ? '' : 's'}',
+              style: const TextStyle(
+                  fontSize: 11,
+                  color: AppTheme.info,
+                  fontWeight: FontWeight.w600),
+            ),
+            Icon(
+              expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+              size: 16,
+              color: AppTheme.info,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _manualSync() async {
     final result = await _sync.syncAll(force: true);
     if (!mounted) return;
 
+    // Inventory-scoped truth: never success-green while work remains.
+    final fb = SyncFeedback.describe(
+      synced: result.synced,
+      failed: result.failed,
+      status: _sync.lastStatus,
+      online: ConnectivityService().hasLink,
+      drainsPaused: !_sync.drainsAllowed,
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(result.message),
-        backgroundColor:
-            result.failed > 0 ? AppTheme.warning : AppTheme.success,
+        content: Text(fb.message),
+        backgroundColor: fb.kind == SyncFeedbackKind.success
+            ? AppTheme.success
+            : fb.kind == SyncFeedbackKind.attention
+                ? AppTheme.warning
+                : AppTheme.info,
+        action: fb.kind == SyncFeedbackKind.attention
+            ? SnackBarAction(
+                label: 'Review',
+                textColor: Colors.white,
+                onPressed: () => Navigator.of(context).pushNamed('/sync-center'),
+              )
+            : null,
       ),
     );
     await _updatePendingCount();
@@ -945,42 +1193,21 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
                 ),
       body: Column(
         children: [
-          // Offline indicator
-          if (_isOffline)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: AppTheme.warning.withOpacity(0.15),
-              child: Row(
-                children: [
-                  Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Waiting for network — kept on this phone until you are back online',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.warning,
-                          fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  if (_pendingCount > 0)
-                    GestureDetector(
-                      onTap: _manualSync,
-                      child: Text('Sync now',
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: AppTheme.primary,
-                              fontWeight: FontWeight.w600)),
-                    ),
-                ],
-              ),
-            ),
+          // Global AppStatusStrip is the single offline source — per-screen
+          // duplicate removed (space saver). One-tap sync lives in the
+          // AppBar badge; details in Sync Center.
 
           // F8: packets the school's workflow refused — kept on
           // this phone; Review explains and offers Discard.
           if (_rejectedCount > 0)
             SyncAttentionBanner(rejectedCount: _rejectedCount),
+
+          // Silent offline: background auto-download, no scary banner for teachers.
+          // Preparation status is still resolved for diagnostics (Settings → Diagnostics)
+          // but never blocks the roster with a big orange warning.
+          if (_prepResolution?.isReady == true && _prepResolution?.dataset?.classes.isEmpty == true)
+            StatusBanner.info('No classes assigned for offline — contact Education.'),
+          // No manual Refresh button: handled automatically after login/resume.
 
           // Class + Date selector
           Padding(
@@ -1060,8 +1287,8 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
             ),
           ),
 
-          if (_calendarFromCache && _dateStatus == null && _calendar != null)
-            StatusBanner.warning('Using the saved class-day calendar. Reconnect and refresh to check schedule changes.'),
+          // Saved-calendar provenance is a transient toast now (see
+          // _maybeShowCalendarToast) — no permanent banner, small screens keep ~50px.
           if (_selectedClassId != null && !_dayAllowed)
             StatusBanner.warning(_dayMessage),
           if (_effectiveDateStatus?['ok'] == true &&
@@ -1074,15 +1301,8 @@ class AttendanceScreenState extends State<AttendanceScreen> with WidgetsBindingO
             StatusBanner.success(_successMsg!, onDismiss: () {
               if (mounted) setState(() => _successMsg = null);
             }),
-          if (_rosterNote != null && _error == null)
-            StatusBanner.warning(_rosterNote!),
-          if (_returnNote != null &&
-              _returnNote!.isNotEmpty &&
-              !_locked)
-            StatusBanner.warning(
-                'Returned by Education — you can edit and resubmit. $_returnNote'),
-          if (_locked && _students.isNotEmpty && _error == null)
-            StatusBanner.warning(PacketLock.viewOnlyHint(_packetStatus)),
+          // Advisory notices: first visible, overflow folded (nothing removed).
+          ..._advisoryNotices(),
 
           // Quick mark all
           if (_students.isNotEmpty)
